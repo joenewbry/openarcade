@@ -84,7 +84,8 @@
     const GRAVITY = 0.45;
     const FLAP_FORCE = -7.5;
     const PIPE_WIDTH = 60;
-    const PIPE_GAP = 160;
+    const GAP_START = 240;
+    const GAP_MIN = 130;
     const PIPE_SPEED = 3;
     const PIPE_SPACING = 200;
     const BIRD_SIZE = 18;
@@ -141,12 +142,13 @@
         return;
       }
 
-      // Spawn pipes
+      // Spawn pipes — gap shrinks as score increases
       if (pipes.length === 0 || pipes[pipes.length - 1].x < W - PIPE_SPACING) {
+        const gap = Math.max(GAP_MIN, GAP_START - score * 5);
         const minTop = 80;
-        const maxTop = H - PIPE_GAP - 80;
+        const maxTop = H - gap - 80;
         const topH = minTop + Math.random() * (maxTop - minTop);
-        pipes.push({ x: W, topH, scored: false });
+        pipes.push({ x: W, topH, gap, scored: false });
       }
 
       // Move pipes
@@ -174,7 +176,7 @@
         const p = pipes[i];
         const bx = bird.x, by = bird.y, br = BIRD_SIZE;
         if (bx + br > p.x && bx - br < p.x + PIPE_WIDTH) {
-          if (by - br < p.topH || by + br > p.topH + PIPE_GAP) {
+          if (by - br < p.topH || by + br > p.topH + p.gap) {
             gameOver();
             return;
           }
@@ -223,7 +225,7 @@
         ctx.strokeRect(p.x - 4, p.topH - 20, PIPE_WIDTH + 8, 20);
 
         // Bottom pipe
-        const botY = p.topH + PIPE_GAP;
+        const botY = p.topH + p.gap;
         ctx.fillStyle = topGrad;
         ctx.fillRect(p.x, botY, PIPE_WIDTH, H - botY);
         // Bottom pipe cap
