@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Space Invaders</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 480px;
+    }
+    .back { color: #0f0; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(0, 255, 0, 0.5); }
+    h1 { color: #0f0; font-size: 2rem; text-shadow: 0 0 15px rgba(0, 255, 0, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 480px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #0f0; }
+    canvas {
+      border: 2px solid #0f0;
+      box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #0f0;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; margin-top: 4px; }
+    .overlay .new-enemy { color: #ff0; font-size: 1.1rem; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../index.html" class="back">&larr; Back</a>
+    <h1>SPACE INVADERS</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Lives: <span id="lives">3</span></div>
+    <div>Wave: <span id="wave">1</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="480" height="560"></canvas>
+    <div class="overlay" id="overlay" style="width:480px;height:560px;">
+      <h2 id="overlayTitle">SPACE INVADERS</h2>
+      <p id="overlayText">Press any key to start</p>
+      <p class="new-enemy" id="overlayEnemy"></p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const waveEl = document.getElementById('wave');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const overlayEnemy = document.getElementById('overlayEnemy');
+
+    const PLAYER_W = 40, PLAYER_H = 16, PLAYER_SPEED = 5;
+    const BULLET_SPEED = 7;
+    const AW = 32, AH = 24, PAD = 8;
+
+    // ── Creature types ──────────────────────────────────────────
+    // Each has: color, glow, hp, points, movement fn, shoot behavior, draw fn
+    const TYPES = {
+      grunt: {
+        color: '#0f0', glow: '#0f0', hp: 1, points: 10,
+        bulletSpeed: 3, shootChance: 0.5,
+        move(a, t) { /* default march — handled by formation */ },
+        draw(a) { drawBasicAlien(a, '#0f0'); }
+      },
+      zigzagger: {
+        color: '#ff0', glow: '#ff0', hp: 1, points: 20,
+        bulletSpeed: 3, shootChance: 0.6,
+        move(a, t) { a.offsetX = Math.sin(t * 0.05 + a.phase) * 30; },
+        draw(a) { drawZigzagger(a); }
+      },
+      diver: {
+        color: '#f80', glow: '#f80', hp: 1, points: 30,
+        bulletSpeed: 4, shootChance: 0.3,
+        move(a, t) {
+          if (!a.diving && Math.random() < 0.002) {
+            a.diving = true;
+            a.diveStartY = a.formY + a.offsetY;
+            a.diveVY = 3;
+            a.diveVX = (player.x + PLAYER_W/2 - (a.formX + a.offsetX + AW/2)) * 0.02;
+          }
+          if (a.diving) {
+            a.offsetY += a.diveVY;
+            a.offsetX += a.diveVX;
+            if (a.formY + a.offsetY > H + 20) {
+              a.diving = false;
+              a.offsetY = -a.formY + 30;
+              a.offsetX = 0;
+            }
+          }
+        },
+        draw(a) { drawDiver(a); }
+      },
+      tank: {
+        color: '#4af', glow: '#4af', hp: 3, points: 40,
+        bulletSpeed: 2.5, shootChance: 0.7,
+        move(a, t) { /* standard march */ },
+        draw(a) { drawTank(a); }
+      },
+      splitter: {
+        color: '#c4f', glow: '#c4f', hp: 1, points: 25,
+        bulletSpeed: 3, shootChance: 0.4,
+        move(a, t) { a.offsetX = Math.sin(t * 0.03 + a.phase) * 15; },
+        onDeath(a) {
+          // Spawn two mini aliens
+          for (let d = -1; d <= 1; d += 2) {
+            aliens.push(makeAlien('mini', a.formX + a.offsetX + d * 18, a.formY + a.offsetY, 0, 0));
+          }
+        },
+        draw(a) { drawSplitter(a); }
+      },
+      mini: {
+        color: '#e8f', glow: '#e8f', hp: 1, points: 15,
+        bulletSpeed: 3.5, shootChance: 0.3,
+        move(a, t) {
+          // Erratic fast movement
+          a.offsetX += Math.sin(t * 0.1 + a.phase) * 2;
+          a.offsetY += Math.cos(t * 0.08 + a.phase) * 0.3;
+          // Keep on screen
+          const ax = a.formX + a.offsetX;
+          if (ax < 5) a.offsetX += 3;
+          if (ax + AW > W - 5) a.offsetX -= 3;
+        },
+        draw(a) { drawMini(a); }
+      },
+      phaser: {
+        color: '#f0f', glow: '#f0f', hp: 1, points: 35,
+        bulletSpeed: 3, shootChance: 0.5,
+        move(a, t) {
+          a.visible = Math.sin(t * 0.04 + a.phase) > -0.3;
+        },
+        draw(a) { if (a.visible !== false) drawPhaser(a); }
+      },
+      bomber: {
+        color: '#f33', glow: '#f33', hp: 2, points: 45,
+        bulletSpeed: 2, shootChance: 0.8,
+        shootStyle: 'spread',
+        move(a, t) { /* standard march */ },
+        draw(a) { drawBomber(a); }
+      },
+      speedster: {
+        color: '#fff', glow: '#aaf', hp: 1, points: 30,
+        bulletSpeed: 5, shootChance: 0.3,
+        move(a, t) {
+          if (!a.dashTimer) a.dashTimer = 0;
+          a.dashTimer++;
+          if (a.dashTimer > 120 && Math.random() < 0.02) {
+            a.offsetX += (Math.random() > 0.5 ? 1 : -1) * 60;
+            a.dashTimer = 0;
+            // Clamp
+            const ax = a.formX + a.offsetX;
+            if (ax < 5) a.offsetX = 5 - a.formX;
+            if (ax + AW > W - 5) a.offsetX = W - 5 - AW - a.formX;
+          }
+        },
+        draw(a) { drawSpeedster(a); }
+      },
+      mothership: {
+        color: '#fd0', glow: '#fd0', hp: 20, points: 200,
+        bulletSpeed: 3, shootChance: 1,
+        shootStyle: 'aimed',
+        move(a, t) {
+          a.offsetX = Math.sin(t * 0.015) * (W/2 - 60);
+          a.offsetY = Math.sin(t * 0.01) * 30;
+        },
+        draw(a) { drawMothership(a); }
+      }
+    };
+
+    // ── Level definitions ────────────────────────────────────────
+    // rows: array of { type, count } from top to bottom
+    const LEVELS = [
+      { // 1: Basic grunts
+        name: 'The Swarm Arrives',
+        intro: 'Grunts — basic invaders',
+        rows: [
+          { type: 'grunt', count: 8 },
+          { type: 'grunt', count: 8 },
+          { type: 'grunt', count: 8 },
+          { type: 'grunt', count: 8 },
+        ],
+        formSpeed: 0.6, shootInterval: 55,
+      },
+      { // 2: Zigzaggers appear
+        name: 'Evasive Maneuvers',
+        intro: 'NEW: Zigzaggers — weave side to side',
+        rows: [
+          { type: 'zigzagger', count: 8 },
+          { type: 'zigzagger', count: 8 },
+          { type: 'grunt', count: 8 },
+          { type: 'grunt', count: 8 },
+        ],
+        formSpeed: 0.7, shootInterval: 50,
+      },
+      { // 3: Divers introduced
+        name: 'Dive Bombers',
+        intro: 'NEW: Divers — break formation to attack',
+        rows: [
+          { type: 'grunt', count: 8 },
+          { type: 'diver', count: 6 },
+          { type: 'diver', count: 6 },
+          { type: 'grunt', count: 8 },
+        ],
+        formSpeed: 0.8, shootInterval: 50,
+      },
+      { // 4: Tanks appear
+        name: 'Heavy Armor',
+        intro: 'NEW: Tanks — take 3 hits to destroy',
+        rows: [
+          { type: 'tank', count: 6 },
+          { type: 'grunt', count: 8 },
+          { type: 'zigzagger', count: 8 },
+          { type: 'grunt', count: 8 },
+        ],
+        formSpeed: 0.7, shootInterval: 45,
+      },
+      { // 5: Splitters
+        name: 'Mitosis',
+        intro: 'NEW: Splitters — split in two when killed',
+        rows: [
+          { type: 'splitter', count: 7 },
+          { type: 'splitter', count: 7 },
+          { type: 'diver', count: 6 },
+          { type: 'grunt', count: 8 },
+        ],
+        formSpeed: 0.8, shootInterval: 45,
+      },
+      { // 6: Phasers
+        name: 'Now You See Me',
+        intro: 'NEW: Phasers — phase in and out of reality',
+        rows: [
+          { type: 'phaser', count: 8 },
+          { type: 'phaser', count: 8 },
+          { type: 'zigzagger', count: 8 },
+          { type: 'tank', count: 6 },
+        ],
+        formSpeed: 0.9, shootInterval: 40,
+      },
+      { // 7: Bombers
+        name: 'Carpet Bombing',
+        intro: 'NEW: Bombers — fire spread shots',
+        rows: [
+          { type: 'bomber', count: 5 },
+          { type: 'tank', count: 6 },
+          { type: 'grunt', count: 8 },
+          { type: 'diver', count: 6 },
+          { type: 'grunt', count: 8 },
+        ],
+        formSpeed: 0.9, shootInterval: 38,
+      },
+      { // 8: Speedsters
+        name: 'Warp Speed',
+        intro: 'NEW: Speedsters — dash unpredictably',
+        rows: [
+          { type: 'speedster', count: 8 },
+          { type: 'speedster', count: 8 },
+          { type: 'diver', count: 6 },
+          { type: 'zigzagger', count: 8 },
+          { type: 'bomber', count: 5 },
+        ],
+        formSpeed: 1.1, shootInterval: 35,
+      },
+      { // 9: Elite mix
+        name: 'The Gauntlet',
+        intro: 'All enemy types combined',
+        rows: [
+          { type: 'phaser', count: 8 },
+          { type: 'bomber', count: 5 },
+          { type: 'splitter', count: 7 },
+          { type: 'tank', count: 6 },
+          { type: 'speedster', count: 8 },
+          { type: 'diver', count: 6 },
+        ],
+        formSpeed: 1.2, shootInterval: 30,
+      },
+      { // 10: Mothership boss
+        name: 'The Mothership',
+        intro: 'BOSS: Mothership — spawns minions',
+        rows: [
+          { type: 'mothership', count: 1 },
+          { type: 'tank', count: 6 },
+          { type: 'speedster', count: 8 },
+          { type: 'bomber', count: 5 },
+          { type: 'phaser', count: 8 },
+          { type: 'diver', count: 6 },
+        ],
+        formSpeed: 1.0, shootInterval: 25,
+      },
+    ];
+
+    let player, bullets, alienBullets, aliens, particles;
+    let score, lives, wave, gameState, keys, animFrame, tick;
+    let formX, formDir, formSpeed, shootInterval, shootTimer;
+    let waveIntroTimer;
+
+    function makeAlien(type, fx, fy, row, col) {
+      const t = TYPES[type];
+      return {
+        type, formX: fx, formY: fy, offsetX: 0, offsetY: 0,
+        row, col, alive: true,
+        hp: t.hp, maxHp: t.hp,
+        phase: Math.random() * Math.PI * 2,
+        visible: true, diving: false,
+      };
+    }
+
+    function init() {
+      player = { x: W / 2 - PLAYER_W / 2, y: H - 50 };
+      bullets = []; alienBullets = []; aliens = []; particles = [];
+      score = 0; lives = 3; wave = 0; tick = 0;
+      keys = {};
+      scoreEl.textContent = '0';
+      livesEl.textContent = '3';
+      waveEl.textContent = '1';
+      gameState = 'waiting';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'SPACE INVADERS';
+      overlayText.textContent = 'Press any key to start';
+      overlayEnemy.textContent = '';
+      drawFrame();
+    }
+
+    function startWave() {
+      wave++;
+      if (wave > 10) wave = 10; // repeat level 10
+      waveEl.textContent = wave;
+      const lvl = LEVELS[wave - 1];
+      formSpeed = lvl.formSpeed;
+      shootInterval = lvl.shootInterval;
+      shootTimer = 0;
+      formX = 0;
+      formDir = 1;
+      aliens = [];
+      alienBullets = [];
+
+      let y = 40;
+      lvl.rows.forEach((rowDef, r) => {
+        const count = rowDef.count;
+        const w = count * (AW + PAD) - PAD;
+        const sx = (W - w) / 2;
+        for (let c = 0; c < count; c++) {
+          aliens.push(makeAlien(rowDef.type, sx + c * (AW + PAD), y, r, c));
+        }
+        // Mothership is taller
+        y += rowDef.type === 'mothership' ? AH * 2 + PAD : AH + PAD;
+      });
+
+      // Show wave intro
+      gameState = 'waveIntro';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = `WAVE ${wave}`;
+      overlayText.textContent = lvl.name;
+      overlayEnemy.textContent = lvl.intro;
+      waveIntroTimer = 120;
+    }
+
+    function start() {
+      overlay.style.display = 'none';
+      overlayEnemy.textContent = '';
+      startWave();
+      cancelAnimationFrame(animFrame);
+      loop();
+    }
+
+    function loop() {
+      if (gameState === 'over') return;
+      tick++;
+
+      if (gameState === 'waveIntro') {
+        waveIntroTimer--;
+        if (waveIntroTimer <= 0) {
+          gameState = 'playing';
+          overlay.style.display = 'none';
+        }
+        drawFrame();
+        animFrame = requestAnimationFrame(loop);
+        return;
+      }
+
+      update();
+      drawFrame();
+      animFrame = requestAnimationFrame(loop);
+    }
+
+    function update() {
+      // Player movement
+      if (keys['ArrowLeft']) player.x = Math.max(0, player.x - PLAYER_SPEED);
+      if (keys['ArrowRight']) player.x = Math.min(W - PLAYER_W, player.x + PLAYER_SPEED);
+
+      // Formation movement (side to side)
+      const liveAliens = aliens.filter(a => a.alive);
+      if (liveAliens.length === 0) { startWave(); return; }
+
+      const leftMost = Math.min(...liveAliens.map(a => a.formX + a.offsetX)) + formX;
+      const rightMost = Math.max(...liveAliens.map(a => a.formX + a.offsetX + AW)) + formX;
+
+      if ((formDir === 1 && rightMost >= W - 5) || (formDir === -1 && leftMost <= 5)) {
+        formDir *= -1;
+        // Drop formation
+        aliens.forEach(a => { if (a.type !== 'mini') a.formY += 12; });
+        // Check if any reached player
+        if (liveAliens.some(a => a.alive && a.formY + a.offsetY + AH >= player.y)) {
+          gameOver(); return;
+        }
+      }
+      formX += formSpeed * formDir;
+
+      // Per-alien movement
+      aliens.forEach(a => {
+        if (!a.alive) return;
+        TYPES[a.type].move(a, tick);
+      });
+
+      // Player bullets vs aliens
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        bullets[i].y -= BULLET_SPEED;
+        if (bullets[i].y < -10) { bullets.splice(i, 1); continue; }
+
+        let hit = false;
+        for (const a of aliens) {
+          if (!a.alive) continue;
+          // Phasers can't be hit while invisible
+          if (a.type === 'phaser' && a.visible === false) continue;
+          const ax = (a.type === 'mini' ? a.formX : a.formX + formX) + a.offsetX;
+          const ay = a.formY + a.offsetY;
+          const aw = a.type === 'mothership' ? AW * 3 : AW;
+          const ah = a.type === 'mothership' ? AH * 2 : AH;
+          if (bullets[i] && bullets[i].x >= ax && bullets[i].x <= ax + aw &&
+              bullets[i].y >= ay && bullets[i].y <= ay + ah) {
+            a.hp--;
+            bullets.splice(i, 1);
+            if (a.hp <= 0) {
+              a.alive = false;
+              score += TYPES[a.type].points;
+              scoreEl.textContent = score;
+              spawnExplosion(ax + aw/2, ay + ah/2, TYPES[a.type].color);
+              if (TYPES[a.type].onDeath) TYPES[a.type].onDeath(a);
+              // Mothership spawns minions periodically as it takes damage
+              if (a.type === 'mothership') {
+                for (let d = -1; d <= 1; d += 2) {
+                  aliens.push(makeAlien('mini', ax + d * 40, ay + ah, 0, 0));
+                }
+              }
+            } else {
+              spawnSpark(ax + aw/2, ay + ah/2);
+            }
+            hit = true;
+            break;
+          }
+        }
+      }
+
+      // Alien shooting
+      shootTimer++;
+      if (shootTimer >= shootInterval) {
+        shootTimer = 0;
+        const shooters = liveAliens.filter(a => a.type !== 'mini' && (a.type !== 'phaser' || a.visible !== false));
+        if (shooters.length > 0) {
+          const a = shooters[Math.floor(Math.random() * shooters.length)];
+          const t = TYPES[a.type];
+          if (Math.random() < t.shootChance) {
+            const ax = (a.type === 'mini' ? a.formX : a.formX + formX) + a.offsetX + AW / 2;
+            const ay = a.formY + a.offsetY + AH;
+            if (t.shootStyle === 'spread') {
+              alienBullets.push({ x: ax, y: ay, vx: -1.5, vy: t.bulletSpeed });
+              alienBullets.push({ x: ax, y: ay, vx: 0, vy: t.bulletSpeed });
+              alienBullets.push({ x: ax, y: ay, vx: 1.5, vy: t.bulletSpeed });
+            } else if (t.shootStyle === 'aimed') {
+              const dx = player.x + PLAYER_W/2 - ax;
+              const dy = player.y - ay;
+              const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+              alienBullets.push({ x: ax, y: ay, vx: dx/dist * t.bulletSpeed, vy: dy/dist * t.bulletSpeed });
+            } else {
+              alienBullets.push({ x: ax, y: ay, vx: 0, vy: t.bulletSpeed });
+            }
+          }
+        }
+      }
+
+      // Alien bullets
+      for (let i = alienBullets.length - 1; i >= 0; i--) {
+        alienBullets[i].x += alienBullets[i].vx;
+        alienBullets[i].y += alienBullets[i].vy;
+        if (alienBullets[i].y > H || alienBullets[i].x < 0 || alienBullets[i].x > W) {
+          alienBullets.splice(i, 1); continue;
+        }
+        if (alienBullets[i].x >= player.x && alienBullets[i].x <= player.x + PLAYER_W &&
+            alienBullets[i].y >= player.y && alienBullets[i].y <= player.y + PLAYER_H) {
+          alienBullets.splice(i, 1);
+          lives--;
+          livesEl.textContent = lives;
+          spawnExplosion(player.x + PLAYER_W/2, player.y, '#0f0');
+          if (lives <= 0) { gameOver(); return; }
+        }
+      }
+
+      // Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].x += particles[i].vx;
+        particles[i].y += particles[i].vy;
+        particles[i].life--;
+        if (particles[i].life <= 0) particles.splice(i, 1);
+      }
+    }
+
+    function spawnExplosion(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        const ang = (Math.PI * 2 / 12) * i + Math.random() * 0.3;
+        const spd = 1 + Math.random() * 3;
+        particles.push({ x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, life: 20 + Math.random() * 10, color });
+      }
+    }
+
+    function spawnSpark(x, y) {
+      for (let i = 0; i < 5; i++) {
+        particles.push({ x, y, vx: (Math.random()-0.5)*3, vy: (Math.random()-0.5)*3, life: 8, color: '#fff' });
+      }
+    }
+
+    function shoot() {
+      if (bullets.length < 4) {
+        bullets.push({ x: player.x + PLAYER_W / 2, y: player.y });
+      }
+    }
+
+    function gameOver() {
+      gameState = 'over';
+      cancelAnimationFrame(animFrame);
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = wave >= 10 && aliens.every(a => !a.alive) ? 'YOU WIN!' : 'GAME OVER';
+      overlayText.textContent = `Score: ${score} — Press any key to restart`;
+      overlayEnemy.textContent = '';
+    }
+
+    // ── Drawing functions ─────────────────────────────────────────
+    function alienScreenX(a) {
+      return (a.type === 'mini' ? a.formX : a.formX + formX) + a.offsetX;
+    }
+    function alienScreenY(a) { return a.formY + a.offsetY; }
+
+    function drawBasicAlien(a, color) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6;
+      ctx.fillRect(x + 4, y, AW - 8, AH - 4);
+      ctx.fillRect(x, y + 6, AW, AH - 12);
+      // Eyes
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(x + 8, y + 8, 4, 4);
+      ctx.fillRect(x + AW - 12, y + 8, 4, 4);
+      ctx.shadowBlur = 0;
+    }
+
+    function drawZigzagger(a) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      ctx.fillStyle = '#ff0';
+      ctx.shadowColor = '#ff0';
+      ctx.shadowBlur = 6;
+      // Wavy body
+      ctx.beginPath();
+      ctx.moveTo(x + AW/2, y);
+      ctx.lineTo(x + AW, y + AH/2);
+      ctx.lineTo(x + AW/2, y + AH);
+      ctx.lineTo(x, y + AH/2);
+      ctx.closePath();
+      ctx.fill();
+      // Eyes
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(x + 10, y + 9, 3, 3);
+      ctx.fillRect(x + AW - 13, y + 9, 3, 3);
+      ctx.shadowBlur = 0;
+    }
+
+    function drawDiver(a) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      ctx.fillStyle = '#f80';
+      ctx.shadowColor = '#f80';
+      ctx.shadowBlur = 8;
+      // Arrow/dive shape
+      ctx.beginPath();
+      ctx.moveTo(x + AW/2, y + AH);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x + AW * 0.3, y + AH * 0.4);
+      ctx.lineTo(x + AW/2, y);
+      ctx.lineTo(x + AW * 0.7, y + AH * 0.4);
+      ctx.lineTo(x + AW, y);
+      ctx.closePath();
+      ctx.fill();
+      // Eye
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath();
+      ctx.arc(x + AW/2, y + AH * 0.5, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawTank(a) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      // Health-based color
+      const pct = a.hp / a.maxHp;
+      const r = Math.round(70 + (1-pct) * 180);
+      const g = Math.round(170 * pct);
+      const b = 255;
+      const color = `rgb(${r},${g},${b})`;
+      ctx.fillStyle = color;
+      ctx.shadowColor = '#4af';
+      ctx.shadowBlur = 6;
+      // Bulky body
+      ctx.fillRect(x + 2, y + 2, AW - 4, AH - 4);
+      ctx.fillRect(x - 2, y + 6, AW + 4, AH - 12);
+      // Armor lines
+      ctx.strokeStyle = '#1a1a2e';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 4, y + 4, AW - 8, AH - 8);
+      // Eyes
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(x + 8, y + 8, 5, 5);
+      ctx.fillRect(x + AW - 13, y + 8, 5, 5);
+      ctx.shadowBlur = 0;
+    }
+
+    function drawSplitter(a) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      ctx.fillStyle = '#c4f';
+      ctx.shadowColor = '#c4f';
+      ctx.shadowBlur = 8;
+      // Cell/blob shape
+      ctx.beginPath();
+      ctx.arc(x + AW/2, y + AH/2, AW/2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+      // Division line
+      ctx.strokeStyle = '#1a1a2e';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + AW/2, y + 2);
+      ctx.lineTo(x + AW/2, y + AH - 2);
+      ctx.stroke();
+      // Two eyes
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath(); ctx.arc(x + AW/2 - 6, y + AH/2, 2.5, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + AW/2 + 6, y + AH/2, 2.5, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawMini(a) {
+      const x = a.formX + a.offsetX, y = a.formY + a.offsetY;
+      ctx.fillStyle = '#e8f';
+      ctx.shadowColor = '#e8f';
+      ctx.shadowBlur = 5;
+      ctx.beginPath();
+      ctx.arc(x + 8, y + 8, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath(); ctx.arc(x + 6, y + 7, 2, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 10, y + 7, 2, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawPhaser(a) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      const alpha = a.visible !== false ? 0.9 : 0.15;
+      ctx.fillStyle = `rgba(255, 0, 255, ${alpha})`;
+      ctx.shadowColor = '#f0f';
+      ctx.shadowBlur = a.visible !== false ? 10 : 2;
+      // Ghost shape
+      ctx.beginPath();
+      ctx.arc(x + AW/2, y + AH/3, AW/2 - 2, Math.PI, 0);
+      ctx.lineTo(x + AW - 2, y + AH);
+      // Wavy bottom
+      for (let i = AW - 2; i >= 2; i -= 8) {
+        ctx.lineTo(x + i, y + AH - (i % 16 === 0 ? 6 : 0));
+      }
+      ctx.closePath();
+      ctx.fill();
+      if (a.visible !== false) {
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(x + AW/2 - 5, y + AH/3, 3, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x + AW/2 + 5, y + AH/3, 3, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#1a1a2e';
+        ctx.beginPath(); ctx.arc(x + AW/2 - 4, y + AH/3, 1.5, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x + AW/2 + 6, y + AH/3, 1.5, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    }
+
+    function drawBomber(a) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      const pct = a.hp / a.maxHp;
+      ctx.fillStyle = pct > 0.5 ? '#f33' : '#f66';
+      ctx.shadowColor = '#f33';
+      ctx.shadowBlur = 8;
+      // Wide threatening shape
+      ctx.fillRect(x, y + 4, AW, AH - 8);
+      ctx.fillRect(x + 4, y, AW - 8, AH);
+      // Bomb bay
+      ctx.fillStyle = '#800';
+      ctx.fillRect(x + AW/2 - 4, y + AH - 6, 8, 6);
+      // Eyes (angry)
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(x + 6, y + 6, 6, 4);
+      ctx.fillRect(x + AW - 12, y + 6, 6, 4);
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(x + 8, y + 7, 3, 3);
+      ctx.fillRect(x + AW - 11, y + 7, 3, 3);
+      ctx.shadowBlur = 0;
+    }
+
+    function drawSpeedster(a) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      ctx.fillStyle = '#fff';
+      ctx.shadowColor = '#aaf';
+      ctx.shadowBlur = 10;
+      // Sleek shape
+      ctx.beginPath();
+      ctx.moveTo(x + AW/2, y);
+      ctx.lineTo(x + AW + 4, y + AH/2);
+      ctx.lineTo(x + AW/2, y + AH - 2);
+      ctx.lineTo(x - 4, y + AH/2);
+      ctx.closePath();
+      ctx.fill();
+      // Speed lines
+      ctx.strokeStyle = 'rgba(170, 170, 255, 0.4)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x - 8 - i * 6, y + 6 + i * 6);
+        ctx.lineTo(x - 2 - i * 4, y + 6 + i * 6);
+        ctx.stroke();
+      }
+      // Eye
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath(); ctx.arc(x + AW/2 + 2, y + AH/2 - 1, 3, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawMothership(a) {
+      const x = alienScreenX(a), y = alienScreenY(a);
+      const mw = AW * 3, mh = AH * 2;
+      // Pulsing glow
+      const pulse = Math.sin(tick * 0.05) * 0.3 + 0.7;
+      ctx.fillStyle = `rgba(255, 220, 0, ${pulse})`;
+      ctx.shadowColor = '#fd0';
+      ctx.shadowBlur = 20;
+      // Saucer shape
+      ctx.beginPath();
+      ctx.ellipse(x + mw/2, y + mh * 0.6, mw/2, mh * 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Dome
+      ctx.fillStyle = `rgba(255, 180, 0, ${pulse})`;
+      ctx.beginPath();
+      ctx.ellipse(x + mw/2, y + mh * 0.5, mw * 0.3, mh * 0.35, 0, Math.PI, 0);
+      ctx.fill();
+      // Lights
+      for (let i = 0; i < 5; i++) {
+        const lx = x + mw * 0.2 + i * (mw * 0.15);
+        const blink = Math.sin(tick * 0.1 + i) > 0;
+        ctx.fillStyle = blink ? '#f00' : '#600';
+        ctx.beginPath(); ctx.arc(lx, y + mh * 0.6, 3, 0, Math.PI*2); ctx.fill();
+      }
+      // Health bar
+      ctx.fillStyle = '#400';
+      ctx.fillRect(x + 10, y - 8, mw - 20, 5);
+      ctx.fillStyle = '#0f0';
+      ctx.fillRect(x + 10, y - 8, (mw - 20) * (a.hp / a.maxHp), 5);
+      ctx.shadowBlur = 0;
+    }
+
+    function drawFrame() {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Stars
+      ctx.fillStyle = '#ffffff10';
+      for (let i = 0; i < 60; i++) {
+        const sx = ((i * 137 + 83) % W);
+        const sy = ((i * 251 + 47) % H);
+        const twinkle = Math.sin(tick * 0.02 + i) > 0.7 ? 2 : 1;
+        ctx.fillRect(sx, sy, twinkle, twinkle);
+      }
+
+      // Aliens
+      aliens.forEach(a => {
+        if (!a.alive) return;
+        TYPES[a.type].draw(a);
+      });
+
+      // Player ship
+      ctx.fillStyle = '#0f0';
+      ctx.shadowColor = '#0f0';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.moveTo(player.x + PLAYER_W / 2, player.y - 8);
+      ctx.lineTo(player.x, player.y + PLAYER_H);
+      ctx.lineTo(player.x + PLAYER_W, player.y + PLAYER_H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(player.x + 4, player.y + PLAYER_H - 4, PLAYER_W - 8, 4);
+      ctx.shadowBlur = 0;
+
+      // Player bullets
+      ctx.fillStyle = '#0f0';
+      ctx.shadowColor = '#0f0';
+      ctx.shadowBlur = 8;
+      bullets.forEach(b => { ctx.fillRect(b.x - 1.5, b.y, 3, 10); });
+
+      // Alien bullets
+      ctx.shadowColor = '#f44';
+      alienBullets.forEach(b => {
+        ctx.fillStyle = b.vx !== 0 ? '#f84' : '#f44';
+        ctx.fillRect(b.x - 1.5, b.y, 3, 10);
+      });
+      ctx.shadowBlur = 0;
+
+      // Particles
+      particles.forEach(p => {
+        const alpha = p.life / 30;
+        ctx.fillStyle = p.color + Math.round(alpha * 255).toString(16).padStart(2, '0');
+        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      const gameKeys = ['ArrowLeft', 'ArrowRight', ' '];
+      if (gameKeys.includes(e.key)) e.preventDefault();
+
+      if (gameState === 'waiting') { start(); return; }
+      if (gameState === 'over') { init(); return; }
+
+      keys[e.key] = true;
+      if (e.key === ' ' && gameState === 'playing') shoot();
+    });
+
+    document.addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+    init();
+  </script>
+</body>
+</html>
