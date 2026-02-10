@@ -73,6 +73,24 @@
     }
     .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
     .overlay p { font-size: 1rem; color: #aaa; }
+    .keypad { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 16px; }
+    .keypad-row { display: flex; gap: 4px; }
+    .kp-key {
+      width: 44px; height: 44px;
+      background: #16213e;
+      border: 2px solid #0f3460;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; color: #555;
+      transition: background 0.06s, border-color 0.06s, color 0.06s, box-shadow 0.06s;
+    }
+    .kp-key.active {
+      background: rgba(255, 0, 255, 0.15);
+      border-color: #f0f;
+      color: #f0f;
+      box-shadow: 0 0 12px rgba(255, 0, 255, 0.4);
+    }
+    .kp-spacer { width: 44px; height: 44px; }
   </style>
 </head>
 <body>
@@ -104,6 +122,18 @@
       <div class="panel-box">
         <label>LEVEL</label>
         <div class="value" id="level">1</div>
+      </div>
+      <div class="keypad">
+        <div class="keypad-row">
+          <div class="kp-spacer"></div>
+          <div class="kp-key" id="kp-up">&uarr;</div>
+          <div class="kp-spacer"></div>
+        </div>
+        <div class="keypad-row">
+          <div class="kp-key" id="kp-left">&larr;</div>
+          <div class="kp-key" id="kp-down">&darr;</div>
+          <div class="kp-key" id="kp-right">&rarr;</div>
+        </div>
       </div>
     </div>
   </div>
@@ -419,6 +449,10 @@
         draw();
       }
     });
+
+    const kpMap = { ArrowUp: 'kp-up', ArrowDown: 'kp-down', ArrowLeft: 'kp-left', ArrowRight: 'kp-right' };
+    document.addEventListener('keydown', (e) => { if (kpMap[e.key]) document.getElementById(kpMap[e.key]).classList.add('active'); });
+    document.addEventListener('keyup', (e) => { if (kpMap[e.key]) document.getElementById(kpMap[e.key]).classList.remove('active'); });
 
     init();
   </script>
