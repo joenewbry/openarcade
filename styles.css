@@ -89,3 +89,11 @@ body {
 .card-invaders:hover { border-color: #0f0; box-shadow: 0 8px 30px rgba(0, 255, 0, 0.15); }
 .card-flappy:hover { border-color: #ff0; box-shadow: 0 8px 30px rgba(255, 255, 0, 0.15); }
 .card-snake:hover { border-color: #0ff; box-shadow: 0 8px 30px rgba(0, 255, 255, 0.15); }
+
+.card-breakout h2 { color: #f80; }
+.card-pong h2 { color: #88f; }
+.card-asteroids h2 { color: #f44; }
+
+.card-breakout:hover { border-color: #f80; box-shadow: 0 8px 30px rgba(255, 136, 0, 0.15); }
+.card-pong:hover { border-color: #88f; box-shadow: 0 8px 30px rgba(136, 136, 255, 0.15); }
+.card-asteroids:hover { border-color: #f44; box-shadow: 0 8px 30px rgba(255, 68, 68, 0.15); }
