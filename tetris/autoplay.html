@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tetris — Autoplay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+    .back { color: #f0f; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 0, 255, 0.5); }
+    h1 { color: #f0f; font-size: 2rem; text-shadow: 0 0 15px rgba(255, 0, 255, 0.4); }
+    .game-area {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+    .side-panel {
+      width: 130px;
+    }
+    .panel-box {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .panel-box label {
+      display: block;
+      font-size: 0.8rem;
+      color: #888;
+      margin-bottom: 6px;
+    }
+    .panel-box .value {
+      font-size: 1.4rem;
+      color: #f0f;
+    }
+    #nextCanvas {
+      display: block;
+      margin: 0 auto;
+    }
+    canvas#game {
+      border: 2px solid #f0f;
+      box-shadow: 0 0 20px rgba(255, 0, 255, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #f0f;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+
+    /* Mode controls */
+    .mode-controls {
+      display: flex;
+      gap: 6px;
+      margin-top: 12px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 8px 4px;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      background: #16213e;
+      color: #888;
+      font-family: 'Courier New', monospace;
+      font-size: 0.7rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .mode-btn:hover { border-color: #f0f; color: #ccc; }
+    .mode-btn.active {
+      background: #0f3460;
+      color: #f0f;
+      border-color: #f0f;
+      box-shadow: 0 0 8px rgba(255, 0, 255, 0.3);
+    }
+
+    /* WS indicator */
+    .ws-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      font-size: 0.7rem;
+      color: #666;
+    }
+    .ws-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #444;
+    }
+    .ws-dot.connected { background: #0f0; box-shadow: 0 0 6px rgba(0, 255, 0, 0.5); }
+
+    /* Stats */
+    .stats-box {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-top: 12px;
+      font-size: 0.7rem;
+      color: #666;
+    }
+    .stats-box .stat-line { margin: 2px 0; }
+    .stats-box .stat-val { color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>TETRIS — AUTOPLAY</h1>
+  </div>
+  <div class="game-area">
+    <div style="position: relative; display: inline-block;">
+      <canvas id="game" width="300" height="600"></canvas>
+      <div class="overlay" id="overlay" style="width:300px;height:600px;">
+        <h2 id="overlayTitle">TETRIS</h2>
+        <p id="overlayText">Press any key to start</p>
+      </div>
+    </div>
+    <div class="side-panel">
+      <div class="panel-box">
+        <label>NEXT</label>
+        <canvas id="nextCanvas" width="100" height="80"></canvas>
+      </div>
+      <div class="panel-box">
+        <label>SCORE</label>
+        <div class="value" id="score">0</div>
+      </div>
+      <div class="panel-box">
+        <label>LINES</label>
+        <div class="value" id="lines">0</div>
+      </div>
+      <div class="panel-box">
+        <label>LEVEL</label>
+        <div class="value" id="level">1</div>
+      </div>
+      <div class="panel-box">
+        <label>GAMES</label>
+        <div class="value" id="gamesCount">0</div>
+      </div>
+
+      <!-- Mode controls -->
+      <div class="mode-controls">
+        <button class="mode-btn" id="btnManual" onclick="setMode('manual')">Manual</button>
+        <button class="mode-btn active" id="btnAI" onclick="setMode('auto-ai')">AI</button>
+        <button class="mode-btn" id="btnExternal" onclick="setMode('external')">Ext</button>
+      </div>
+
+      <!-- WS indicator -->
+      <div class="ws-indicator">
+        <div class="ws-dot" id="wsDot"></div>
+        <span id="wsLabel">WS: disconnected</span>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-box" id="statsBox">
+        <div class="stat-line">Avg lines: <span class="stat-val" id="statAvgLines">—</span></div>
+        <div class="stat-line">Best: <span class="stat-val" id="statBest">—</span></div>
+        <div class="stat-line">Events: <span class="stat-val" id="statEvents">0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ───────────────────────────────────────────────
+    // Tetris Game Engine (from index.html)
+    // ───────────────────────────────────────────────
+
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const nextCanvas = document.getElementById('nextCanvas');
+    const nctx = nextCanvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const linesEl = document.getElementById('lines');
+    const levelEl = document.getElementById('level');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    const CELL = 30;
+    const COLS = 10;
+    const ROWS = 20;
+
+    const PIECES = {
+      I: { shape: [[0,0],[1,0],[2,0],[3,0]], color: '#0ff' },
+      O: { shape: [[0,0],[1,0],[0,1],[1,1]], color: '#ff0' },
+      T: { shape: [[0,0],[1,0],[2,0],[1,1]], color: '#a0f' },
+      S: { shape: [[1,0],[2,0],[0,1],[1,1]], color: '#0f0' },
+      Z: { shape: [[0,0],[1,0],[1,1],[2,1]], color: '#f00' },
+      J: { shape: [[0,0],[0,1],[1,1],[2,1]], color: '#00f' },
+      L: { shape: [[2,0],[0,1],[1,1],[2,1]], color: '#f90' }
+    };
+    const PIECE_NAMES = Object.keys(PIECES);
+
+    let board, current, next, pos, score, lines, level, gameState, timer, dropInterval;
+    let flashRows = [], flashTimer = 0, flashPhase = 0, showTetrisText = 0;
+    let softDropping = false;
+    const SOFT_DROP_INTERVAL = 50;
+
+    function init() {
+      board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+      score = 0; lines = 0; level = 1;
+      dropInterval = 800;
+      scoreEl.textContent = '0';
+      linesEl.textContent = '0';
+      levelEl.textContent = '1';
+      next = randomPiece();
+      spawnPiece();
+      gameState = 'waiting';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'TETRIS';
+      overlayText.textContent = currentMode === 'auto-ai' ? 'AI starting...' : 'Press any key to start';
+      draw();
+      drawNext();
+    }
+
+    function randomPiece() {
+      const name = PIECE_NAMES[Math.floor(Math.random() * PIECE_NAMES.length)];
+      return { name, shape: PIECES[name].shape.map(p => [...p]), color: PIECES[name].color };
+    }
+
+    function spawnPiece() {
+      current = next;
+      next = randomPiece();
+      const minX = Math.min(...current.shape.map(p => p[0]));
+      const maxX = Math.max(...current.shape.map(p => p[0]));
+      pos = { x: Math.floor((COLS - (maxX - minX + 1)) / 2) - minX, y: 0 };
+      const minY = Math.min(...current.shape.map(p => p[1]));
+      pos.y = -minY;
+
+      if (collides(current.shape, pos)) {
+        gameOver();
+        return;
+      }
+
+      // Trigger AI move planning after spawn
+      if (currentMode === 'auto-ai' && gameState === 'playing') {
+        scheduleAIMove();
+      }
+    }
+
+    function collides(shape, p) {
+      return shape.some(([sx, sy]) => {
+        const nx = p.x + sx, ny = p.y + sy;
+        return nx < 0 || nx >= COLS || ny >= ROWS || (ny >= 0 && board[ny][nx]);
+      });
+    }
+
+    function lock() {
+      current.shape.forEach(([sx, sy]) => {
+        const nx = pos.x + sx, ny = pos.y + sy;
+        if (ny >= 0 && ny < ROWS) board[ny][nx] = current.color;
+      });
+
+      flashRows = [];
+      for (let r = 0; r < ROWS; r++) {
+        if (board[r].every(c => c !== null)) flashRows.push(r);
+      }
+
+      if (flashRows.length > 0) {
+        clearTimeout(timer);
+        gameState = 'animating';
+        flashPhase = 0;
+        if (flashRows.length === 4) showTetrisText = 1;
+        animateFlash();
+      } else {
+        spawnPiece();
+        drawNext();
+      }
+    }
+
+    function animateFlash() {
+      flashPhase++;
+      draw();
+
+      if (flashPhase <= 12) {
+        setTimeout(animateFlash, 40);
+      } else {
+        const cleared = flashRows.length;
+        flashRows.sort((a, b) => b - a).forEach(r => {
+          board.splice(r, 1);
+          board.unshift(Array(COLS).fill(null));
+        });
+        const points = [0, 100, 300, 500, 800];
+        score += points[cleared] * level;
+        lines += cleared;
+        level = Math.floor(lines / 10) + 1;
+        dropInterval = Math.max(100, 800 - (level - 1) * 70);
+        scoreEl.textContent = score;
+        linesEl.textContent = lines;
+        levelEl.textContent = level;
+        flashRows = [];
+        showTetrisText = 0;
+        gameState = 'playing';
+        spawnPiece();
+        drawNext();
+        draw();
+        if (gameState === 'playing' && currentMode !== 'auto-ai') {
+          timer = setTimeout(tick, dropInterval);
+        }
+      }
+    }
+
+    function rotate() {
+      const maxX = Math.max(...current.shape.map(p => p[0]));
+      const maxY = Math.max(...current.shape.map(p => p[1]));
+      const newShape = current.shape.map(([x, y]) => [maxY - y, x]);
+
+      const kicks = [{ x: 0, y: 0 }, { x: -1, y: 0 }, { x: 1, y: 0 }, { x: -2, y: 0 }, { x: 2, y: 0 }, { x: 0, y: -1 }];
+      for (const kick of kicks) {
+        const testPos = { x: pos.x + kick.x, y: pos.y + kick.y };
+        if (!collides(newShape, testPos)) {
+          current.shape = newShape;
+          pos.x = testPos.x;
+          pos.y = testPos.y;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function drop(isSoftDrop) {
+      pos.y++;
+      if (collides(current.shape, pos)) {
+        pos.y--;
+        lock();
+      } else if (isSoftDrop) {
+        score += 1;
+        scoreEl.textContent = score;
+      }
+    }
+
+    function hardDrop() {
+      while (!collides(current.shape, { x: pos.x, y: pos.y + 1 })) {
+        pos.y++;
+        score += 2;
+      }
+      scoreEl.textContent = score;
+      lock();
+    }
+
+    function ghostY() {
+      let gy = pos.y;
+      while (!collides(current.shape, { x: pos.x, y: gy + 1 })) gy++;
+      return gy;
+    }
+
+    function move(dx) {
+      pos.x += dx;
+      if (collides(current.shape, pos)) { pos.x -= dx; return false; }
+      return true;
+    }
+
+    function start() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      wsSend({ type: 'game_start', timestamp: Date.now() });
+      tick();
+
+      if (currentMode === 'auto-ai') {
+        scheduleAIMove();
+      }
+    }
+
+    function tick() {
+      clearTimeout(timer);
+      if (gameState !== 'playing') return;
+      drop(softDropping);
+      draw();
+      timer = setTimeout(tick, softDropping ? SOFT_DROP_INTERVAL : dropInterval);
+    }
+
+    function gameOver() {
+      gameState = 'over';
+      clearTimeout(timer);
+      clearTimeout(aiTimer);
+      aiMoveQueue = [];
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'GAME OVER';
+      overlayText.textContent = `Score: ${score}`;
+
+      gamesPlayed++;
+      totalLines += lines;
+      if (lines > bestLines) bestLines = lines;
+      document.getElementById('gamesCount').textContent = gamesPlayed;
+      document.getElementById('statAvgLines').textContent = (totalLines / gamesPlayed).toFixed(0);
+      document.getElementById('statBest').textContent = bestLines;
+
+      wsSend({ type: 'game_over', score, lines, level, timestamp: Date.now() });
+
+      // Auto-restart in AI mode
+      if (currentMode === 'auto-ai') {
+        setTimeout(() => {
+          init();
+          setTimeout(() => start(), 500);
+        }, 2000);
+      } else {
+        overlayText.textContent += ' — Press any key to restart';
+      }
+    }
+
+    function drawBlock(context, x, y, color, size) {
+      context.fillStyle = color;
+      context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+      context.fillStyle = 'rgba(255,255,255,0.15)';
+      context.fillRect(x * size + 1, y * size + 1, size - 2, 3);
+      context.fillRect(x * size + 1, y * size + 1, 3, size - 2);
+    }
+
+    function draw() {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#16213e';
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x <= canvas.width; x += CELL) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y <= canvas.height; y += CELL) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c]) drawBlock(ctx, c, r, board[r][c], CELL);
+        }
+      }
+
+      if (flashRows.length > 0 && flashPhase > 0) {
+        const pulse = Math.sin(flashPhase * 0.8) * 0.5 + 0.5;
+        flashRows.forEach(r => {
+          ctx.fillStyle = `rgba(255, 255, 255, ${pulse * 0.8})`;
+          ctx.fillRect(0, r * CELL, canvas.width, CELL);
+        });
+        if (showTetrisText) {
+          const scale = 1 + Math.sin(flashPhase * 0.6) * 0.15;
+          ctx.save();
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.scale(scale, scale);
+          ctx.font = 'bold 48px Courier New';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = `rgba(255, 0, 255, ${pulse})`;
+          ctx.shadowColor = '#f0f';
+          ctx.shadowBlur = 30;
+          ctx.fillText('TETRIS!', 0, 0);
+          ctx.shadowBlur = 0;
+          ctx.restore();
+        }
+      }
+
+      if (gameState === 'playing' || gameState === 'waiting') {
+        const gy = ghostY();
+        current.shape.forEach(([sx, sy]) => {
+          const gx = pos.x + sx, gpy = gy + sy;
+          if (gpy >= 0) {
+            ctx.fillStyle = 'rgba(255,255,255,0.1)';
+            ctx.fillRect(gx * CELL + 1, gpy * CELL + 1, CELL - 2, CELL - 2);
+          }
+        });
+        current.shape.forEach(([sx, sy]) => {
+          const px = pos.x + sx, py = pos.y + sy;
+          if (py >= 0) drawBlock(ctx, px, py, current.color, CELL);
+        });
+      }
+    }
+
+    function drawNext() {
+      nctx.fillStyle = '#16213e';
+      nctx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
+      const size = 20;
+      const minX = Math.min(...next.shape.map(p => p[0]));
+      const maxX = Math.max(...next.shape.map(p => p[0]));
+      const minY = Math.min(...next.shape.map(p => p[1]));
+      const maxY = Math.max(...next.shape.map(p => p[1]));
+      const pw = (maxX - minX + 1) * size;
+      const ph = (maxY - minY + 1) * size;
+      const ox = Math.floor((nextCanvas.width - pw) / 2) / size - minX;
+      const oy = Math.floor((nextCanvas.height - ph) / 2) / size - minY;
+      next.shape.forEach(([sx, sy]) => {
+        drawBlock(nctx, ox + sx, oy + sy, next.color, size);
+      });
+    }
+
+    // ───────────────────────────────────────────────
+    // Mode Controller
+    // ───────────────────────────────────────────────
+
+    let currentMode = 'auto-ai'; // 'manual' | 'auto-ai' | 'external'
+    let gamesPlayed = 0;
+    let totalLines = 0;
+    let bestLines = 0;
+    let eventCount = 0;
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      if (mode === 'manual') document.getElementById('btnManual').classList.add('active');
+      else if (mode === 'auto-ai') document.getElementById('btnAI').classList.add('active');
+      else document.getElementById('btnExternal').classList.add('active');
+
+      // Cancel any pending AI moves
+      clearTimeout(aiTimer);
+      aiMoveQueue = [];
+
+      // If in auto-ai mode and game is playing, start AI
+      if (mode === 'auto-ai' && gameState === 'playing') {
+        scheduleAIMove();
+      }
+
+      // Auto-start in AI mode if waiting
+      if (mode === 'auto-ai' && gameState === 'waiting') {
+        start();
+      }
+    }
+
+    // ───────────────────────────────────────────────
+    // Keyboard Input (Manual + External modes)
+    // ───────────────────────────────────────────────
+
+    document.addEventListener('keydown', (e) => {
+      const gameKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
+      if (gameKeys.includes(e.key)) e.preventDefault();
+
+      if (currentMode !== 'manual') {
+        // In AI/External mode, allow any key to start the game
+        if (gameState === 'waiting') { start(); return; }
+        if (gameState === 'over' && currentMode === 'external') { init(); return; }
+        return;
+      }
+
+      if (gameState === 'waiting') { start(); return; }
+      if (gameState === 'over') { init(); return; }
+
+      if (gameState === 'playing') {
+        switch (e.key) {
+          case 'ArrowLeft':
+            move(-1);
+            wsSend({ type: 'action', action: 'LEFT', timestamp: Date.now() });
+            break;
+          case 'ArrowRight':
+            move(1);
+            wsSend({ type: 'action', action: 'RIGHT', timestamp: Date.now() });
+            break;
+          case 'ArrowDown':
+            if (!softDropping) {
+              softDropping = true;
+              clearTimeout(timer);
+              tick();
+            }
+            wsSend({ type: 'action', action: 'DROP', timestamp: Date.now() });
+            break;
+          case 'ArrowUp':
+            rotate();
+            wsSend({ type: 'action', action: 'ROTATE', timestamp: Date.now() });
+            break;
+          case ' ':
+            hardDrop();
+            wsSend({ type: 'action', action: 'HARD_DROP', timestamp: Date.now() });
+            break;
+        }
+        draw();
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (currentMode !== 'manual') return;
+      if (e.key === 'ArrowDown' && softDropping) {
+        softDropping = false;
+        clearTimeout(timer);
+        timer = setTimeout(tick, dropInterval);
+      }
+    });
+
+    // ───────────────────────────────────────────────
+    // Heuristic Tetris AI (Pierre Dellacherie)
+    // ───────────────────────────────────────────────
+
+    let aiTimer = null;
+    let aiMoveQueue = [];
+    const AI_MOVE_DELAY = 30; // ms between moves for snappy but visible play
+
+    function getRotations(shape) {
+      // Generate all unique rotations of a shape
+      const rotations = [shape.map(p => [...p])];
+      let cur = shape.map(p => [...p]);
+      for (let r = 0; r < 3; r++) {
+        const maxX = Math.max(...cur.map(p => p[0]));
+        const maxY = Math.max(...cur.map(p => p[1]));
+        cur = cur.map(([x, y]) => [maxY - y, x]);
+        // Normalize to origin
+        const minX = Math.min(...cur.map(p => p[0]));
+        const minY = Math.min(...cur.map(p => p[1]));
+        cur = cur.map(([x, y]) => [x - minX, y - minY]);
+
+        // Check for duplicate rotations (O-piece has only 1 unique)
+        const key = cur.map(p => p.join(',')).sort().join('|');
+        const isDup = rotations.some(rot => {
+          const rkey = rot.map(p => p.join(',')).sort().join('|');
+          return rkey === key;
+        });
+        if (!isDup) rotations.push(cur.map(p => [...p]));
+      }
+      return rotations;
+    }
+
+    function simulatePlacement(boardCopy, shape, col) {
+      // Drop the piece at the given column, return board + metadata
+      const minX = Math.min(...shape.map(p => p[0]));
+      const maxX = Math.max(...shape.map(p => p[0]));
+      const minY = Math.min(...shape.map(p => p[1]));
+
+      const x = col;
+      if (x + minX < 0 || x + maxX >= COLS) return null;
+
+      // Drop piece from top
+      let y = -minY;
+      while (true) {
+        const nextY = y + 1;
+        const hits = shape.some(([sx, sy]) => {
+          const nx = x + sx, ny = nextY + sy;
+          return ny >= ROWS || (ny >= 0 && boardCopy[ny][nx]);
+        });
+        if (hits) break;
+        y = nextY;
+      }
+
+      // Check if piece is entirely above the board
+      const allAbove = shape.every(([sx, sy]) => y + sy < 0);
+      if (allAbove) return null;
+
+      // Place piece and track cell positions
+      const newBoard = boardCopy.map(row => [...row]);
+      const pieceCells = [];
+      shape.forEach(([sx, sy]) => {
+        const nx = x + sx, ny = y + sy;
+        if (ny >= 0 && ny < ROWS) {
+          newBoard[ny][nx] = '#fff';
+          pieceCells.push([nx, ny]);
+        }
+      });
+
+      // Landing height = average row of piece cells (from bottom)
+      const landingHeight = pieceCells.reduce((s, [, py]) => s + (ROWS - py), 0) / pieceCells.length;
+
+      return { board: newBoard, y, landingHeight, pieceCells };
+    }
+
+    function evaluateBoard(boardState, landingHeight, pieceCells) {
+      // El-Tetris evaluation (Thiery & Scherrer, 2009)
+      // 6 features with optimized weights — consistently clears 1000+ lines
+
+      // 1. Eroded piece cells: rows_cleared * piece_cells_in_those_rows
+      const completedRows = new Set();
+      for (let r = 0; r < ROWS; r++) {
+        if (boardState[r].every(c => c !== null)) completedRows.add(r);
+      }
+      let erodedPieceCells = 0;
+      pieceCells.forEach(([, py]) => { if (completedRows.has(py)) erodedPieceCells++; });
+      const erodedScore = completedRows.size * erodedPieceCells;
+
+      // Remove completed rows for surface metrics
+      const filtered = [];
+      for (let r = 0; r < ROWS; r++) {
+        if (!completedRows.has(r)) filtered.push(boardState[r]);
+      }
+      while (filtered.length < ROWS) filtered.unshift(Array(COLS).fill(null));
+
+      // 2. Row transitions: filled<->empty changes per row (borders count as filled)
+      let rowTransitions = 0;
+      for (let r = 0; r < ROWS; r++) {
+        let lastFilled = true; // left border
+        for (let c = 0; c < COLS; c++) {
+          const filled = filtered[r][c] !== null;
+          if (filled !== lastFilled) rowTransitions++;
+          lastFilled = filled;
+        }
+        if (!lastFilled) rowTransitions++; // right border
+      }
+
+      // 3. Column transitions: filled<->empty changes per column (floor counts as filled)
+      let colTransitions = 0;
+      for (let c = 0; c < COLS; c++) {
+        let lastFilled = false; // top = empty
+        for (let r = 0; r < ROWS; r++) {
+          const filled = filtered[r][c] !== null;
+          if (filled !== lastFilled) colTransitions++;
+          lastFilled = filled;
+        }
+        if (!lastFilled) colTransitions++; // bottom border = filled
+      }
+
+      // 4. Holes: empty cells with filled cell above
+      let holes = 0;
+      for (let c = 0; c < COLS; c++) {
+        let foundBlock = false;
+        for (let r = 0; r < ROWS; r++) {
+          if (filtered[r][c] !== null) foundBlock = true;
+          else if (foundBlock) holes++;
+        }
+      }
+
+      // 5. Well sums: cumulative depth of wells (columns lower than both neighbors)
+      const colHeights = [];
+      for (let c = 0; c < COLS; c++) {
+        let h = 0;
+        for (let r = 0; r < ROWS; r++) {
+          if (filtered[r][c] !== null) { h = ROWS - r; break; }
+        }
+        colHeights.push(h);
+      }
+      let wellSums = 0;
+      for (let c = 0; c < COLS; c++) {
+        const leftH = c === 0 ? ROWS : colHeights[c - 1];
+        const rightH = c === COLS - 1 ? ROWS : colHeights[c + 1];
+        if (colHeights[c] < leftH && colHeights[c] < rightH) {
+          const wellDepth = Math.min(leftH, rightH) - colHeights[c];
+          wellSums += wellDepth * (wellDepth + 1) / 2;
+        }
+      }
+
+      // El-Tetris weights
+      return -4.500158825082766 * landingHeight
+           + 3.4181268101392694 * erodedScore
+           - 3.2178882868487753 * rowTransitions
+           - 9.348695305445199  * colTransitions
+           - 7.899265427351652  * holes
+           - 3.3855972247263626 * wellSums;
+    }
+
+    function findBestMove() {
+      const rotations = getRotations(current.shape);
+      let bestScore = -Infinity;
+      let bestMove = null;
+
+      for (let ri = 0; ri < rotations.length; ri++) {
+        const shape = rotations[ri];
+        const minX = Math.min(...shape.map(p => p[0]));
+        const maxX = Math.max(...shape.map(p => p[0]));
+
+        for (let col = -minX; col < COLS - maxX; col++) {
+          const result = simulatePlacement(board, shape, col);
+          if (!result) continue;
+
+          const sc = evaluateBoard(result.board, result.landingHeight, result.pieceCells);
+          if (sc > bestScore) {
+            bestScore = sc;
+            bestMove = { rotation: ri, column: col, score: sc };
+          }
+        }
+      }
+
+      return bestMove;
+    }
+
+    function findBestMoveWithLookahead() {
+      const rotations = getRotations(current.shape);
+      const nextRotations = getRotations(next.shape);
+      let bestScore = -Infinity;
+      let bestMove = null;
+
+      for (let ri = 0; ri < rotations.length; ri++) {
+        const shape = rotations[ri];
+        const minX = Math.min(...shape.map(p => p[0]));
+        const maxX = Math.max(...shape.map(p => p[0]));
+
+        for (let col = -minX; col < COLS - maxX; col++) {
+          const result = simulatePlacement(board, shape, col);
+          if (!result) continue;
+
+          // Remove completed rows from the result board for next-piece eval
+          const boardAfter = [];
+          for (let r = 0; r < ROWS; r++) {
+            if (!result.board[r].every(c => c !== null)) boardAfter.push([...result.board[r]]);
+          }
+          while (boardAfter.length < ROWS) boardAfter.unshift(Array(COLS).fill(null));
+
+          // Find the best score for the next piece on this board
+          let bestNextScore = -Infinity;
+          for (let nri = 0; nri < nextRotations.length; nri++) {
+            const nShape = nextRotations[nri];
+            const nMinX = Math.min(...nShape.map(p => p[0]));
+            const nMaxX = Math.max(...nShape.map(p => p[0]));
+
+            for (let nCol = -nMinX; nCol < COLS - nMaxX; nCol++) {
+              const nResult = simulatePlacement(boardAfter, nShape, nCol);
+              if (!nResult) continue;
+              const nScore = evaluateBoard(nResult.board, nResult.landingHeight, nResult.pieceCells);
+              if (nScore > bestNextScore) bestNextScore = nScore;
+            }
+          }
+
+          // Combine: current placement score + best next score
+          const currentScore = evaluateBoard(result.board, result.landingHeight, result.pieceCells);
+          const combinedScore = currentScore + (bestNextScore > -Infinity ? bestNextScore : 0);
+
+          if (combinedScore > bestScore) {
+            bestScore = combinedScore;
+            bestMove = { rotation: ri, column: col, score: combinedScore };
+          }
+        }
+      }
+
+      return bestMove;
+    }
+
+    function buildMoveSequence(targetRotation, targetColumn) {
+      const moves = [];
+
+      // Rotations first
+      for (let r = 0; r < targetRotation; r++) {
+        moves.push('ROTATE');
+      }
+
+      // Simulate rotations to find piece position after rotating
+      let testShape = current.shape.map(p => [...p]);
+      let testX = pos.x;
+      let testY = pos.y;
+      for (let r = 0; r < targetRotation; r++) {
+        const mxY = Math.max(...testShape.map(p => p[1]));
+        const ns = testShape.map(([x, y]) => [mxY - y, x]);
+
+        const kicks = [{ x: 0, y: 0 }, { x: -1, y: 0 }, { x: 1, y: 0 }, { x: -2, y: 0 }, { x: 2, y: 0 }, { x: 0, y: -1 }];
+        let kicked = false;
+        for (const kick of kicks) {
+          const tp = { x: testX + kick.x, y: testY + kick.y };
+          const valid = !ns.some(([sx, sy]) => {
+            const nx = tp.x + sx, ny = tp.y + sy;
+            return nx < 0 || nx >= COLS || ny >= ROWS || (ny >= 0 && board[ny][nx]);
+          });
+          if (valid) {
+            testShape = ns;
+            testX = tp.x;
+            testY = tp.y;
+            kicked = true;
+            break;
+          }
+        }
+        if (!kicked) return moves; // rotation failed, bail
+      }
+
+      // Lateral moves
+      const dx = targetColumn - testX;
+      if (dx < 0) {
+        for (let i = 0; i < -dx; i++) moves.push('LEFT');
+      } else if (dx > 0) {
+        for (let i = 0; i < dx; i++) moves.push('RIGHT');
+      }
+
+      moves.push('HARD_DROP');
+      return moves;
+    }
+
+    function scheduleAIMove() {
+      if (currentMode !== 'auto-ai' || gameState !== 'playing') return;
+      clearTimeout(timer);
+
+      const best = findBestMoveWithLookahead();
+      if (!best) {
+        // No valid move found (shouldn't happen), just hard drop
+        aiMoveQueue = ['HARD_DROP'];
+      } else {
+        aiMoveQueue = buildMoveSequence(best.rotation, best.column);
+      }
+
+      executeNextAIMove();
+    }
+
+    function executeNextAIMove() {
+      if (currentMode !== 'auto-ai' || gameState !== 'playing') {
+        aiMoveQueue = [];
+        if (gameState === 'playing') {
+          timer = setTimeout(tick, dropInterval);
+        }
+        return;
+      }
+
+      if (aiMoveQueue.length === 0) {
+        timer = setTimeout(tick, dropInterval);
+        return;
+      }
+
+      const action = aiMoveQueue.shift();
+      executeAction(action);
+
+      if (aiMoveQueue.length > 0) {
+        aiTimer = setTimeout(executeNextAIMove, AI_MOVE_DELAY);
+      }
+    }
+
+    function executeAction(action) {
+      if (gameState !== 'playing') return;
+
+      switch (action) {
+        case 'LEFT': move(-1); break;
+        case 'RIGHT': move(1); break;
+        case 'ROTATE': rotate(); break;
+        case 'DROP': drop(true); break;
+        case 'HARD_DROP': hardDrop(); break;
+      }
+      draw();
+
+      // Send to WebSocket
+      eventCount++;
+      document.getElementById('statEvents').textContent = eventCount;
+      wsSend({ type: 'action', action, timestamp: Date.now() });
+    }
+
+    // ───────────────────────────────────────────────
+    // WebSocket Client
+    // ───────────────────────────────────────────────
+
+    let ws = null;
+    let wsReconnectTimer = null;
+    const WS_URL = 'ws://localhost:9876';
+
+    function wsConnect() {
+      try {
+        ws = new WebSocket(WS_URL);
+      } catch (e) {
+        return;
+      }
+
+      ws.onopen = () => {
+        document.getElementById('wsDot').classList.add('connected');
+        document.getElementById('wsLabel').textContent = 'WS: connected';
+        if (wsReconnectTimer) {
+          clearInterval(wsReconnectTimer);
+          wsReconnectTimer = null;
+        }
+      };
+
+      ws.onclose = () => {
+        document.getElementById('wsDot').classList.remove('connected');
+        document.getElementById('wsLabel').textContent = 'WS: disconnected';
+        ws = null;
+        if (!wsReconnectTimer) {
+          wsReconnectTimer = setInterval(wsConnect, 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        // Will trigger onclose
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleWSMessage(msg);
+        } catch (e) {
+          // Ignore malformed messages
+        }
+      };
+    }
+
+    function wsSend(msg) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    }
+
+    function handleWSMessage(msg) {
+      switch (msg.type) {
+        case 'command':
+          // External mode: execute a command from the Python server
+          if (currentMode === 'external' && gameState === 'playing') {
+            executeAction(msg.action);
+          }
+          break;
+
+        case 'set_mode':
+          if (['manual', 'auto-ai', 'external'].includes(msg.mode)) {
+            setMode(msg.mode);
+          }
+          break;
+      }
+    }
+
+    // ───────────────────────────────────────────────
+    // Initialization
+    // ───────────────────────────────────────────────
+
+    init();
+    wsConnect();
+
+    // Auto-start in AI mode
+    if (currentMode === 'auto-ai') {
+      setTimeout(() => {
+        if (gameState === 'waiting') start();
+      }, 1000);
+    }
+  </script>
+</body>
+</html>

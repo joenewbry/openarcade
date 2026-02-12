@@ -137,6 +137,8 @@
 
     let board, current, next, pos, score, lines, level, gameState, timer, dropInterval;
     let flashRows = [], flashTimer = 0, flashPhase = 0, showTetrisText = 0;
+    let softDropping = false;
+    const SOFT_DROP_INTERVAL = 50; // ms between drops when holding ArrowDown
 
     function init() {
       board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
@@ -259,11 +261,14 @@
       }
     }
 
-    function drop() {
+    function drop(isSoftDrop) {
       pos.y++;
       if (collides(current.shape, pos)) {
         pos.y--;
         lock();
+      } else if (isSoftDrop) {
+        score += 1;
+        scoreEl.textContent = score;
       }
     }
 
@@ -296,9 +301,9 @@
     function tick() {
       clearTimeout(timer);
       if (gameState !== 'playing') return;
-      drop();
+      drop(softDropping);
       draw();
-      timer = setTimeout(tick, dropInterval);
+      timer = setTimeout(tick, softDropping ? SOFT_DROP_INTERVAL : dropInterval);
     }
 
     function gameOver() {
@@ -412,11 +417,27 @@
         switch (e.key) {
           case 'ArrowLeft': move(-1); break;
           case 'ArrowRight': move(1); break;
-          case 'ArrowDown': hardDrop(); break;
+          case 'ArrowDown':
+            if (!softDropping) {
+              softDropping = true;
+              // Restart tick at fast rate immediately
+              clearTimeout(timer);
+              tick();
+            }
+            break;
           case 'ArrowUp': rotate(); break;
           case ' ': hardDrop(); break;
         }
         draw();
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.key === 'ArrowDown' && softDropping) {
+        softDropping = false;
+        // Resume normal speed
+        clearTimeout(timer);
+        timer = setTimeout(tick, dropInterval);
       }
     });
 
