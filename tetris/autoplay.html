@@ -605,7 +605,8 @@
 
     let aiTimer = null;
     let aiMoveQueue = [];
-    const AI_MOVE_DELAY = 30; // ms between moves for snappy but visible play
+    const AI_MOVE_DELAY = 80; // ms between moves (slowed for visible play + training data)
+    const AI_THINK_DELAY = 500; // ms pause before AI starts moving each piece
 
     function getRotations(shape) {
       // Generate all unique rotations of a shape
@@ -874,7 +875,8 @@
         for (let i = 0; i < dx; i++) moves.push('RIGHT');
       }
 
-      moves.push('HARD_DROP');
+      // No hard drop — let gravity drop the piece after positioning.
+      // This creates visible buildup and more training frames per piece.
       return moves;
     }
 
@@ -882,15 +884,19 @@
       if (currentMode !== 'auto-ai' || gameState !== 'playing') return;
       clearTimeout(timer);
 
-      const best = findBestMoveWithLookahead();
-      if (!best) {
-        // No valid move found (shouldn't happen), just hard drop
-        aiMoveQueue = ['HARD_DROP'];
-      } else {
-        aiMoveQueue = buildMoveSequence(best.rotation, best.column);
-      }
+      // Pause before AI starts moving — slows overall pace for training data
+      aiTimer = setTimeout(() => {
+        if (currentMode !== 'auto-ai' || gameState !== 'playing') return;
 
-      executeNextAIMove();
+        const best = findBestMoveWithLookahead();
+        if (!best) {
+          aiMoveQueue = [];
+        } else {
+          aiMoveQueue = buildMoveSequence(best.rotation, best.column);
+        }
+
+        executeNextAIMove();
+      }, AI_THINK_DELAY);
     }
 
     function executeNextAIMove() {
@@ -903,6 +909,7 @@
       }
 
       if (aiMoveQueue.length === 0) {
+        // Done positioning — resume gravity so piece falls naturally
         timer = setTimeout(tick, dropInterval);
         return;
       }
@@ -912,6 +919,9 @@
 
       if (aiMoveQueue.length > 0) {
         aiTimer = setTimeout(executeNextAIMove, AI_MOVE_DELAY);
+      } else {
+        // All positioning done — let gravity take over
+        timer = setTimeout(tick, dropInterval);
       }
     }
 
