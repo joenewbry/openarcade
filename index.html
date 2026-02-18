@@ -51,6 +51,18 @@
       </div>
     </div>
 
+    <div class="search-filter-bar" id="searchFilterBar">
+      <input type="text" id="searchInput" placeholder="Search games..." autocomplete="off" spellcheck="false">
+      <div class="filter-buttons" id="filterButtons">
+        <button class="filter-btn active" data-category="all">All</button>
+        <button class="filter-btn" data-category="classic">Classic</button>
+        <button class="filter-btn" data-category="action">Action</button>
+        <button class="filter-btn" data-category="puzzle">Puzzle</button>
+        <button class="filter-btn" data-category="casual">Casual</button>
+        <button class="filter-btn" data-category="racing">Racing</button>
+      </div>
+    </div>
+
     <div class="games-grid">
       <a href="tetris/index.html" class="game-card card-tetris" data-game="tetris">
         <div class="card-header"><h2>Tetris</h2><span class="plays-badge" data-game="tetris"></span></div>
@@ -821,6 +833,55 @@
           document.getElementById('totalHours').textContent = '0h';
           document.getElementById('totalData').textContent = '0 B';
         });
+      /* ── Search and category filtering ── */
+      var GAME_CATEGORIES = {
+        classic: ['pac-man','tetris','space-invaders','donkey-kong','galaga','frogger','asteroids','breakout','pong','centipede','missile-command','dig-dug','qbert','joust','robotron','moon-patrol','bubble-bobble','phoenix','galaxian','1942','xevious','mappy','elevator-action','lode-runner','boulder-dash','rally-x','mr-do','snow-bros','tapper','burger-time','ice-climber','bomberman','amidar','defender','tempest','sinistar','battlezone'],
+        action: ['galaga','robotron','1942','raiden','space-invaders','asteroids','centipede','phoenix','xevious','galaxian','missile-command','pac-man','frogger','bomberman','donkey-kong','moon-patrol','tron','canabalt','helicopter','duck-hunt','tanks','kaboom','dig-dug','bubble-bobble','joust','r-type','gradius','defender','tempest','sinistar','mega-man','spelunky','super-mario','outrun','spy-hunter','geometry-dash','jetpack-joyride','fruit-ninja','battlezone','space-duel','warlords','rampart','slither','agar'],
+        puzzle: ['2048','minesweeper','lights-out','sokoban','columns','simon','bejeweled','dr-mario','puyo-puyo','pipe-dream','puzzle-bobble','nonogram','sudoku','klotski','tower-of-hanoi','peggle','lemmings','tower-defense'],
+        casual: ['cookie-clicker','snake','flappy','dino','whack-a-mole','doodle-jump','crossy-road','air-hockey','slot-racer','nibbler','arkanoid','dx-ball','brick-breaker','pinball','paperboy','simcity','plants-vs-zombies','temple-run'],
+        racing: ['tron','outrun','road-fighter','night-driver','super-sprint','spy-hunter','geometry-dash','canabalt','jetpack-joyride','temple-run','slot-racer']
+      };
+      // Build reverse map: game -> categories
+      var gameCats = {};
+      Object.keys(GAME_CATEGORIES).forEach(function (cat) {
+        GAME_CATEGORIES[cat].forEach(function (g) {
+          if (!gameCats[g]) gameCats[g] = [];
+          gameCats[g].push(cat);
+        });
+      });
+
+      var searchInput = document.getElementById('searchInput');
+      var filterBtns = document.querySelectorAll('.filter-btn');
+      var activeCategory = 'all';
+
+      function applyFilter() {
+        var query = searchInput.value.toLowerCase().trim();
+        var cards = grid.querySelectorAll('.game-card');
+        var visible = 0;
+        cards.forEach(function (card) {
+          var game = card.getAttribute('data-game');
+          var text = card.textContent.toLowerCase();
+          var matchesSearch = !query || text.indexOf(query) !== -1;
+          var matchesCategory = activeCategory === 'all' || (gameCats[game] && gameCats[game].indexOf(activeCategory) !== -1);
+          if (matchesSearch && matchesCategory) {
+            card.style.display = '';
+            visible++;
+          } else {
+            card.style.display = 'none';
+          }
+        });
+      }
+
+      searchInput.addEventListener('input', applyFilter);
+      filterBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          filterBtns.forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          activeCategory = btn.getAttribute('data-category');
+          applyFilter();
+        });
+      });
+
     })();
   </script>
 </body>

@@ -82,6 +82,67 @@ body {
   font-size: 1.2rem;
 }
 
+/* ── Search and filter bar ─────────────────────────────── */
+.search-filter-bar {
+  max-width: 1200px;
+  width: 100%;
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.search-filter-bar input {
+  width: 100%;
+  padding: 12px 18px;
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-family: 'Courier New', monospace;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-filter-bar input::placeholder {
+  color: #555;
+}
+
+.search-filter-bar input:focus {
+  border-color: #0ff;
+  box-shadow: 0 0 12px rgba(0, 255, 255, 0.15);
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 6px 16px;
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 20px;
+  color: #888;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-btn:hover {
+  border-color: #0ff;
+  color: #ccc;
+}
+
+.filter-btn.active {
+  background: rgba(0, 255, 255, 0.1);
+  border-color: #0ff;
+  color: #0ff;
+}
+
 .games-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
