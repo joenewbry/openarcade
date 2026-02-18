@@ -71,7 +71,7 @@
     <div class="overlay" id="overlay" style="width:600px;height:400px;">
       <h2 id="overlayTitle">SMASH ARENA</h2>
       <p id="overlayText">Click to Fight!<br><br>
-        <span class="highlight">Arrows</span> = Move/Jump &nbsp; <span class="highlight">Z</span> = Attack<br>
+        <span class="highlight">Arrows</span> = Move / Jump &nbsp; <span class="highlight">Z</span> = Attack<br>
         <span class="highlight">X</span> = Special &nbsp; <span class="highlight">C</span> = Grab &nbsp; <span class="highlight">S</span> = Shield<br><br>
         Higher damage % = more knockback!<br>
         KO opponents off screen. 3 stocks each.</p>
@@ -97,21 +97,21 @@
     const BG = '#1a1a2e';
     const BG2 = '#16213e';
 
-    // Physics
+    // Physics constants
     const GRAVITY = 0.55;
     const MAX_FALL = 12;
-    const GROUND_FRICTION = 0.85;
+    const GROUND_FRICTION = 0.82;
     const AIR_FRICTION = 0.97;
     const JUMP_FORCE = -11;
     const DOUBLE_JUMP_FORCE = -9.5;
-    const MOVE_SPEED = 4.2;
-    const AIR_SPEED = 3.0;
+    const MOVE_SPEED = 4.5;
+    const AIR_SPEED = 3.2;
     const HITSTUN_FACTOR = 0.06;
     const KB_SCALING = 0.12;
     const BASE_KB = 3;
     const DI_STRENGTH = 0.08;
 
-    // Stage
+    // Stage layout
     const STAGE_Y = 310;
     const STAGE_LEFT = 100;
     const STAGE_RIGHT = 500;
@@ -122,130 +122,88 @@
 
     const platforms = [
       { x: 100, y: STAGE_Y, w: 400, h: 18, isMain: true },
-      { x: 140, y: 230, w: 100, h: 10, isMain: false },
-      { x: 360, y: 230, w: 100, h: 10, isMain: false },
-      { x: 240, y: 160, w: 120, h: 10, isMain: false },
+      { x: 135, y: 228, w: 100, h: 10, isMain: false },
+      { x: 365, y: 228, w: 100, h: 10, isMain: false },
+      { x: 235, y: 155, w: 130, h: 10, isMain: false },
     ];
 
-    // Ledges
-    const ledges = [
-      { x: STAGE_LEFT, y: STAGE_Y, side: 'left' },
-      { x: STAGE_RIGHT, y: STAGE_Y, side: 'right' },
-    ];
-
-    // Character data
     const CHAR_W = 28, CHAR_H = 38;
+
     const CHARACTERS = [
-      { name: 'Blaze', color: '#f44', accentColor: '#f88', speed: 1.0, weight: 1.0, jumpMul: 1.0,
-        specDesc: 'Fireball', specType: 'projectile', specColor: '#f80' },
-      { name: 'Frost', color: '#48f', accentColor: '#8af', speed: 1.1, weight: 0.85, jumpMul: 1.1,
-        specDesc: 'Ice Dash', specType: 'dash', specColor: '#4ef' },
-      { name: 'Terra', color: '#4a4', accentColor: '#8d8', speed: 0.85, weight: 1.3, jumpMul: 0.9,
-        specDesc: 'Rock Smash', specType: 'slam', specColor: '#a84' },
-      { name: 'Volt', color: '#ff4', accentColor: '#ffa', speed: 1.2, weight: 0.8, jumpMul: 1.15,
-        specDesc: 'Thunder', specType: 'projectile', specColor: '#ff0' },
+      { name: 'Blaze', color: '#f44', accent: '#f88', speed: 1.0, weight: 1.0, jumpMul: 1.0,
+        specType: 'projectile', specColor: '#f80' },
+      { name: 'Frost', color: '#48f', accent: '#8af', speed: 1.1, weight: 0.85, jumpMul: 1.1,
+        specType: 'dash', specColor: '#4ef' },
+      { name: 'Terra', color: '#4a4', accent: '#8d8', speed: 0.85, weight: 1.3, jumpMul: 0.9,
+        specType: 'slam', specColor: '#a84' },
+      { name: 'Volt', color: '#ff4', accent: '#ffa', speed: 1.2, weight: 0.8, jumpMul: 1.15,
+        specType: 'projectile', specColor: '#ff0' },
     ];
 
-    // Attacks
     const ATTACKS = {
-      jab:    { dmg: 4,  kb: 2.5,  start: 3,  active: 3,  end: 8,  rangeX: 30, rangeY: 14 },
-      smash:  { dmg: 14, kb: 8,    start: 12, active: 4,  end: 18, rangeX: 38, rangeY: 18 },
-      aerial: { dmg: 8,  kb: 5,    start: 5,  active: 4,  end: 10, rangeX: 32, rangeY: 20 },
-      upAir:  { dmg: 9,  kb: 6,    start: 5,  active: 4,  end: 10, rangeX: 24, rangeY: 30 },
-      dAir:   { dmg: 10, kb: 7,    start: 7,  active: 4,  end: 14, rangeX: 22, rangeY: 28 },
-      grab:   { dmg: 0,  kb: 0,    start: 6,  active: 3,  end: 25, rangeX: 28, rangeY: 14 },
+      jab:    { dmg: 4,  kb: 2.5,  start: 3,  active: 3,  end: 8,  rx: 30, ry: 14 },
+      smash:  { dmg: 14, kb: 8,    start: 14, active: 4,  end: 20, rx: 40, ry: 20 },
+      aerial: { dmg: 8,  kb: 5,    start: 5,  active: 4,  end: 10, rx: 32, ry: 20 },
+      upAir:  { dmg: 9,  kb: 6,    start: 5,  active: 4,  end: 10, rx: 24, ry: 30 },
+      dAir:   { dmg: 10, kb: 7,    start: 7,  active: 4,  end: 14, rx: 22, ry: 28 },
+      grab:   { dmg: 0,  kb: 0,    start: 6,  active: 3,  end: 28, rx: 28, ry: 14 },
     };
 
-    // Items
     const ITEM_TYPES = [
-      { name: 'Beam Sword', color: '#4ff', w: 20, h: 8, attackBoost: 1.6, kbBoost: 1.4, duration: 600 },
-      { name: 'Hammer', color: '#f84', w: 16, h: 22, attackBoost: 2.2, kbBoost: 2.0, duration: 360 },
-      { name: 'Bomb', color: '#444', w: 14, h: 14, attackBoost: 1.0, kbBoost: 1.0, duration: 300, explosive: true },
+      { name: 'Beam Sword', color: '#4ff', w: 20, h: 8, atkBoost: 1.6, kbBoost: 1.4, dur: 600 },
+      { name: 'Hammer',     color: '#f84', w: 16, h: 22, atkBoost: 2.2, kbBoost: 2.0, dur: 360 },
+      { name: 'Bomb',       color: '#888', w: 14, h: 14, atkBoost: 1.0, kbBoost: 1.0, dur: 300, explosive: true },
     ];
 
     let players = [];
     let projectiles = [];
     let items = [];
     let particles = [];
-    let shakeTimer = 0;
-    let shakeIntensity = 0;
+    let shakeTimer = 0, shakeIntensity = 0;
     let itemSpawnTimer = 0;
     let frameCount = 0;
     let keys = {};
     let lastTime = 0;
     let matchOver = false;
     let countdownTimer = 0;
-    let countdownValue = 0;
     let stageHazardTimer = 0;
     let hazardWarning = null;
     let hazardActive = null;
 
-    // Input
+    // Grab state tracked per-frame (no setTimeout)
+    // grabTimer on the grabber counts down; when 0, throw happens
+
     document.addEventListener('keydown', e => {
       keys[e.key] = true;
-      if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
     });
     document.addEventListener('keyup', e => { keys[e.key] = false; });
 
-    canvas.addEventListener('click', () => {
-      if (gameState === 'waiting' || gameState === 'over') {
-        startGame();
-      }
+    canvas.parentElement.addEventListener('click', () => {
+      if (gameState === 'waiting' || gameState === 'over') startGame();
     });
 
-    function createPlayer(index, charIndex, isAI) {
-      const ch = CHARACTERS[charIndex];
-      const spawnX = 180 + index * 100;
+    function mkPlayer(idx, charIdx, isAI) {
+      const ch = CHARACTERS[charIdx];
       return {
-        x: spawnX, y: STAGE_Y - CHAR_H,
-        vx: 0, vy: 0,
-        w: CHAR_W, h: CHAR_H,
-        facing: index < 2 ? 1 : -1,
-        charIndex: charIndex,
-        color: ch.color,
-        accentColor: ch.accentColor,
-        speed: ch.speed,
-        weight: ch.weight,
-        jumpMul: ch.jumpMul,
-        damage: 0,
-        stocks: 3,
-        kos: 0,
-        isAI: isAI,
-        grounded: false,
-        jumpsLeft: 2,
-        attack: null,
-        attackFrame: 0,
-        attackType: null,
-        hitstun: 0,
-        shielding: false,
-        shieldHP: 100,
-        grabbing: null,
-        grabbedBy: null,
-        invincible: 0,
-        item: null,
-        itemTimer: 0,
-        respawnTimer: 0,
-        alive: true,
-        index: index,
-        name: ch.name,
-        specType: ch.specType,
-        specColor: ch.specColor,
-        // AI state
-        aiTarget: null,
-        aiTimer: 0,
-        aiAction: null,
-        aiDodgeTimer: 0,
-        aiComboStep: 0,
-        fastFall: false,
-        deathY: 0,
-        ledgeGrab: 0,
-        smashCharge: 0,
-        platform: null,
-        // Animation
-        animFrame: 0,
-        animTimer: 0,
-        hitlag: 0,
-        lastHitBy: -1,
+        x: 180 + idx * 80, y: STAGE_Y - CHAR_H,
+        vx: 0, vy: 0, w: CHAR_W, h: CHAR_H,
+        facing: idx < 2 ? 1 : -1,
+        charIdx, color: ch.color, accent: ch.accent,
+        speed: ch.speed, weight: ch.weight, jumpMul: ch.jumpMul,
+        specType: ch.specType, specColor: ch.specColor,
+        damage: 0, stocks: 3, kos: 0,
+        isAI, grounded: false, jumpsLeft: 2,
+        atk: null, atkFrame: 0, atkType: null,
+        hitstun: 0, shielding: false, shieldHP: 100,
+        grabbing: -1, grabbedBy: -1, grabTimer: 0,
+        invincible: 0, item: null, itemTimer: 0,
+        respawnTimer: 0, alive: true, idx,
+        name: ch.name, platform: null,
+        fastFall: false, lastHitBy: -1,
+        hitlag: 0, animFrame: 0, animTimer: 0,
+        // AI
+        aiTimer: 0, aiDodgeCD: 0, aiCombo: 0,
       };
     }
 
@@ -254,21 +212,17 @@
       score = 0;
       overlay.style.display = 'none';
       players = [
-        createPlayer(0, 0, false),
-        createPlayer(1, 1, true),
-        createPlayer(2, 2, true),
-        createPlayer(3, 3, true),
+        mkPlayer(0, 0, false),
+        mkPlayer(1, 1, true),
+        mkPlayer(2, 2, true),
+        mkPlayer(3, 3, true),
       ];
-      projectiles = [];
-      items = [];
-      particles = [];
+      projectiles = []; items = []; particles = [];
       itemSpawnTimer = 300;
-      stageHazardTimer = 900;
-      hazardWarning = null;
-      hazardActive = null;
+      stageHazardTimer = 800 + Math.floor(Math.random() * 300);
+      hazardWarning = null; hazardActive = null;
       matchOver = false;
       countdownTimer = 180;
-      countdownValue = 3;
       frameCount = 0;
       updateHUD();
     }
@@ -281,109 +235,117 @@
       dmgDisp.textContent = Math.floor(p.damage);
     }
 
-    // Collision helpers
-    function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+    function overlap(ax, ay, aw, ah, bx, by, bw, bh) {
       return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
     }
 
-    function playerOnPlatform(p) {
-      for (const plat of platforms) {
-        if (p.vy >= 0 && p.x + p.w > plat.x && p.x < plat.x + plat.w &&
-            p.y + p.h >= plat.y && p.y + p.h <= plat.y + 12) {
-          return plat;
-        }
-      }
-      return null;
+    function spawnPart(x, y, vx, vy, col, life, sz) {
+      particles.push({ x, y, vx, vy, col, life, maxLife: life, sz: sz || 3 });
     }
 
-    function spawnParticle(x, y, vx, vy, color, life, size) {
-      particles.push({ x, y, vx, vy, color, life, maxLife: life, size: size || 3 });
-    }
-
-    function spawnKOExplosion(x, y, color) {
-      shakeTimer = 15;
-      shakeIntensity = 8;
-      for (let i = 0; i < 30; i++) {
-        const ang = Math.random() * Math.PI * 2;
-        const spd = 2 + Math.random() * 6;
-        spawnParticle(x, y, Math.cos(ang) * spd, Math.sin(ang) * spd, color, 40 + Math.random() * 20, 3 + Math.random() * 4);
+    function koExplosion(x, y, col) {
+      shakeTimer = 16; shakeIntensity = 9;
+      for (let i = 0; i < 35; i++) {
+        const a = Math.random() * Math.PI * 2, s = 2 + Math.random() * 7;
+        spawnPart(x, y, Math.cos(a)*s, Math.sin(a)*s, col, 35+Math.random()*20, 3+Math.random()*5);
       }
-      // KO star burst
       for (let i = 0; i < 8; i++) {
-        const ang = i / 8 * Math.PI * 2;
-        spawnParticle(x, y, Math.cos(ang) * 8, Math.sin(ang) * 8, '#fff', 25, 5);
+        const a = i/8*Math.PI*2;
+        spawnPart(x, y, Math.cos(a)*9, Math.sin(a)*9, '#fff', 22, 5);
       }
     }
 
-    function spawnHitSparks(x, y, dmg) {
-      const count = Math.min(dmg * 2, 15);
-      for (let i = 0; i < count; i++) {
-        const ang = Math.random() * Math.PI * 2;
-        const spd = 1 + Math.random() * 3;
-        const c = ['#fff', '#ff8', '#f84', THEME][Math.floor(Math.random() * 4)];
-        spawnParticle(x, y, Math.cos(ang) * spd, Math.sin(ang) * spd, c, 10 + Math.random() * 10, 2 + Math.random() * 2);
+    function hitSparks(x, y, dmg) {
+      const n = Math.min(dmg * 2, 16);
+      for (let i = 0; i < n; i++) {
+        const a = Math.random()*Math.PI*2, s = 1+Math.random()*3;
+        const c = ['#fff','#ff8','#f84',THEME][Math.floor(Math.random()*4)];
+        spawnPart(x, y, Math.cos(a)*s, Math.sin(a)*s, c, 10+Math.random()*10, 2+Math.random()*2);
       }
     }
 
-    function applyKnockback(target, attacker, attack, dirX, dirY, multiplier) {
-      const dmgPercent = target.damage;
-      const kbMul = multiplier || 1;
+    function applyKB(target, attacker, atkData, dirX, dirY, mul) {
+      const m = mul || 1;
       const itemKB = attacker.item ? attacker.item.kbBoost : 1;
-      const totalKB = (BASE_KB + attack.kb * kbMul * itemKB) * (1 + dmgPercent * KB_SCALING) / target.weight;
-      const angle = Math.atan2(dirY || -0.6, dirX);
-      target.vx = Math.cos(angle) * totalKB;
-      target.vy = Math.sin(angle) * totalKB;
+      const totalKB = (BASE_KB + atkData.kb * m * itemKB) * (1 + target.damage * KB_SCALING) / target.weight;
+      const ang = Math.atan2(dirY || -0.6, dirX);
+      target.vx = Math.cos(ang) * totalKB;
+      target.vy = Math.sin(ang) * totalKB;
       target.hitstun = Math.floor(totalKB * HITSTUN_FACTOR * 60);
       target.grounded = false;
-      target.lastHitBy = attacker.index;
-
+      target.lastHitBy = attacker.idx;
       if (totalKB > 8) {
         shakeTimer = Math.min(totalKB * 0.5, 10);
-        shakeIntensity = Math.min(totalKB * 0.4, 6);
+        shakeIntensity = Math.min(totalKB * 0.5, 7);
       }
     }
 
     function fireProjectile(p) {
-      const ch = CHARACTERS[p.charIndex];
+      const ch = CHARACTERS[p.charIdx];
+      const isVolt = p.charIdx === 3;
       projectiles.push({
-        x: p.x + p.w / 2 + p.facing * 20,
-        y: p.y + p.h / 2,
-        vx: p.facing * 6,
-        vy: ch.specType === 'projectile' && p.charIndex === 3 ? -3 : 0,
-        w: 12, h: 10,
-        color: ch.specColor,
-        owner: p.index,
-        dmg: 8,
-        kb: 4,
-        life: 80,
+        x: p.x + p.w/2 + p.facing * 20,
+        y: p.y + (isVolt ? -10 : p.h/2),
+        vx: isVolt ? 0 : p.facing * 7,
+        vy: isVolt ? 4 : 0,
+        w: isVolt ? 16 : 12, h: isVolt ? 20 : 10,
+        col: ch.specColor, owner: p.idx,
+        dmg: isVolt ? 10 : 8, kb: isVolt ? 5 : 4,
+        life: 70,
       });
     }
 
     function spawnItem() {
-      const type = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
-      const x = 150 + Math.random() * 300;
-      items.push({
-        x, y: -20, vy: 1.5,
-        ...type,
-        grounded: false,
-        life: 600,
-      });
+      const t = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
+      items.push({ x: 150 + Math.random()*300, y: -20, vy: 1.5, ...t, grounded: false, life: 600 });
+    }
+
+    function doAttack(p, type) {
+      if (p.atk || p.hitstun > 0 || p.grabbedBy >= 0) return;
+      p.atk = ATTACKS[type];
+      p.atkFrame = 0;
+      p.atkType = type;
+    }
+
+    function doSpecial(p) {
+      if (p.atk || p.hitstun > 0) return;
+      const ch = CHARACTERS[p.charIdx];
+      if (ch.specType === 'projectile') {
+        fireProjectile(p);
+        p.atk = { dmg: 0, kb: 0, start: 5, active: 0, end: 12, rx: 0, ry: 0 };
+        p.atkFrame = 0; p.atkType = 'special';
+      } else if (ch.specType === 'dash') {
+        p.vx = p.facing * 14;
+        p.invincible = 8;
+        p.atk = { dmg: 10, kb: 5, start: 2, active: 6, end: 12, rx: 36, ry: 20 };
+        p.atkFrame = 0; p.atkType = 'special';
+        for (let i = 0; i < 8; i++)
+          spawnPart(p.x+p.w/2, p.y+p.h/2, -p.facing*(1+Math.random()*3), (Math.random()-0.5)*2, ch.specColor, 15, 3);
+      } else if (ch.specType === 'slam') {
+        if (p.grounded) {
+          p.vy = JUMP_FORCE * 1.3;
+          p.grounded = false;
+        } else {
+          p.vy = 13; p.fastFall = true;
+        }
+        p.atk = { dmg: 16, kb: 9, start: 4, active: 6, end: 22, rx: 42, ry: 26 };
+        p.atkFrame = 0; p.atkType = 'special';
+      }
     }
 
     // --- AI ---
     function updateAI(p) {
-      if (!p.alive || p.respawnTimer > 0 || p.hitstun > 0) return;
+      if (!p.alive || p.respawnTimer > 0 || p.hitstun > 0 || p.grabbedBy >= 0) return;
       p.aiTimer--;
+      if (p.aiDodgeCD > 0) p.aiDodgeCD--;
 
-      // Find closest alive enemy
-      let closest = null, closestDist = Infinity;
-      for (const other of players) {
-        if (other.index === p.index || !other.alive || other.respawnTimer > 0) continue;
-        const d = Math.abs(other.x - p.x) + Math.abs(other.y - p.y);
-        if (d < closestDist) { closestDist = d; closest = other; }
+      let closest = null, cDist = Infinity;
+      for (const o of players) {
+        if (o.idx === p.idx || !o.alive || o.respawnTimer > 0) continue;
+        const d = Math.abs(o.x - p.x) + Math.abs(o.y - p.y);
+        if (d < cDist) { cDist = d; closest = o; }
       }
       if (!closest) return;
-      p.aiTarget = closest;
 
       const dx = closest.x - p.x;
       const dy = closest.y - p.y;
@@ -391,256 +353,138 @@
       const distY = Math.abs(dy);
       p.facing = dx > 0 ? 1 : -1;
 
-      // Recovery: if off stage and below stage level
+      // Recovery when off stage
       if (p.y > STAGE_Y + 20 || p.x < STAGE_LEFT - 30 || p.x > STAGE_RIGHT + 30) {
-        // Try to recover
-        const stageCenter = (STAGE_LEFT + STAGE_RIGHT) / 2;
-        if (p.x < stageCenter) p.vx = Math.min(p.vx + 0.4, AIR_SPEED);
-        else p.vx = Math.max(p.vx - 0.4, -AIR_SPEED);
-        if (p.jumpsLeft > 0 && p.y > STAGE_Y - 30) {
+        const mid = (STAGE_LEFT + STAGE_RIGHT) / 2;
+        p.vx += (p.x < mid ? 0.5 : -0.5);
+        if (p.jumpsLeft > 0 && p.y > STAGE_Y - 40) {
           p.vy = DOUBLE_JUMP_FORCE * p.jumpMul;
-          p.jumpsLeft--;
-          p.grounded = false;
+          p.jumpsLeft--; p.grounded = false;
         }
-        // Special recovery
-        if (p.jumpsLeft <= 0 && p.y > STAGE_Y) {
-          doSpecial(p);
-        }
+        if (p.jumpsLeft <= 0 && p.y > STAGE_Y) doSpecial(p);
         return;
       }
 
-      // Edge guard: if target is off stage, go to edge and attack
+      // Edge guard when target is off stage
       if (closest.y > STAGE_Y + 30 || closest.x < STAGE_LEFT - 20 || closest.x > STAGE_RIGHT + 20) {
         if (p.grounded) {
-          // Move to nearest edge
-          const nearEdge = closest.x < STAGE_LEFT ? STAGE_LEFT : STAGE_RIGHT;
-          if (Math.abs(p.x - nearEdge) > 20) {
-            p.vx += (nearEdge > p.x ? 1 : -1) * 0.5;
-          }
-          // Jump off to edge guard if close
-          if (Math.abs(p.x - nearEdge) < 40 && closestDist < 150 && Math.random() < 0.03) {
-            p.vy = JUMP_FORCE * p.jumpMul;
-            p.grounded = false;
-            p.jumpsLeft--;
+          const edge = closest.x < STAGE_LEFT ? STAGE_LEFT + 10 : STAGE_RIGHT - 10;
+          if (Math.abs(p.x - edge) > 20) p.vx += (edge > p.x ? 1 : -1) * 0.5;
+          if (Math.abs(p.x - edge) < 40 && cDist < 150 && Math.random() < 0.03) {
+            p.vy = JUMP_FORCE * p.jumpMul; p.grounded = false; p.jumpsLeft--;
           }
         }
-        if (!p.grounded && distX < 50 && distY < 50) {
-          doAttack(p, 'aerial');
-        }
+        if (!p.grounded && distX < 55 && distY < 55 && !p.atk) doAttack(p, 'aerial');
         return;
       }
 
       // Dodge incoming attacks
-      if (closest.attack && closestDist < 60 && p.aiDodgeTimer <= 0) {
-        if (Math.random() < 0.5) {
-          p.shielding = true;
-          p.aiDodgeTimer = 20;
+      if (closest.atk && cDist < 65 && p.aiDodgeCD <= 0) {
+        if (Math.random() < 0.5 && p.grounded) {
+          p.shielding = true; p.aiDodgeCD = 20;
         } else if (p.grounded && Math.random() < 0.4) {
           p.vy = JUMP_FORCE * p.jumpMul * 0.8;
-          p.grounded = false;
-          p.jumpsLeft--;
-          p.aiDodgeTimer = 25;
+          p.grounded = false; p.jumpsLeft--; p.aiDodgeCD = 25;
         }
         return;
       }
       p.shielding = false;
-      if (p.aiDodgeTimer > 0) p.aiDodgeTimer--;
 
-      // Grab if shielding opponent
-      if (closest.shielding && distX < 35 && distY < 20) {
-        doAttack(p, 'grab');
-        return;
+      // Grab shielding opponents
+      if (closest.shielding && distX < 38 && distY < 22 && !p.atk) {
+        doAttack(p, 'grab'); return;
       }
 
-      // Pick up items
-      let nearItem = null;
-      for (const item of items) {
-        if (item.grounded && Math.abs(item.x - p.x) < 80 && Math.abs(item.y - p.y) < 60 && !p.item) {
-          nearItem = item;
-          break;
+      // Pick up nearby items
+      if (!p.item) {
+        for (const it of items) {
+          if (it.grounded && Math.abs(it.x - p.x) < 80 && Math.abs(it.y - p.y) < 60) {
+            p.vx += (it.x > p.x ? 1 : -1) * 0.5; return;
+          }
         }
       }
-      if (nearItem && !p.item) {
-        p.vx += (nearItem.x > p.x ? 1 : -1) * 0.5;
-        return;
-      }
 
-      // Combat range
-      if (distX < 45 && distY < 30) {
-        // Close range - combo
+      // Close combat
+      if (distX < 48 && distY < 32) {
         if (p.aiTimer <= 0) {
           const r = Math.random();
-          if (closest.damage > 80 && r < 0.35) {
-            // Smash attack for KO
-            doAttack(p, 'smash');
-          } else if (r < 0.6) {
-            doAttack(p, 'jab');
-            p.aiComboStep = 1;
-          } else if (r < 0.8) {
-            doAttack(p, 'grab');
-          } else {
-            doSpecial(p);
-          }
+          if (closest.damage > 80 && r < 0.35) doAttack(p, 'smash');
+          else if (r < 0.6) { doAttack(p, 'jab'); p.aiCombo = 1; }
+          else if (r < 0.8) doAttack(p, 'grab');
+          else doSpecial(p);
           p.aiTimer = 10 + Math.floor(Math.random() * 15);
         }
-      } else if (distX < 150) {
+      } else if (distX < 160) {
         // Approach
         p.vx += (dx > 0 ? 1 : -1) * 0.4 * p.speed;
-
-        // Short hop aerial approach
         if (p.grounded && Math.random() < 0.02 && distX < 100) {
-          p.vy = JUMP_FORCE * p.jumpMul * 0.7;
-          p.grounded = false;
-          p.jumpsLeft--;
+          p.vy = JUMP_FORCE * p.jumpMul * 0.7; p.grounded = false; p.jumpsLeft--;
         }
-
-        // Use projectile at mid range
-        if (distX > 100 && Math.random() < 0.015 && p.specType === 'projectile') {
-          doSpecial(p);
-        }
+        if (distX > 100 && Math.random() < 0.015 && p.specType === 'projectile') doSpecial(p);
       } else {
-        // Far - approach or projectile
-        p.vx += (dx > 0 ? 1 : -1) * 0.3 * p.speed;
-        if (Math.random() < 0.02 && p.specType === 'projectile') {
-          doSpecial(p);
-        }
+        p.vx += (dx > 0 ? 1 : -1) * 0.35 * p.speed;
+        if (Math.random() < 0.02 && p.specType === 'projectile') doSpecial(p);
       }
 
-      // Aerial attacks when above target
-      if (!p.grounded && distX < 40) {
-        if (dy > 0 && Math.random() < 0.06) doAttack(p, 'dAir');
-        else if (dy < 0 && Math.random() < 0.06) doAttack(p, 'upAir');
+      // Aerial attacks
+      if (!p.grounded && distX < 42 && !p.atk) {
+        if (dy > 10 && Math.random() < 0.06) doAttack(p, 'dAir');
+        else if (dy < -10 && Math.random() < 0.06) doAttack(p, 'upAir');
         else if (Math.random() < 0.04) doAttack(p, 'aerial');
       }
 
       // Combo follow-up
-      if (p.aiComboStep > 0 && !p.attack && p.aiTimer <= 0) {
-        if (p.aiComboStep === 1 && distX < 50) {
-          doAttack(p, 'jab');
-          p.aiComboStep = 2;
-          p.aiTimer = 6;
-        } else if (p.aiComboStep === 2 && distX < 50) {
-          if (closest.damage > 60) doAttack(p, 'smash');
-          else doAttack(p, 'aerial');
-          p.aiComboStep = 0;
-          p.aiTimer = 15;
-        } else {
-          p.aiComboStep = 0;
+      if (p.aiCombo > 0 && !p.atk && p.aiTimer <= 0 && distX < 55) {
+        if (p.aiCombo === 1) { doAttack(p, 'jab'); p.aiCombo = 2; p.aiTimer = 6; }
+        else if (p.aiCombo === 2) {
+          if (closest.damage > 60) doAttack(p, 'smash'); else doAttack(p, 'aerial');
+          p.aiCombo = 0; p.aiTimer = 15;
         }
-      }
+      } else if (p.aiCombo > 0 && distX > 60) p.aiCombo = 0;
 
-      // Jump to reach platforms
+      // Jump to higher platforms
       if (p.grounded && closest.y < p.y - 40 && Math.random() < 0.03) {
-        p.vy = JUMP_FORCE * p.jumpMul;
-        p.grounded = false;
-        p.jumpsLeft--;
+        p.vy = JUMP_FORCE * p.jumpMul; p.grounded = false; p.jumpsLeft--;
       }
-
       // Drop through platform
       if (p.grounded && closest.y > p.y + 30 && p.platform && !p.platform.isMain && Math.random() < 0.03) {
-        p.y += 12;
-        p.grounded = false;
+        p.y += 12; p.grounded = false;
       }
     }
 
-    function doAttack(p, type) {
-      if (p.attack || p.hitstun > 0 || p.grabbedBy !== null) return;
-      p.attack = ATTACKS[type];
-      p.attackFrame = 0;
-      p.attackType = type;
-      if (type === 'smash') p.smashCharge = 0;
-    }
+    // --- Player Input ---
+    function handleInput(p) {
+      if (!p.alive || p.respawnTimer > 0 || p.hitstun > 0 || p.grabbedBy >= 0) return;
 
-    function doSpecial(p) {
-      if (p.attack || p.hitstun > 0) return;
-      const ch = CHARACTERS[p.charIndex];
-      if (ch.specType === 'projectile') {
-        fireProjectile(p);
-        p.attack = { dmg: 0, kb: 0, start: 5, active: 0, end: 15, rangeX: 0, rangeY: 0 };
-        p.attackFrame = 0;
-        p.attackType = 'special';
-      } else if (ch.specType === 'dash') {
-        p.vx = p.facing * 14;
-        p.invincible = 8;
-        p.attack = { dmg: 10, kb: 5, start: 2, active: 6, end: 12, rangeX: 35, rangeY: 20 };
-        p.attackFrame = 0;
-        p.attackType = 'special';
-        for (let i = 0; i < 8; i++) spawnParticle(p.x + p.w/2, p.y + p.h/2, -p.facing * (1 + Math.random()*3), (Math.random()-0.5)*2, ch.specColor, 15, 3);
-      } else if (ch.specType === 'slam') {
-        if (p.grounded) {
-          p.vy = JUMP_FORCE * 1.2;
-          p.grounded = false;
-        } else {
-          p.vy = 12;
-          p.fastFall = true;
-        }
-        p.attack = { dmg: 16, kb: 9, start: 4, active: 6, end: 20, rangeX: 40, rangeY: 25 };
-        p.attackFrame = 0;
-        p.attackType = 'special';
-      }
-    }
-
-    function handlePlayerInput(p) {
-      if (!p.alive || p.respawnTimer > 0 || p.hitstun > 0 || p.grabbedBy !== null) return;
-
-      const left = keys['ArrowLeft'];
-      const right = keys['ArrowRight'];
-      const up = keys['ArrowUp'];
-      const down = keys['ArrowDown'];
-
-      // Shield
-      p.shielding = keys['s'] && p.grounded && !p.attack && p.shieldHP > 0;
+      p.shielding = keys['s'] && p.grounded && !p.atk && p.shieldHP > 0;
       if (p.shielding) {
         p.shieldHP -= 0.3;
-        if (p.shieldHP <= 0) {
-          p.shielding = false;
-          p.hitstun = 40; // shield break stun
-          spawnParticle(p.x + p.w/2, p.y, 0, -3, '#fff', 30, 8);
-        }
+        if (p.shieldHP <= 0) { p.shielding = false; p.hitstun = 45; spawnPart(p.x+p.w/2, p.y, 0, -3, '#fff', 30, 8); }
         return;
       }
       if (!p.shielding) p.shieldHP = Math.min(100, p.shieldHP + 0.15);
 
-      // Movement
-      if (left) {
-        p.vx -= (p.grounded ? MOVE_SPEED : AIR_SPEED) * p.speed * 0.3;
-        if (!p.attack) p.facing = -1;
-      }
-      if (right) {
-        p.vx += (p.grounded ? MOVE_SPEED : AIR_SPEED) * p.speed * 0.3;
-        if (!p.attack) p.facing = 1;
-      }
+      if (keys['ArrowLeft'])  { p.vx -= (p.grounded ? MOVE_SPEED : AIR_SPEED) * p.speed * 0.3; if (!p.atk) p.facing = -1; }
+      if (keys['ArrowRight']) { p.vx += (p.grounded ? MOVE_SPEED : AIR_SPEED) * p.speed * 0.3; if (!p.atk) p.facing = 1; }
 
-      // Jump
-      if (up && p.jumpsLeft > 0 && !p.attack) {
-        const force = p.grounded ? JUMP_FORCE : DOUBLE_JUMP_FORCE;
-        p.vy = force * p.jumpMul;
-        p.jumpsLeft--;
-        p.grounded = false;
-        // Double jump particles
-        if (p.jumpsLeft === 0) {
-          for (let i = 0; i < 6; i++) {
-            spawnParticle(p.x + p.w/2, p.y + p.h, (Math.random()-0.5)*3, 1 + Math.random()*2, p.accentColor, 15, 2);
-          }
+      if (keys['ArrowUp'] && p.jumpsLeft > 0 && !p.atk) {
+        p.vy = (p.grounded ? JUMP_FORCE : DOUBLE_JUMP_FORCE) * p.jumpMul;
+        if (!p.grounded && p.jumpsLeft === 1) {
+          for (let i = 0; i < 6; i++)
+            spawnPart(p.x+p.w/2, p.y+p.h, (Math.random()-0.5)*3, 1+Math.random()*2, p.accent, 15, 2);
         }
+        p.jumpsLeft--; p.grounded = false;
       }
 
-      // Drop through platform
-      if (down && p.grounded && p.platform && !p.platform.isMain) {
-        p.y += 12;
-        p.grounded = false;
+      if (keys['ArrowDown'] && p.grounded && p.platform && !p.platform.isMain) {
+        p.y += 12; p.grounded = false;
       }
+      if (keys['ArrowDown'] && !p.grounded && p.vy > 0) p.fastFall = true;
 
-      // Fast fall
-      if (down && !p.grounded && p.vy > 0) {
-        p.fastFall = true;
-      }
-
-      // Attacks
-      if (keys['z'] && !p.attack) {
+      if (keys['z'] && !p.atk) {
         if (!p.grounded) {
-          if (down) doAttack(p, 'dAir');
-          else if (up) doAttack(p, 'upAir');
+          if (keys['ArrowDown']) doAttack(p, 'dAir');
+          else if (keys['ArrowUp']) doAttack(p, 'upAir');
           else doAttack(p, 'aerial');
         } else if (keys['ArrowLeft'] || keys['ArrowRight']) {
           doAttack(p, 'smash');
@@ -648,221 +492,167 @@
           doAttack(p, 'jab');
         }
       }
-
-      // Special
-      if (keys['x'] && !p.attack) {
-        doSpecial(p);
-      }
-
-      // Grab
-      if (keys['c'] && !p.attack) {
-        doAttack(p, 'grab');
-      }
+      if (keys['x'] && !p.atk) doSpecial(p);
+      if (keys['c'] && !p.atk) doAttack(p, 'grab');
     }
 
+    // --- Player Physics & Combat ---
     function updatePlayer(p) {
       if (!p.alive) return;
 
-      // Respawn
+      // Respawn countdown
       if (p.respawnTimer > 0) {
         p.respawnTimer--;
         if (p.respawnTimer <= 0) {
-          p.x = 250 + p.index * 30;
-          p.y = 50;
-          p.vx = 0;
-          p.vy = 0;
-          p.damage = 0;
-          p.invincible = 120;
-          p.hitstun = 0;
-          p.shielding = false;
-          p.shieldHP = 100;
-          p.attack = null;
-          p.attackFrame = 0;
-          p.grabbedBy = null;
-          p.grabbing = null;
-          p.item = null;
-          p.fastFall = false;
+          p.x = 250 + p.idx * 30; p.y = 50;
+          p.vx = 0; p.vy = 0; p.damage = 0;
+          p.invincible = 120; p.hitstun = 0;
+          p.shielding = false; p.shieldHP = 100;
+          p.atk = null; p.atkFrame = 0;
+          p.grabbedBy = -1; p.grabbing = -1; p.grabTimer = 0;
+          p.item = null; p.fastFall = false;
         }
         return;
       }
 
-      // Hitlag
-      if (p.hitlag > 0) {
-        p.hitlag--;
-        return;
-      }
+      if (p.hitlag > 0) { p.hitlag--; return; }
 
-      // Hitstun
+      // Hitstun with DI
       if (p.hitstun > 0) {
         p.hitstun--;
-        // DI: player can influence knockback direction
         if (!p.isAI) {
-          if (keys['ArrowLeft']) p.vx -= DI_STRENGTH;
+          if (keys['ArrowLeft'])  p.vx -= DI_STRENGTH;
           if (keys['ArrowRight']) p.vx += DI_STRENGTH;
-          if (keys['ArrowUp']) p.vy -= DI_STRENGTH;
+          if (keys['ArrowUp'])    p.vy -= DI_STRENGTH;
         } else {
-          // AI DI: try to survive
           const cx = (STAGE_LEFT + STAGE_RIGHT) / 2;
-          const cy = STAGE_Y / 2;
-          if (p.x < cx) p.vx += DI_STRENGTH * 0.7;
-          else p.vx -= DI_STRENGTH * 0.7;
+          p.vx += (p.x < cx ? 1 : -1) * DI_STRENGTH * 0.7;
           if (p.vy < 0) p.vy += DI_STRENGTH * 0.3;
         }
       }
 
       // Grabbed state
-      if (p.grabbedBy !== null) {
-        const grabber = players[p.grabbedBy];
-        if (grabber && grabber.alive) {
-          p.x = grabber.x + grabber.facing * 25;
-          p.y = grabber.y;
+      if (p.grabbedBy >= 0) {
+        const g = players[p.grabbedBy];
+        if (g && g.alive && g.grabbing === p.idx) {
+          p.x = g.x + g.facing * 25; p.y = g.y;
+        } else {
+          p.grabbedBy = -1;
         }
         return;
       }
 
-      // Gravity
-      p.vy += GRAVITY;
-      if (p.fastFall && p.vy > 0) p.vy += 0.3;
-      if (p.vy > MAX_FALL) p.vy = MAX_FALL;
-
-      // Movement
-      p.x += p.vx;
-      p.y += p.vy;
-
-      // Friction
-      p.vx *= p.grounded ? GROUND_FRICTION : AIR_FRICTION;
-
-      // Clamp velocity
-      const maxH = p.grounded ? MOVE_SPEED * p.speed * 1.3 : AIR_SPEED * p.speed * 1.8;
-      if (Math.abs(p.vx) > maxH && p.hitstun <= 0) p.vx = Math.sign(p.vx) * maxH;
-
-      // Platform collision
-      p.grounded = false;
-      p.platform = null;
-      for (const plat of platforms) {
-        if (p.vy >= 0 && p.x + p.w > plat.x + 4 && p.x < plat.x + plat.w - 4 &&
-            p.y + p.h >= plat.y && p.y + p.h <= plat.y + 14) {
-          p.y = plat.y - p.h;
-          p.vy = 0;
-          p.grounded = true;
-          p.jumpsLeft = 2;
-          p.fastFall = false;
-          p.platform = plat;
-          break;
+      // Grab timer (frame-based throw)
+      if (p.grabbing >= 0) {
+        p.grabTimer--;
+        if (p.grabTimer <= 0) {
+          const victim = players[p.grabbing];
+          if (victim && victim.grabbedBy === p.idx) {
+            victim.grabbedBy = -1;
+            victim.damage += 6;
+            applyKB(victim, p, { kb: 5, dmg: 6 }, p.facing, -0.5, 1);
+            hitSparks(victim.x + victim.w/2, victim.y + victim.h/2, 6);
+          }
+          p.grabbing = -1;
         }
       }
 
-      // Invincibility timer
+      // Gravity
+      p.vy += GRAVITY;
+      if (p.fastFall && p.vy > 0) p.vy += 0.35;
+      if (p.vy > MAX_FALL) p.vy = MAX_FALL;
+
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= p.grounded ? GROUND_FRICTION : AIR_FRICTION;
+
+      const maxH = (p.grounded ? MOVE_SPEED * 1.3 : AIR_SPEED * 1.8) * p.speed;
+      if (Math.abs(p.vx) > maxH && p.hitstun <= 0) p.vx = Math.sign(p.vx) * maxH;
+
+      // Platform collision
+      p.grounded = false; p.platform = null;
+      for (const pl of platforms) {
+        if (p.vy >= 0 && p.x + p.w > pl.x + 4 && p.x < pl.x + pl.w - 4 &&
+            p.y + p.h >= pl.y && p.y + p.h <= pl.y + 14) {
+          p.y = pl.y - p.h;
+          p.vy = 0; p.grounded = true; p.jumpsLeft = 2;
+          p.fastFall = false; p.platform = pl; break;
+        }
+      }
+
       if (p.invincible > 0) p.invincible--;
 
-      // Attack update
-      if (p.attack) {
-        p.attackFrame++;
-        const atk = p.attack;
-        const totalFrames = atk.start + atk.active + atk.end;
+      // Attack logic
+      if (p.atk) {
+        p.atkFrame++;
+        const a = p.atk;
+        const total = a.start + a.active + a.end;
 
-        // Active frames - check hits
-        if (p.attackFrame >= atk.start && p.attackFrame < atk.start + atk.active) {
-          const hitX = p.x + (p.facing > 0 ? p.w : -atk.rangeX);
-          const hitY = p.y + p.h / 2 - atk.rangeY / 2;
-
-          // Special: dAir hitbox is below
-          let hx = hitX, hy = hitY;
-          if (p.attackType === 'dAir') {
-            hx = p.x + p.w/2 - atk.rangeX/2;
-            hy = p.y + p.h;
-          } else if (p.attackType === 'upAir') {
-            hx = p.x + p.w/2 - atk.rangeX/2;
-            hy = p.y - atk.rangeY;
+        if (p.atkFrame >= a.start && p.atkFrame < a.start + a.active && a.rx > 0) {
+          let hx, hy;
+          if (p.atkType === 'dAir') {
+            hx = p.x + p.w/2 - a.rx/2; hy = p.y + p.h;
+          } else if (p.atkType === 'upAir') {
+            hx = p.x + p.w/2 - a.rx/2; hy = p.y - a.ry;
+          } else {
+            hx = p.x + (p.facing > 0 ? p.w : -a.rx);
+            hy = p.y + p.h/2 - a.ry/2;
           }
 
-          for (const other of players) {
-            if (other.index === p.index || !other.alive || other.respawnTimer > 0) continue;
-            if (other.invincible > 0) continue;
+          for (const o of players) {
+            if (o.idx === p.idx || !o.alive || o.respawnTimer > 0 || o.invincible > 0) continue;
+            if (!overlap(hx, hy, a.rx, a.ry, o.x, o.y, o.w, o.h)) continue;
 
-            if (rectsOverlap(hx, hy, atk.rangeX, atk.rangeY, other.x, other.y, other.w, other.h)) {
-              if (p.attackType === 'grab') {
-                if (!other.shielding) continue; // grab beats shield, but needs to connect
-                // Actually grab connects on anyone
+            if (p.atkType === 'grab') {
+              // Grab connects on anyone (pierces shield)
+              if (p.grabbing >= 0) continue; // already grabbing
+              p.grabbing = o.idx;
+              p.grabTimer = 30; // throw after 30 frames
+              o.grabbedBy = p.idx;
+              o.vx = 0; o.vy = 0;
+              o.shielding = false;
+            } else {
+              // Normal attack
+              if (o.shielding) {
+                o.shieldHP -= a.dmg * 1.5;
+                spawnPart(o.x+o.w/2, o.y+o.h/2, 0, 0, '#8cf', 15, 6);
+                if (o.shieldHP <= 0) { o.shielding = false; o.hitstun = 45; }
+                continue;
               }
-              if (p.attackType === 'grab') {
-                // Grab
-                p.grabbing = other.index;
-                other.grabbedBy = p.index;
-                other.vx = 0;
-                other.vy = 0;
-                // Throw after short time
-                setTimeout(() => {
-                  if (other.grabbedBy === p.index) {
-                    other.grabbedBy = null;
-                    p.grabbing = null;
-                    other.damage += 6;
-                    const throwDir = p.facing;
-                    applyKnockback(other, p, { kb: 5, dmg: 6 }, throwDir, -0.5, 1);
-                    spawnHitSparks(other.x + other.w/2, other.y + other.h/2, 6);
-                  }
-                }, 500);
-              } else {
-                // Normal hit
-                if (other.shielding) {
-                  other.shieldHP -= atk.dmg * 1.5;
-                  spawnParticle(other.x + other.w/2, other.y + other.h/2, 0, 0, '#8cf', 15, 6);
-                  if (other.shieldHP <= 0) {
-                    other.shielding = false;
-                    other.hitstun = 45;
-                  }
-                  continue;
-                }
-                const itemMul = p.item ? p.item.attackBoost : 1;
-                other.damage += atk.dmg * itemMul;
-                const dirX = p.facing;
-                const dirY = p.attackType === 'upAir' ? -1 : (p.attackType === 'dAir' ? 1 : -0.4);
-                applyKnockback(other, p, atk, dirX, dirY, itemMul);
-                spawnHitSparks(other.x + other.w/2, other.y + other.h/2, atk.dmg);
-
-                // Hitlag
-                p.hitlag = Math.min(Math.floor(atk.dmg * 0.4), 6);
-                other.hitlag = p.hitlag;
-              }
+              const iMul = p.item ? p.item.atkBoost : 1;
+              o.damage += a.dmg * iMul;
+              const dY = p.atkType === 'upAir' ? -1 : (p.atkType === 'dAir' ? 1 : -0.4);
+              applyKB(o, p, a, p.facing, dY, iMul);
+              hitSparks(o.x + o.w/2, o.y + o.h/2, a.dmg);
+              p.hitlag = Math.min(Math.floor(a.dmg * 0.4), 6);
+              o.hitlag = p.hitlag;
             }
           }
         }
-
-        if (p.attackFrame >= totalFrames) {
-          p.attack = null;
-          p.attackFrame = 0;
-          p.attackType = null;
-        }
+        if (p.atkFrame >= total) { p.atk = null; p.atkFrame = 0; p.atkType = null; }
       }
 
       // Item pickup
       if (!p.item) {
         for (let i = items.length - 1; i >= 0; i--) {
-          const item = items[i];
-          if (item.grounded && rectsOverlap(p.x, p.y, p.w, p.h, item.x, item.y, item.w, item.h)) {
-            p.item = item;
-            p.itemTimer = item.duration;
-            items.splice(i, 1);
-            break;
+          const it = items[i];
+          if (it.grounded && overlap(p.x, p.y, p.w, p.h, it.x, it.y, it.w, it.h)) {
+            p.item = it; p.itemTimer = it.dur; items.splice(i, 1); break;
           }
         }
       }
-      // Item timer
       if (p.item) {
         p.itemTimer--;
         if (p.itemTimer <= 0) {
           if (p.item.explosive) {
-            // Bomb explodes
             p.damage += 15;
-            applyKnockback(p, p, { kb: 7, dmg: 15 }, 0, -1, 1);
-            spawnKOExplosion(p.x + p.w/2, p.y + p.h/2, '#f80');
-            // Hit nearby
-            for (const other of players) {
-              if (other.index === p.index || !other.alive) continue;
-              const d = Math.hypot(other.x - p.x, other.y - p.y);
-              if (d < 80) {
-                other.damage += 20;
-                applyKnockback(other, p, { kb: 9, dmg: 20 }, other.x > p.x ? 1 : -1, -0.5, 1);
+            applyKB(p, p, { kb: 7, dmg: 15 }, 0, -1, 1);
+            koExplosion(p.x + p.w/2, p.y + p.h/2, '#f80');
+            for (const o of players) {
+              if (o.idx === p.idx || !o.alive) continue;
+              if (Math.hypot(o.x - p.x, o.y - p.y) < 80) {
+                o.damage += 20;
+                applyKB(o, p, { kb: 9, dmg: 20 }, o.x > p.x ? 1 : -1, -0.5, 1);
               }
             }
           }
@@ -872,169 +662,128 @@
 
       // Blast zone KO
       if (p.y > BLAST_BOTTOM || p.y < BLAST_TOP || p.x < BLAST_LEFT || p.x > BLAST_RIGHT) {
-        // KO!
-        spawnKOExplosion(
+        koExplosion(
           Math.max(10, Math.min(W-10, p.x + p.w/2)),
           Math.max(10, Math.min(H-10, p.y + p.h/2)),
           p.color
         );
         p.stocks--;
-        if (p.lastHitBy >= 0 && p.lastHitBy !== p.index) {
-          const killer = players[p.lastHitBy];
-          if (killer) killer.kos++;
-          if (p.lastHitBy !== 0 && p.index === 0) {
-            // Player died
-          } else if (p.lastHitBy === 0) {
-            score++;
-          }
+        if (p.lastHitBy >= 0 && p.lastHitBy !== p.idx) {
+          players[p.lastHitBy].kos++;
+          if (p.lastHitBy === 0) score++;
         }
         if (p.stocks <= 0) {
           p.alive = false;
         } else {
           p.respawnTimer = 90;
         }
+        // Release grabs
+        if (p.grabbing >= 0) { players[p.grabbing].grabbedBy = -1; p.grabbing = -1; }
+        for (const o of players) { if (o.grabbing === p.idx) { o.grabbing = -1; } }
+        p.grabbedBy = -1;
         p.lastHitBy = -1;
         updateHUD();
-        checkMatchEnd();
+        checkEnd();
       }
 
-      // Animation
+      // Anim
       p.animTimer++;
-      if (p.animTimer > 6) {
-        p.animTimer = 0;
-        p.animFrame = (p.animFrame + 1) % 4;
-      }
+      if (p.animTimer > 6) { p.animTimer = 0; p.animFrame = (p.animFrame + 1) % 4; }
     }
 
-    function checkMatchEnd() {
-      let aliveCount = 0;
-      let lastAlive = null;
+    function checkEnd() {
+      let alive = 0, last = null;
       for (const p of players) {
-        if (p.alive || p.stocks > 0) {
-          aliveCount++;
-          lastAlive = p;
-        }
+        if (p.alive || p.stocks > 0) { alive++; last = p; }
       }
-      if (aliveCount <= 1) {
-        matchOver = true;
-        gameState = 'over';
+      if (alive <= 1) {
+        matchOver = true; gameState = 'over';
         overlay.style.display = 'flex';
-        overlayTitle.textContent = lastAlive ? (lastAlive.index === 0 ? 'VICTORY!' : lastAlive.name + ' WINS!') : 'DRAW!';
+        overlayTitle.textContent = last ? (last.idx === 0 ? 'VICTORY!' : last.name + ' WINS!') : 'DRAW!';
         overlayText.innerHTML = 'Your KOs: <span class="highlight">' + score + '</span><br><br>Click to play again';
       }
     }
 
     function updateProjectiles() {
       for (let i = projectiles.length - 1; i >= 0; i--) {
-        const proj = projectiles[i];
-        proj.x += proj.vx;
-        proj.y += proj.vy;
-        // Volt thunder falls down
-        if (proj.vy < 0) proj.vy += 0.15;
-        if (proj.vy > 0 && Math.abs(proj.vx) > 1) proj.vy += 0.05;
-        proj.life--;
+        const pr = projectiles[i];
+        pr.x += pr.vx; pr.y += pr.vy;
+        if (Math.abs(pr.vx) < 0.5 && pr.vy > 0) pr.vy += 0.1; // Volt thunder accelerates down
+        pr.life--;
+        if (frameCount % 2 === 0) spawnPart(pr.x, pr.y, (Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5, pr.col, 10, 2);
 
-        // Particle trail
-        if (frameCount % 2 === 0) {
-          spawnParticle(proj.x, proj.y, (Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5, proj.color, 10, 2);
-        }
-
-        // Hit players
+        let hit = false;
         for (const p of players) {
-          if (p.index === proj.owner || !p.alive || p.respawnTimer > 0 || p.invincible > 0) continue;
-          if (rectsOverlap(proj.x - proj.w/2, proj.y - proj.h/2, proj.w, proj.h, p.x, p.y, p.w, p.h)) {
-            if (p.shielding) {
-              p.shieldHP -= proj.dmg;
-              spawnParticle(p.x + p.w/2, p.y + p.h/2, 0, 0, '#8cf', 15, 6);
-            } else {
-              p.damage += proj.dmg;
-              const owner = players[proj.owner];
-              applyKnockback(p, owner || p, { kb: proj.kb, dmg: proj.dmg }, proj.vx > 0 ? 1 : -1, -0.3, 1);
-              spawnHitSparks(p.x + p.w/2, p.y + p.h/2, proj.dmg);
+          if (p.idx === pr.owner || !p.alive || p.respawnTimer > 0 || p.invincible > 0) continue;
+          if (overlap(pr.x-pr.w/2, pr.y-pr.h/2, pr.w, pr.h, p.x, p.y, p.w, p.h)) {
+            if (p.shielding) { p.shieldHP -= pr.dmg; spawnPart(p.x+p.w/2, p.y+p.h/2, 0, 0, '#8cf', 15, 6); }
+            else {
+              p.damage += pr.dmg;
+              applyKB(p, players[pr.owner] || p, { kb: pr.kb, dmg: pr.dmg }, pr.vx > 0 ? 1 : (pr.vx < 0 ? -1 : 0), pr.vy > 2 ? 0.5 : -0.3, 1);
+              hitSparks(p.x + p.w/2, p.y + p.h/2, pr.dmg);
             }
-            projectiles.splice(i, 1);
-            break;
+            hit = true; break;
           }
         }
-
-        // Out of bounds
-        if (proj.life <= 0 || proj.x < -20 || proj.x > W + 20 || proj.y < -20 || proj.y > H + 20) {
-          projectiles.splice(i, 1);
-        }
+        if (hit || pr.life <= 0 || pr.x < -30 || pr.x > W+30 || pr.y < -30 || pr.y > H+30) projectiles.splice(i, 1);
       }
     }
 
     function updateItems() {
       for (let i = items.length - 1; i >= 0; i--) {
-        const item = items[i];
-        if (!item.grounded) {
-          item.vy += 0.2;
-          item.y += item.vy;
-          // Land on platform
-          for (const plat of platforms) {
-            if (item.vy > 0 && item.y + item.h >= plat.y && item.y + item.h <= plat.y + 10 &&
-                item.x + item.w > plat.x && item.x < plat.x + plat.w) {
-              item.y = plat.y - item.h;
-              item.vy = 0;
-              item.grounded = true;
-              break;
+        const it = items[i];
+        if (!it.grounded) {
+          it.vy += 0.2; it.y += it.vy;
+          for (const pl of platforms) {
+            if (it.vy > 0 && it.y + it.h >= pl.y && it.y + it.h <= pl.y + 10 && it.x + it.w > pl.x && it.x < pl.x + pl.w) {
+              it.y = pl.y - it.h; it.vy = 0; it.grounded = true; break;
             }
           }
         }
-        item.life--;
-        if (item.life <= 0 || item.y > H + 20) {
-          items.splice(i, 1);
-        }
+        it.life--;
+        if (it.life <= 0 || it.y > H + 20) items.splice(i, 1);
       }
     }
 
     function updateParticles() {
       for (let i = particles.length - 1; i >= 0; i--) {
-        const par = particles[i];
-        par.x += par.vx;
-        par.y += par.vy;
-        par.vx *= 0.96;
-        par.vy *= 0.96;
-        par.life--;
-        if (par.life <= 0) particles.splice(i, 1);
+        const p = particles[i];
+        p.x += p.vx; p.y += p.vy; p.vx *= 0.96; p.vy *= 0.96; p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
       }
     }
 
-    function updateStageHazard() {
+    function updateHazard() {
+      if (matchOver) return;
       stageHazardTimer--;
-      if (stageHazardTimer <= 0 && !hazardActive) {
-        // Warning
-        if (!hazardWarning) {
-          const side = Math.random() < 0.5 ? 'left' : 'right';
-          hazardWarning = { side, timer: 90 };
-        } else {
-          hazardWarning.timer--;
-          if (hazardWarning.timer <= 0) {
-            // Activate hazard
-            hazardActive = {
-              side: hazardWarning.side,
-              timer: 45,
-              x: hazardWarning.side === 'left' ? -20 : W + 20,
-              targetX: hazardWarning.side === 'left' ? W / 3 : W * 2 / 3,
-            };
-            hazardWarning = null;
-          }
+      if (stageHazardTimer <= 0 && !hazardActive && !hazardWarning) {
+        hazardWarning = { side: Math.random() < 0.5 ? 'left' : 'right', timer: 90 };
+      }
+      if (hazardWarning) {
+        hazardWarning.timer--;
+        if (hazardWarning.timer <= 0) {
+          hazardActive = { side: hazardWarning.side, timer: 50,
+            startX: hazardWarning.side === 'left' ? -30 : W + 30,
+            endX: hazardWarning.side === 'left' ? W * 0.4 : W * 0.6 };
+          hazardWarning = null;
         }
       }
       if (hazardActive) {
         hazardActive.timer--;
-        const progress = 1 - hazardActive.timer / 45;
-        const hx = hazardActive.side === 'left' ? -20 + progress * (hazardActive.targetX + 20) : W + 20 - progress * (W + 20 - hazardActive.targetX);
-        const hy = STAGE_Y - 10;
+        const prog = 1 - hazardActive.timer / 50;
+        const hx = hazardActive.startX + (hazardActive.endX - hazardActive.startX) * prog;
+        const hy = STAGE_Y - 12;
 
-        // Hit players
-        for (const p of players) {
-          if (!p.alive || p.respawnTimer > 0 || p.invincible > 0) continue;
-          if (Math.abs(p.x + p.w/2 - hx) < 40 && Math.abs(p.y + p.h - hy) < 50) {
-            p.damage += 12;
-            applyKnockback(p, p, { kb: 7, dmg: 12 },
-              hazardActive.side === 'left' ? 1 : -1, -0.6, 1);
-            spawnHitSparks(p.x + p.w/2, p.y + p.h/2, 12);
+        // Only damage on first few frames of passing a player
+        if (prog > 0.1 && prog < 0.9) {
+          for (const p of players) {
+            if (!p.alive || p.respawnTimer > 0 || p.invincible > 0) continue;
+            if (Math.abs(p.x + p.w/2 - hx) < 35 && Math.abs(p.y + p.h - hy) < 45) {
+              p.damage += 12;
+              applyKB(p, p, { kb: 7, dmg: 12 }, hazardActive.side === 'left' ? 1 : -1, -0.6, 1);
+              hitSparks(p.x + p.w/2, p.y + p.h/2, 12);
+              p.invincible = 20; // prevent multi-hit from same hazard
+            }
           }
         }
 
@@ -1045,147 +794,173 @@
       }
     }
 
-    // --- Drawing ---
-    function drawStage() {
-      // Background
+    // === DRAWING ===
+    function drawBG() {
       ctx.fillStyle = BG;
       ctx.fillRect(0, 0, W, H);
 
-      // Stars
-      ctx.fillStyle = '#ffffff15';
-      for (let i = 0; i < 40; i++) {
-        const sx = (i * 97 + frameCount * 0.1) % W;
-        const sy = (i * 53 + Math.sin(frameCount * 0.005 + i) * 5) % (STAGE_Y - 20);
+      // Animated stars
+      ctx.fillStyle = '#ffffff18';
+      for (let i = 0; i < 50; i++) {
+        const sx = (i * 97 + frameCount * 0.08) % W;
+        const sy = (i * 53 + Math.sin(frameCount * 0.004 + i) * 6) % (STAGE_Y - 30);
         ctx.fillRect(sx, sy, 1.5, 1.5);
       }
 
-      // Blast zone indicators (subtle)
-      ctx.strokeStyle = '#f4830a';
-      ctx.setLineDash([4, 8]);
+      // Subtle blast zone boundary
+      ctx.save();
+      ctx.strokeStyle = THEME + '15';
+      ctx.setLineDash([4, 10]);
       ctx.lineWidth = 1;
-      ctx.strokeRect(BLAST_LEFT + 60, BLAST_TOP + 80, BLAST_RIGHT - BLAST_LEFT - 120, BLAST_BOTTOM - BLAST_TOP - 80);
-      ctx.setLineDash([]);
+      ctx.strokeRect(10, 10, W - 20, H - 20);
+      ctx.restore();
+    }
 
-      // Platforms
-      for (const plat of platforms) {
-        if (plat.isMain) {
-          // Main stage
-          const grad = ctx.createLinearGradient(plat.x, plat.y, plat.x, plat.y + plat.h + 80);
-          grad.addColorStop(0, '#2a2a4e');
-          grad.addColorStop(1, '#1a1a2e');
-          ctx.fillStyle = grad;
-          ctx.fillRect(plat.x, plat.y, plat.w, plat.h + 80);
-          // Top edge
+    function drawStage() {
+      for (const pl of platforms) {
+        if (pl.isMain) {
+          const g = ctx.createLinearGradient(pl.x, pl.y, pl.x, pl.y + pl.h + 80);
+          g.addColorStop(0, '#2a2a4e');
+          g.addColorStop(1, BG);
+          ctx.fillStyle = g;
+          ctx.fillRect(pl.x, pl.y, pl.w, pl.h + 80);
           ctx.fillStyle = THEME;
-          ctx.fillRect(plat.x, plat.y, plat.w, 3);
-          // Edge indicators
-          ctx.fillStyle = '#ff4488aa';
-          ctx.fillRect(plat.x, plat.y, 4, 12);
-          ctx.fillRect(plat.x + plat.w - 4, plat.y, 4, 12);
+          ctx.fillRect(pl.x, pl.y, pl.w, 3);
+          // Ledge markers
+          ctx.fillStyle = THEME + 'aa';
+          ctx.fillRect(pl.x, pl.y, 5, 14);
+          ctx.fillRect(pl.x + pl.w - 5, pl.y, 5, 14);
         } else {
-          // Floating platform
           ctx.fillStyle = '#2a2a4e';
-          ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
-          ctx.fillStyle = '#f4888888';
-          ctx.fillRect(plat.x, plat.y, plat.w, 2);
+          ctx.fillRect(pl.x, pl.y, pl.w, pl.h);
+          ctx.fillStyle = THEME + '88';
+          ctx.fillRect(pl.x, pl.y, pl.w, 2);
+          // Supports
+          ctx.strokeStyle = '#2a2a4e44';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(pl.x + pl.w/2, pl.y + pl.h);
+          ctx.lineTo(pl.x + pl.w/2, pl.y + 40);
+          ctx.stroke();
         }
       }
+    }
 
-      // Hazard warning
+    function drawHazards() {
       if (hazardWarning) {
         const flash = Math.sin(frameCount * 0.3) > 0;
         if (flash) {
           ctx.fillStyle = '#f00';
           ctx.font = 'bold 14px Courier New';
           ctx.textAlign = 'center';
-          const wx = hazardWarning.side === 'left' ? 60 : W - 60;
-          ctx.fillText('WARNING!', wx, STAGE_Y - 30);
-          ctx.fillStyle = '#f0000030';
+          const wx = hazardWarning.side === 'left' ? 55 : W - 55;
+          ctx.fillText('! HAZARD !', wx, STAGE_Y - 30);
+          ctx.fillStyle = '#f0000018';
           ctx.fillRect(wx - 40, 0, 80, STAGE_Y);
         }
       }
       if (hazardActive) {
-        const progress = 1 - hazardActive.timer / 45;
-        const hx = hazardActive.side === 'left' ? -20 + progress * (hazardActive.targetX + 20) : W + 20 - progress * (W + 20 - hazardActive.targetX);
-        // Draw hazard (energy wave)
-        ctx.fillStyle = '#f44';
+        const prog = 1 - hazardActive.timer / 50;
+        const hx = hazardActive.startX + (hazardActive.endX - hazardActive.startX) * prog;
+        ctx.save();
         ctx.shadowColor = '#f44';
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 25;
+        ctx.fillStyle = '#f44';
         ctx.beginPath();
-        ctx.arc(hx, STAGE_Y - 10, 25, 0, Math.PI * 2);
+        ctx.arc(hx, STAGE_Y - 12, 22, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ff8';
         ctx.beginPath();
-        ctx.arc(hx, STAGE_Y - 10, 12, 0, Math.PI * 2);
+        ctx.arc(hx, STAGE_Y - 12, 10, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
+        // Trail
+        for (let i = 1; i <= 4; i++) {
+          const tx = hx - (hazardActive.endX - hazardActive.startX > 0 ? 1 : -1) * i * 12;
+          ctx.globalAlpha = 0.3 - i * 0.06;
+          ctx.fillStyle = '#f44';
+          ctx.beginPath();
+          ctx.arc(tx, STAGE_Y - 12, 14 - i * 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
       }
     }
 
-    function drawPlayer(p) {
+    function drawChar(p) {
       if (!p.alive || p.respawnTimer > 0) return;
-
-      // Invincibility flicker
       if (p.invincible > 0 && frameCount % 4 < 2) return;
 
-      const cx = p.x + p.w / 2;
-      const cy = p.y + p.h / 2;
-
+      const cx = p.x + p.w/2, cy = p.y + p.h/2;
       ctx.save();
       ctx.translate(cx, cy);
       if (p.facing < 0) ctx.scale(-1, 1);
 
+      // Shadow
+      ctx.fillStyle = '#00000040';
+      ctx.fillRect(-12, p.h/2 - 2, 24, 4);
+
+      const bodyC = p.hitstun > 0 ? '#fff' : p.color;
+
       // Body
-      const bodyColor = p.hitstun > 0 ? '#fff' : p.color;
-      ctx.fillStyle = bodyColor;
-      // Torso
-      ctx.fillRect(-10, -8, 20, 20);
+      ctx.fillStyle = bodyC;
+      ctx.fillRect(-11, -8, 22, 20);
+
       // Head
-      ctx.fillRect(-8, -18, 16, 12);
+      ctx.fillRect(-9, -19, 18, 13);
+
       // Eyes
       ctx.fillStyle = '#fff';
-      ctx.fillRect(1, -15, 5, 4);
+      ctx.fillRect(0, -16, 6, 5);
       ctx.fillStyle = '#111';
-      ctx.fillRect(3, -14, 2, 3);
+      ctx.fillRect(2, -15, 3, 3);
+
+      // Mouth
+      ctx.fillStyle = '#111';
+      ctx.fillRect(1, -9, 4, 2);
 
       // Arms
-      ctx.fillStyle = p.accentColor;
-      if (p.attack && p.attackFrame >= p.attack.start && p.attackFrame < p.attack.start + p.attack.active) {
-        // Attacking arm extended
-        ctx.fillRect(10, -6, 18, 6);
-        // Attack effect
-        if (p.attackType === 'smash') {
-          ctx.fillStyle = '#fff8';
-          ctx.fillRect(20, -10, 14, 14);
+      ctx.fillStyle = p.accent;
+      if (p.atk && p.atkFrame >= p.atk.start && p.atkFrame < p.atk.start + p.atk.active) {
+        // Attack arm
+        if (p.atkType === 'upAir') {
+          ctx.fillRect(-3, -28, 8, 14);
+          ctx.fillStyle = '#fff6'; ctx.fillRect(-5, -32, 12, 6);
+        } else if (p.atkType === 'dAir') {
+          ctx.fillRect(-3, 12, 8, 14);
+          ctx.fillStyle = '#fff6'; ctx.fillRect(-5, 22, 12, 6);
+        } else {
+          ctx.fillRect(11, -7, 20, 7);
+          if (p.atkType === 'smash') { ctx.fillStyle = '#fff8'; ctx.fillRect(22, -12, 16, 16); }
         }
       } else {
-        ctx.fillRect(10, -4, 8, 5);
+        ctx.fillRect(11, -3, 9, 6);
       }
-      // Back arm
-      ctx.fillRect(-14, -2, 6, 5);
+      ctx.fillStyle = p.accent;
+      ctx.fillRect(-15, -1, 6, 6);
 
       // Legs
-      ctx.fillStyle = p.color;
-      const legOff = p.grounded ? Math.sin(p.animFrame * 0.8) * 3 : 4;
-      ctx.fillRect(-8, 12, 7, 8 + legOff);
-      ctx.fillRect(2, 12, 7, 8 - legOff);
+      ctx.fillStyle = bodyC;
+      const lo = p.grounded ? Math.sin(p.animFrame * 0.8) * 3 : 4;
+      ctx.fillRect(-9, 12, 8, 8 + lo);
+      ctx.fillRect(2, 12, 8, 8 - lo);
 
-      // Item glow
+      // Item indicator
       if (p.item) {
-        ctx.fillStyle = p.item.color + '88';
-        ctx.fillRect(12, -12, p.item.w, p.item.h);
-        ctx.strokeStyle = p.item.color;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(12, -12, p.item.w, p.item.h);
+        ctx.fillStyle = p.item.color + '99';
+        ctx.shadowColor = p.item.color;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(13, -14, p.item.w * 0.7, p.item.h * 0.7);
+        ctx.shadowBlur = 0;
       }
 
       // Shield
       if (p.shielding) {
-        ctx.globalAlpha = 0.4 + (p.shieldHP / 100) * 0.3;
+        ctx.globalAlpha = 0.35 + (p.shieldHP / 100) * 0.35;
         ctx.strokeStyle = '#8cf';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(0, 0, 24, 0, Math.PI * 2);
+        ctx.arc(0, 0, 25, 0, Math.PI * 2);
         ctx.stroke();
         ctx.fillStyle = '#8cf4';
         ctx.fill();
@@ -1194,211 +969,170 @@
 
       ctx.restore();
 
-      // Damage percentage above character
-      ctx.fillStyle = p.damage > 100 ? '#f44' : (p.damage > 60 ? '#fa4' : '#fff');
+      // Damage %
+      const dmgC = p.damage > 100 ? '#f44' : (p.damage > 60 ? '#fa4' : '#fff');
+      ctx.fillStyle = dmgC;
       ctx.font = 'bold 11px Courier New';
       ctx.textAlign = 'center';
       ctx.fillText(Math.floor(p.damage) + '%', cx, p.y - 6);
 
-      // Name tag
+      // Name
       ctx.fillStyle = p.color;
       ctx.font = '9px Courier New';
-      ctx.fillText(p.name + (p.isAI ? '' : ' (YOU)'), cx, p.y - 16);
+      ctx.fillText(p.name + (p.isAI ? '' : ' (YOU)'), cx, p.y - 17);
 
-      // Attack hitbox visualization (debug-lite, subtle)
-      if (p.attack && p.attackFrame >= p.attack.start && p.attackFrame < p.attack.start + p.attack.active) {
-        const atk = p.attack;
-        ctx.globalAlpha = 0.2;
-        ctx.fillStyle = '#fff';
-        if (p.attackType === 'dAir') {
-          ctx.fillRect(p.x + p.w/2 - atk.rangeX/2, p.y + p.h, atk.rangeX, atk.rangeY);
-        } else if (p.attackType === 'upAir') {
-          ctx.fillRect(p.x + p.w/2 - atk.rangeX/2, p.y - atk.rangeY, atk.rangeX, atk.rangeY);
-        } else {
-          const hitX = p.x + (p.facing > 0 ? p.w : -atk.rangeX);
-          ctx.fillRect(hitX, p.y + p.h/2 - atk.rangeY/2, atk.rangeX, atk.rangeY);
-        }
+      // Subtle attack hitbox
+      if (p.atk && p.atkFrame >= p.atk.start && p.atkFrame < p.atk.start + p.atk.active && p.atk.rx > 0) {
+        const a = p.atk;
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = p.color;
+        if (p.atkType === 'dAir') ctx.fillRect(p.x + p.w/2 - a.rx/2, p.y + p.h, a.rx, a.ry);
+        else if (p.atkType === 'upAir') ctx.fillRect(p.x + p.w/2 - a.rx/2, p.y - a.ry, a.rx, a.ry);
+        else ctx.fillRect(p.x + (p.facing > 0 ? p.w : -a.rx), p.y + p.h/2 - a.ry/2, a.rx, a.ry);
         ctx.globalAlpha = 1;
       }
     }
 
-    function drawProjectiles() {
-      for (const proj of projectiles) {
-        ctx.fillStyle = proj.color;
-        ctx.shadowColor = proj.color;
-        ctx.shadowBlur = 10;
+    function drawProj() {
+      for (const pr of projectiles) {
+        ctx.save();
+        ctx.shadowColor = pr.col;
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = pr.col;
         ctx.beginPath();
-        ctx.arc(proj.x, proj.y, proj.w / 2, 0, Math.PI * 2);
+        ctx.arc(pr.x, pr.y, Math.max(pr.w, pr.h) / 2, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
+        ctx.restore();
       }
     }
 
     function drawItems() {
-      for (const item of items) {
-        // Glow
-        ctx.shadowColor = item.color;
-        ctx.shadowBlur = 8;
-        ctx.fillStyle = item.color;
-        ctx.fillRect(item.x, item.y, item.w, item.h);
-        ctx.shadowBlur = 0;
-        // Outline
-        ctx.strokeStyle = '#fff';
+      for (const it of items) {
+        ctx.save();
+        ctx.shadowColor = it.color;
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = it.color;
+        ctx.fillRect(it.x, it.y, it.w, it.h);
+        ctx.restore();
+        ctx.strokeStyle = '#fff8';
         ctx.lineWidth = 1;
-        ctx.strokeRect(item.x, item.y, item.w, item.h);
-        // Label
+        ctx.strokeRect(it.x, it.y, it.w, it.h);
         ctx.fillStyle = '#fff';
         ctx.font = '8px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText(item.name, item.x + item.w/2, item.y - 4);
+        ctx.fillText(it.name, it.x + it.w/2, it.y - 5);
       }
     }
 
     function drawParticles() {
-      for (const par of particles) {
-        const alpha = par.life / par.maxLife;
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = par.color;
-        ctx.fillRect(par.x - par.size/2, par.y - par.size/2, par.size, par.size);
+      for (const p of particles) {
+        ctx.globalAlpha = p.life / p.maxLife;
+        ctx.fillStyle = p.col;
+        ctx.fillRect(p.x - p.sz/2, p.y - p.sz/2, p.sz, p.sz);
       }
       ctx.globalAlpha = 1;
     }
 
     function drawHUD() {
-      // Stock display at bottom
-      const hudY = H - 30;
-      ctx.font = '10px Courier New';
+      const hudY = H - 32;
       ctx.textAlign = 'center';
 
       for (let i = 0; i < players.length; i++) {
         const p = players[i];
-        const hx = 80 + i * 140;
+        const hx = 75 + i * 150;
 
-        // Background panel
-        ctx.fillStyle = '#00000060';
-        ctx.fillRect(hx - 55, hudY - 12, 110, 28);
+        // Panel
+        ctx.fillStyle = '#00000070';
+        ctx.fillRect(hx - 60, hudY - 14, 120, 34);
+        ctx.strokeStyle = p.alive ? p.color + '60' : '#33333360';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(hx - 60, hudY - 14, 120, 34);
 
         // Name
         ctx.fillStyle = p.alive ? p.color : '#555';
-        ctx.fillText(p.name + (p.isAI ? '' : '(P1)'), hx, hudY);
+        ctx.font = 'bold 10px Courier New';
+        ctx.fillText(p.name + (p.isAI ? '' : ' (P1)'), hx, hudY);
 
-        // Stocks (circles)
+        // Stocks
         for (let s = 0; s < 3; s++) {
           ctx.fillStyle = s < p.stocks ? p.color : '#333';
           ctx.beginPath();
-          ctx.arc(hx - 25 + s * 14, hudY + 10, 4, 0, Math.PI * 2);
+          ctx.arc(hx - 28 + s * 14, hudY + 12, 4, 0, Math.PI * 2);
           ctx.fill();
         }
 
         // Damage
-        const dmgColor = p.damage > 100 ? '#f44' : (p.damage > 60 ? '#fa4' : '#fff');
-        ctx.fillStyle = p.alive ? dmgColor : '#555';
-        ctx.font = 'bold 11px Courier New';
-        ctx.fillText(Math.floor(p.damage) + '%', hx + 30, hudY + 12);
-        ctx.font = '10px Courier New';
+        const dc = p.damage > 100 ? '#f44' : (p.damage > 60 ? '#fa4' : '#eee');
+        ctx.fillStyle = p.alive ? dc : '#555';
+        ctx.font = 'bold 12px Courier New';
+        ctx.fillText(Math.floor(p.damage) + '%', hx + 35, hudY + 14);
       }
     }
 
     function drawCountdown() {
       if (countdownTimer > 0) {
-        const val = Math.ceil(countdownTimer / 60);
-        const progress = (countdownTimer % 60) / 60;
+        const v = Math.ceil(countdownTimer / 60);
+        const pr = (countdownTimer % 60) / 60;
+        ctx.save();
         ctx.fillStyle = THEME;
-        ctx.font = 'bold ' + (40 + progress * 20) + 'px Courier New';
+        ctx.font = 'bold ' + Math.floor(42 + pr * 20) + 'px Courier New';
         ctx.textAlign = 'center';
-        ctx.globalAlpha = 0.5 + progress * 0.5;
+        ctx.globalAlpha = 0.5 + pr * 0.5;
         ctx.shadowColor = THEME;
-        ctx.shadowBlur = 20;
-        ctx.fillText(val > 0 ? val : 'GO!', W/2, H/2 - 20);
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 25;
+        ctx.fillText(v > 0 ? String(v) : 'GO!', W/2, H/2 - 20);
+        ctx.restore();
       }
     }
 
-    // Main loop
+    // === MAIN LOOP ===
     function update() {
       if (gameState !== 'playing') return;
-
       frameCount++;
 
-      // Countdown
-      if (countdownTimer > 0) {
-        countdownTimer--;
-        return;
-      }
-
+      if (countdownTimer > 0) { countdownTimer--; return; }
       if (matchOver) return;
 
-      // Player input
-      handlePlayerInput(players[0]);
-
-      // AI
-      for (let i = 1; i < players.length; i++) {
-        updateAI(players[i]);
-      }
-
-      // Physics
-      for (const p of players) {
-        updatePlayer(p);
-      }
-
+      handleInput(players[0]);
+      for (let i = 1; i < players.length; i++) updateAI(players[i]);
+      for (const p of players) updatePlayer(p);
       updateProjectiles();
       updateItems();
       updateParticles();
+      updateHazard();
 
-      // Stage hazards
-      updateStageHazard();
-
-      // Item spawning
       itemSpawnTimer--;
-      if (itemSpawnTimer <= 0) {
-        spawnItem();
-        itemSpawnTimer = 400 + Math.floor(Math.random() * 300);
-      }
-
-      // Screen shake decay
+      if (itemSpawnTimer <= 0) { spawnItem(); itemSpawnTimer = 400 + Math.floor(Math.random() * 300); }
       if (shakeTimer > 0) shakeTimer--;
-
       updateHUD();
     }
 
     function draw() {
       ctx.save();
-
-      // Screen shake
       if (shakeTimer > 0) {
-        const sx = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
-        const sy = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
-        ctx.translate(sx, sy);
+        const i = shakeIntensity * (shakeTimer / 16);
+        ctx.translate((Math.random()-0.5)*i, (Math.random()-0.5)*i);
       }
 
+      drawBG();
       drawStage();
-
-      for (const p of players) {
-        drawPlayer(p);
-      }
-
-      drawProjectiles();
+      drawHazards();
+      for (const p of players) drawChar(p);
+      drawProj();
       drawItems();
       drawParticles();
       drawHUD();
       drawCountdown();
 
       ctx.restore();
+    }
 
+    function gameLoop() {
+      update();
+      draw();
       requestAnimationFrame(gameLoop);
     }
 
-    function gameLoop(timestamp) {
-      if (!lastTime) lastTime = timestamp;
-      const delta = timestamp - lastTime;
-      lastTime = timestamp;
-
-      update();
-      draw();
-    }
-
-    // Start
     requestAnimationFrame(gameLoop);
     draw();
   </script>
