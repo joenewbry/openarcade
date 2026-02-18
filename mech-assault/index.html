@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mech Assault</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #88aaff; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(136, 170, 255, 0.5); }
+    h1 { color: #88aaff; font-size: 1.6rem; text-shadow: 0 0 15px rgba(136, 170, 255, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1rem;
+    }
+    .score-bar span { color: #88aaff; }
+    canvas {
+      border: 2px solid #88aaff;
+      box-shadow: 0 0 20px rgba(136, 170, 255, 0.2);
+      display: block;
+      cursor: crosshair;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #88aaff;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.88);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(136, 170, 255, 0.6); }
+    .overlay p { font-size: 1rem; color: #aaa; margin: 4px 0; }
+    .overlay .controls { font-size: 0.8rem; color: #777; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>MECH ASSAULT</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span> | Armor: <span id="armor">100</span></div>
+    <div>Heat: <span id="heat">0</span>% | Time: <span id="timer">3:00</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:500px;">
+      <h2 id="overlayTitle">MECH ASSAULT</h2>
+      <p id="overlayText">Click to Deploy</p>
+      <div class="controls">WASD=Move | Mouse=Aim | Click=Fire | RClick=Secondary<br>R=Cycle Weapon | E=Melee</div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 500;
+    const scoreEl = document.getElementById('score');
+    const armorEl = document.getElementById('armor');
+    const heatEl = document.getElementById('heat');
+    const timerEl = document.getElementById('timer');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState = 'menu'; // menu, playing, gameover
+    let score = 0;
+
+    // --- CONSTANTS ---
+    const TILE = 25;
+    const COLS = W / TILE; // 24
+    const ROWS = H / TILE; // 20
+    const MATCH_TIME = 180; // 3 minutes
+    const RESPAWN_TIME = 5;
+    const SHUTDOWN_TIME = 3;
+    const MECH_RADIUS = 10;
+    const MELEE_RANGE = 30;
+    const MELEE_DMG = 25;
+    const MELEE_HEAT = 5;
+    const MAX_HEAT = 100;
+    const HEAT_DISSIPATION = 8; // per second
+    const MECH_SPEED = 80; // pixels/sec
+    const FOREST_SLOW = 0.5;
+
+    // Weapon definitions
+    const WEAPONS = {
+      MG: { name: 'MG', damage: 5, heat: 3, cooldown: 0.12, speed: 500, range: 250, spread: 0.12, color: '#ff0', projSize: 2, homing: false },
+      Laser: { name: 'Laser', damage: 15, heat: 12, cooldown: 0.5, speed: 900, range: 350, spread: 0.02, color: '#0ff', projSize: 2, homing: false, isBeam: true },
+      Missiles: { name: 'Missiles', damage: 20, heat: 25, cooldown: 1.2, speed: 200, range: 400, spread: 0.3, color: '#f80', projSize: 4, homing: true },
+      PPC: { name: 'PPC', damage: 40, heat: 35, cooldown: 2.0, speed: 600, range: 300, spread: 0.03, color: '#a0f', projSize: 5, homing: false, isBeam: true }
+    };
+
+    const LOADOUTS = [
+      ['MG', 'Missiles'],
+      ['Laser', 'MG'],
+      ['PPC', 'MG'],
+      ['Missiles', 'Laser'],
+      ['PPC', 'Missiles']
+    ];
+
+    // Tile types: 0=open, 1=building, 2=forest, 3=rubble
+    let map = [];
+    let mechs = [];
+    let projectiles = [];
+    let particles = [];
+    let beams = [];
+    let timeLeft = MATCH_TIME;
+    let keys = {};
+    let mouseX = 0, mouseY = 0;
+    let mouseDown = false;
+    let rightMouseDown = false;
+
+    // Camera offset (world coords centered on player)
+    let camX = 0, camY = 0;
+    // World size = map size
+    const WORLD_W = COLS * TILE;
+    const WORLD_H = ROWS * TILE;
+
+    // --- MAP GENERATION ---
+    function generateMap() {
+      map = [];
+      for (let r = 0; r < ROWS; r++) {
+        map[r] = [];
+        for (let c = 0; c < COLS; c++) {
+          // Border walls
+          if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) {
+            map[r][c] = { type: 1, hp: 999 };
+            continue;
+          }
+          map[r][c] = { type: 0, hp: 0 };
+        }
+      }
+      // Place building clusters
+      for (let i = 0; i < 8; i++) {
+        let bx = 2 + Math.floor(Math.random() * (COLS - 6));
+        let by = 2 + Math.floor(Math.random() * (ROWS - 6));
+        let bw = 1 + Math.floor(Math.random() * 3);
+        let bh = 1 + Math.floor(Math.random() * 3);
+        for (let r = by; r < by + bh && r < ROWS - 1; r++) {
+          for (let c = bx; c < bx + bw && c < COLS - 1; c++) {
+            map[r][c] = { type: 1, hp: 50 + Math.random() * 50 };
+          }
+        }
+      }
+      // Place forest patches
+      for (let i = 0; i < 6; i++) {
+        let fx = 2 + Math.floor(Math.random() * (COLS - 5));
+        let fy = 2 + Math.floor(Math.random() * (ROWS - 5));
+        let fw = 2 + Math.floor(Math.random() * 3);
+        let fh = 2 + Math.floor(Math.random() * 3);
+        for (let r = fy; r < fy + fh && r < ROWS - 1; r++) {
+          for (let c = fx; c < fx + fw && c < COLS - 1; c++) {
+            if (map[r][c].type === 0) {
+              map[r][c] = { type: 2, hp: 0 };
+            }
+          }
+        }
+      }
+    }
+
+    function tileAt(wx, wy) {
+      let c = Math.floor(wx / TILE);
+      let r = Math.floor(wy / TILE);
+      if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return { type: 1, hp: 999 };
+      return map[r][c];
+    }
+
+    function isSolid(wx, wy) {
+      let t = tileAt(wx, wy);
+      return t.type === 1;
+    }
+
+    function isForest(wx, wy) {
+      let t = tileAt(wx, wy);
+      return t.type === 2;
+    }
+
+    // --- MECH ---
+    function createMech(id, isPlayer, color) {
+      let loadout = isPlayer ? LOADOUTS[0] : LOADOUTS[Math.floor(Math.random() * LOADOUTS.length)];
+      let m = {
+        id: id,
+        isPlayer: isPlayer,
+        x: 0, y: 0,
+        vx: 0, vy: 0,
+        angle: 0, // body angle
+        turretAngle: 0,
+        armor: 100,
+        maxArmor: 100,
+        heat: 0,
+        shutdown: false,
+        shutdownTimer: 0,
+        dead: false,
+        respawnTimer: 0,
+        weapons: [loadout[0], loadout[1]],
+        activeWeapon: 0, // index into weapons array (0 = primary, 1 = secondary)
+        cooldowns: [0, 0],
+        kills: 0,
+        deaths: 0,
+        color: color,
+        meleeCD: 0,
+        // AI state
+        ai: isPlayer ? null : {
+          targetId: -1,
+          moveAngle: Math.random() * Math.PI * 2,
+          moveTimer: 0,
+          strafeDir: Math.random() < 0.5 ? 1 : -1,
+          aggressiveness: 0.3 + Math.random() * 0.5,
+          preferredRange: 120 + Math.random() * 100,
+          seekCoverTimer: 0,
+          state: 'roam' // roam, engage, retreat, cover
+        }
+      };
+      spawnMech(m);
+      return m;
+    }
+
+    function spawnMech(m) {
+      // Find open spawn point
+      for (let attempts = 0; attempts < 100; attempts++) {
+        let x = (2 + Math.random() * (COLS - 4)) * TILE;
+        let y = (2 + Math.random() * (ROWS - 4)) * TILE;
+        if (!isSolid(x, y) && !isSolid(x - MECH_RADIUS, y) && !isSolid(x + MECH_RADIUS, y) &&
+            !isSolid(x, y - MECH_RADIUS) && !isSolid(x, y + MECH_RADIUS)) {
+          // Check distance from other mechs
+          let tooClose = false;
+          for (let other of mechs) {
+            if (other.id !== m.id && !other.dead) {
+              let dx = other.x - x, dy = other.y - y;
+              if (Math.sqrt(dx * dx + dy * dy) < 60) { tooClose = true; break; }
+            }
+          }
+          if (!tooClose) {
+            m.x = x;
+            m.y = y;
+            m.armor = m.maxArmor;
+            m.heat = 0;
+            m.shutdown = false;
+            m.shutdownTimer = 0;
+            m.dead = false;
+            m.respawnTimer = 0;
+            m.cooldowns = [0, 0];
+            return;
+          }
+        }
+      }
+      m.x = W / 2;
+      m.y = H / 2;
+    }
+
+    // --- PROJECTILES ---
+    function fireWeapon(mech, weaponIdx) {
+      let wName = mech.weapons[weaponIdx];
+      let w = WEAPONS[wName];
+      if (mech.cooldowns[weaponIdx] > 0) return;
+      if (mech.heat + w.heat > MAX_HEAT * 1.2) return; // allow slight overheat
+      if (mech.shutdown || mech.dead) return;
+
+      mech.cooldowns[weaponIdx] = w.cooldown;
+      mech.heat += w.heat;
+
+      let angle = mech.turretAngle + (Math.random() - 0.5) * w.spread;
+
+      if (w.isBeam) {
+        // Beam weapon - raycast
+        let bx = mech.x, by = mech.y;
+        let dx = Math.cos(angle), dy = Math.sin(angle);
+        let dist = 0;
+        let hitX = bx + dx * w.range, hitY = by + dy * w.range;
+        let hitMech = null;
+        // Step along beam
+        for (let s = 10; s < w.range; s += 3) {
+          let px = bx + dx * s, py = by + dy * s;
+          // Check solid tile
+          if (isSolid(px, py)) {
+            hitX = px; hitY = py;
+            // Damage building
+            let c = Math.floor(px / TILE), r = Math.floor(py / TILE);
+            if (r >= 0 && r < ROWS && c >= 0 && c < COLS && map[r][c].type === 1 && map[r][c].hp < 500) {
+              map[r][c].hp -= w.damage;
+              if (map[r][c].hp <= 0) {
+                map[r][c] = { type: 3, hp: 0 };
+                spawnDebris(c * TILE + TILE / 2, r * TILE + TILE / 2);
+              }
+            }
+            break;
+          }
+          // Check mechs
+          for (let other of mechs) {
+            if (other.id === mech.id || other.dead) continue;
+            let mdx = other.x - px, mdy = other.y - py;
+            if (mdx * mdx + mdy * mdy < MECH_RADIUS * MECH_RADIUS) {
+              hitX = px; hitY = py;
+              hitMech = other;
+              break;
+            }
+          }
+          if (hitMech) break;
+        }
+        if (hitMech) {
+          damageMech(hitMech, w.damage, mech);
+        }
+        beams.push({ x1: bx, y1: by, x2: hitX, y2: hitY, color: w.color, life: 0.15, maxLife: 0.15 });
+      } else {
+        // Projectile weapon
+        let count = wName === 'Missiles' ? 3 : 1;
+        for (let i = 0; i < count; i++) {
+          let a = angle + (count > 1 ? (i - 1) * 0.15 : 0);
+          projectiles.push({
+            x: mech.x + Math.cos(a) * 14,
+            y: mech.y + Math.sin(a) * 14,
+            vx: Math.cos(a) * w.speed,
+            vy: Math.sin(a) * w.speed,
+            damage: w.damage,
+            ownerId: mech.id,
+            color: w.color,
+            size: w.projSize,
+            life: w.range / w.speed,
+            homing: w.homing,
+            targetId: w.homing ? findNearestEnemy(mech) : -1,
+            trail: []
+          });
+        }
+      }
+      // Spawn muzzle flash
+      for (let i = 0; i < 3; i++) {
+        particles.push({
+          x: mech.x + Math.cos(angle) * 14,
+          y: mech.y + Math.sin(angle) * 14,
+          vx: Math.cos(angle) * (50 + Math.random() * 80),
+          vy: Math.sin(angle) * (50 + Math.random() * 80),
+          life: 0.15,
+          maxLife: 0.15,
+          color: w.color,
+          size: 3
+        });
+      }
+    }
+
+    function findNearestEnemy(mech) {
+      let best = -1, bestDist = Infinity;
+      for (let other of mechs) {
+        if (other.id === mech.id || other.dead) continue;
+        let dx = other.x - mech.x, dy = other.y - mech.y;
+        let d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; best = other.id; }
+      }
+      return best;
+    }
+
+    function damageMech(target, dmg, attacker) {
+      if (target.dead) return;
+      target.armor -= dmg;
+      // Hit sparks
+      for (let i = 0; i < 4; i++) {
+        let a = Math.random() * Math.PI * 2;
+        particles.push({
+          x: target.x, y: target.y,
+          vx: Math.cos(a) * (40 + Math.random() * 60),
+          vy: Math.sin(a) * (40 + Math.random() * 60),
+          life: 0.3, maxLife: 0.3,
+          color: '#ff4', size: 2
+        });
+      }
+      if (target.armor <= 0) {
+        killMech(target, attacker);
+      }
+    }
+
+    function killMech(target, killer) {
+      target.dead = true;
+      target.respawnTimer = RESPAWN_TIME;
+      target.deaths++;
+      if (killer && killer.id !== target.id) {
+        killer.kills++;
+      }
+      // Big explosion
+      spawnExplosion(target.x, target.y, 30);
+    }
+
+    function spawnExplosion(x, y, count) {
+      for (let i = 0; i < count; i++) {
+        let a = Math.random() * Math.PI * 2;
+        let spd = 30 + Math.random() * 120;
+        let colors = ['#f80', '#ff0', '#f00', '#fa0', '#fff'];
+        particles.push({
+          x: x, y: y,
+          vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+          life: 0.3 + Math.random() * 0.6,
+          maxLife: 0.6,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          size: 2 + Math.random() * 4
+        });
+      }
+    }
+
+    function spawnDebris(x, y) {
+      for (let i = 0; i < 12; i++) {
+        let a = Math.random() * Math.PI * 2;
+        let spd = 20 + Math.random() * 80;
+        particles.push({
+          x: x, y: y,
+          vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+          life: 0.4 + Math.random() * 0.5,
+          maxLife: 0.5,
+          color: '#888',
+          size: 2 + Math.random() * 3
+        });
+      }
+    }
+
+    // --- AI ---
+    function updateAI(mech, dt) {
+      if (mech.dead || mech.shutdown) return;
+      let ai = mech.ai;
+
+      // Find target
+      let target = null;
+      let targetDist = Infinity;
+      for (let other of mechs) {
+        if (other.id === mech.id || other.dead) continue;
+        let dx = other.x - mech.x, dy = other.y - mech.y;
+        let d = Math.sqrt(dx * dx + dy * dy);
+        if (d < targetDist) { targetDist = d; target = other; ai.targetId = other.id; }
+      }
+
+      if (!target) { ai.state = 'roam'; }
+
+      // Heat management - switch state
+      let heatRatio = mech.heat / MAX_HEAT;
+      if (heatRatio > 0.8) {
+        ai.state = 'retreat';
+      } else if (heatRatio > 0.6 && ai.state === 'engage') {
+        // Stay engaged but be cautious with weapons
+      } else if (target && targetDist < 300) {
+        ai.state = 'engage';
+      } else {
+        ai.state = 'roam';
+      }
+
+      // Movement
+      ai.moveTimer -= dt;
+      if (ai.moveTimer <= 0) {
+        ai.moveTimer = 0.5 + Math.random() * 1.0;
+        ai.strafeDir = Math.random() < 0.5 ? 1 : -1;
+        if (ai.state === 'roam') {
+          ai.moveAngle = Math.random() * Math.PI * 2;
+        }
+      }
+
+      let moveX = 0, moveY = 0;
+
+      if (ai.state === 'engage' && target) {
+        let dx = target.x - mech.x, dy = target.y - mech.y;
+        let toTarget = Math.atan2(dy, dx);
+        // Maintain preferred range
+        if (targetDist > ai.preferredRange + 30) {
+          moveX = Math.cos(toTarget);
+          moveY = Math.sin(toTarget);
+        } else if (targetDist < ai.preferredRange - 30) {
+          moveX = -Math.cos(toTarget);
+          moveY = -Math.sin(toTarget);
+        }
+        // Strafe
+        let strafeAngle = toTarget + Math.PI / 2 * ai.strafeDir;
+        moveX += Math.cos(strafeAngle) * 0.6;
+        moveY += Math.sin(strafeAngle) * 0.6;
+      } else if (ai.state === 'retreat') {
+        if (target) {
+          let dx = target.x - mech.x, dy = target.y - mech.y;
+          let away = Math.atan2(-dy, -dx);
+          moveX = Math.cos(away);
+          moveY = Math.sin(away);
+        } else {
+          moveX = Math.cos(ai.moveAngle);
+          moveY = Math.sin(ai.moveAngle);
+        }
+      } else {
+        moveX = Math.cos(ai.moveAngle);
+        moveY = Math.sin(ai.moveAngle);
+      }
+
+      // Normalize
+      let ml = Math.sqrt(moveX * moveX + moveY * moveY);
+      if (ml > 0) { moveX /= ml; moveY /= ml; }
+
+      // Apply movement with collision
+      let speed = MECH_SPEED;
+      if (isForest(mech.x, mech.y)) speed *= FOREST_SLOW;
+
+      let nx = mech.x + moveX * speed * dt;
+      let ny = mech.y + moveY * speed * dt;
+
+      // Wall avoidance
+      if (!isSolid(nx, mech.y) && !isSolid(nx - MECH_RADIUS, mech.y) && !isSolid(nx + MECH_RADIUS, mech.y)) {
+        mech.x = nx;
+      } else {
+        ai.moveAngle = Math.random() * Math.PI * 2;
+      }
+      if (!isSolid(mech.x, ny) && !isSolid(mech.x, ny - MECH_RADIUS) && !isSolid(mech.x, ny + MECH_RADIUS)) {
+        mech.y = ny;
+      } else {
+        ai.moveAngle = Math.random() * Math.PI * 2;
+      }
+
+      // Turret aim at target
+      if (target) {
+        let dx = target.x - mech.x, dy = target.y - mech.y;
+        let desired = Math.atan2(dy, dx);
+        // Smooth turret rotation
+        let diff = desired - mech.turretAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        mech.turretAngle += diff * Math.min(1, 5 * dt);
+      }
+
+      // Body angle follows movement
+      if (ml > 0.1) {
+        let desired = Math.atan2(moveY, moveX);
+        let diff = desired - mech.angle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        mech.angle += diff * Math.min(1, 4 * dt);
+      }
+
+      // Weapon selection by range and heat
+      if (target) {
+        let w0 = WEAPONS[mech.weapons[0]];
+        let w1 = WEAPONS[mech.weapons[1]];
+
+        // Choose weapon based on range and heat budget
+        let bestIdx = 0;
+        if (heatRatio > 0.6) {
+          // Low heat weapon
+          bestIdx = w0.heat < w1.heat ? 0 : 1;
+        } else if (targetDist < 100) {
+          // Close range: prefer MG or melee
+          bestIdx = (w0.name === 'MG') ? 0 : (w1.name === 'MG') ? 1 : 0;
+        } else if (targetDist > 200) {
+          // Long range: prefer Laser, PPC, Missiles
+          bestIdx = (w0.range > w1.range) ? 0 : 1;
+        }
+        mech.activeWeapon = bestIdx;
+
+        // Fire if facing target
+        let aimDiff = Math.abs(Math.atan2(target.y - mech.y, target.x - mech.x) - mech.turretAngle);
+        while (aimDiff > Math.PI) aimDiff = Math.PI * 2 - aimDiff;
+        if (aimDiff < 0.25 && targetDist < WEAPONS[mech.weapons[bestIdx]].range) {
+          // Don't fire if heat is too high
+          let wep = WEAPONS[mech.weapons[bestIdx]];
+          if (mech.heat + wep.heat < MAX_HEAT * 0.9 || heatRatio < 0.5) {
+            fireWeapon(mech, bestIdx);
+          }
+        }
+
+        // Secondary fire occasionally
+        let otherIdx = 1 - bestIdx;
+        let otherWep = WEAPONS[mech.weapons[otherIdx]];
+        if (aimDiff < 0.3 && targetDist < otherWep.range && Math.random() < 0.3 * dt * 10 &&
+            mech.heat + otherWep.heat < MAX_HEAT * 0.85) {
+          fireWeapon(mech, otherIdx);
+        }
+
+        // Melee if close
+        if (targetDist < MELEE_RANGE && mech.meleeCD <= 0) {
+          mech.meleeCD = 0.8;
+          damageMech(target, MELEE_DMG, mech);
+          mech.heat += MELEE_HEAT;
+          spawnExplosion(target.x, target.y, 6);
+        }
+      }
+    }
+
+    // --- PLAYER INPUT ---
+    function handlePlayerInput(mech, dt) {
+      if (mech.dead || mech.shutdown) return;
+
+      let moveX = 0, moveY = 0;
+      if (keys['w'] || keys['arrowup']) moveY = -1;
+      if (keys['s'] || keys['arrowdown']) moveY = 1;
+      if (keys['a'] || keys['arrowleft']) moveX = -1;
+      if (keys['d'] || keys['arrowright']) moveX = 1;
+
+      let ml = Math.sqrt(moveX * moveX + moveY * moveY);
+      if (ml > 0) { moveX /= ml; moveY /= ml; }
+
+      let speed = MECH_SPEED;
+      if (isForest(mech.x, mech.y)) speed *= FOREST_SLOW;
+
+      let nx = mech.x + moveX * speed * dt;
+      let ny = mech.y + moveY * speed * dt;
+
+      // Collision check with margin
+      let r = MECH_RADIUS;
+      if (!isSolid(nx - r, mech.y - r) && !isSolid(nx + r, mech.y - r) &&
+          !isSolid(nx - r, mech.y + r) && !isSolid(nx + r, mech.y + r)) {
+        mech.x = nx;
+      }
+      if (!isSolid(mech.x - r, ny - r) && !isSolid(mech.x + r, ny - r) &&
+          !isSolid(mech.x - r, ny + r) && !isSolid(mech.x + r, ny + r)) {
+        mech.y = ny;
+      }
+
+      // Clamp to world
+      mech.x = Math.max(TILE + r, Math.min(WORLD_W - TILE - r, mech.x));
+      mech.y = Math.max(TILE + r, Math.min(WORLD_H - TILE - r, mech.y));
+
+      // Body angle follows movement
+      if (ml > 0.1) {
+        let desired = Math.atan2(moveY, moveX);
+        let diff = desired - mech.angle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        mech.angle += diff * Math.min(1, 6 * dt);
+      }
+
+      // Turret aims at mouse (in world coords)
+      let wmx = mouseX + camX;
+      let wmy = mouseY + camY;
+      mech.turretAngle = Math.atan2(wmy - mech.y, wmx - mech.x);
+
+      // Fire
+      if (mouseDown) {
+        fireWeapon(mech, mech.activeWeapon);
+      }
+      if (rightMouseDown) {
+        fireWeapon(mech, 1 - mech.activeWeapon);
+      }
+    }
+
+    // --- UPDATE ---
+    let lastTime = 0;
+    function update(timestamp) {
+      if (gameState !== 'playing') return;
+      let dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+      lastTime = timestamp;
+
+      // Timer
+      timeLeft -= dt;
+      if (timeLeft <= 0) {
+        timeLeft = 0;
+        endGame();
+        return;
+      }
+
+      // Update mechs
+      for (let mech of mechs) {
+        if (mech.dead) {
+          mech.respawnTimer -= dt;
+          if (mech.respawnTimer <= 0) {
+            spawnMech(mech);
+          }
+          continue;
+        }
+
+        // Heat dissipation
+        mech.heat = Math.max(0, mech.heat - HEAT_DISSIPATION * dt);
+
+        // Shutdown check
+        if (mech.shutdown) {
+          mech.shutdownTimer -= dt;
+          if (mech.shutdownTimer <= 0) {
+            mech.shutdown = false;
+            mech.heat = MAX_HEAT * 0.3; // cool down to 30% after shutdown
+          }
+          continue;
+        }
+
+        // Overheat
+        if (mech.heat >= MAX_HEAT) {
+          mech.shutdown = true;
+          mech.shutdownTimer = SHUTDOWN_TIME;
+          // Shutdown sparks
+          for (let i = 0; i < 8; i++) {
+            let a = Math.random() * Math.PI * 2;
+            particles.push({
+              x: mech.x, y: mech.y,
+              vx: Math.cos(a) * 30, vy: Math.sin(a) * 30,
+              life: 0.5, maxLife: 0.5,
+              color: '#f00', size: 2
+            });
+          }
+          continue;
+        }
+
+        // Cooldowns
+        mech.cooldowns[0] = Math.max(0, mech.cooldowns[0] - dt);
+        mech.cooldowns[1] = Math.max(0, mech.cooldowns[1] - dt);
+        mech.meleeCD = Math.max(0, mech.meleeCD - dt);
+
+        // Input
+        if (mech.isPlayer) {
+          handlePlayerInput(mech, dt);
+        } else {
+          updateAI(mech, dt);
+        }
+      }
+
+      // Update projectiles
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        let p = projectiles[i];
+        p.life -= dt;
+        if (p.life <= 0) { projectiles.splice(i, 1); continue; }
+
+        // Homing
+        if (p.homing && p.targetId >= 0) {
+          let target = mechs.find(m => m.id === p.targetId && !m.dead);
+          if (target) {
+            let dx = target.x - p.x, dy = target.y - p.y;
+            let desired = Math.atan2(dy, dx);
+            let current = Math.atan2(p.vy, p.vx);
+            let diff = desired - current;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            let turn = Math.min(Math.abs(diff), 3 * dt) * Math.sign(diff);
+            let newAngle = current + turn;
+            let spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+            // Accelerate homing missiles
+            spd = Math.min(spd + 150 * dt, 350);
+            p.vx = Math.cos(newAngle) * spd;
+            p.vy = Math.sin(newAngle) * spd;
+          }
+        }
+
+        // Trail
+        p.trail.push({ x: p.x, y: p.y, life: 0.2 });
+
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+
+        // Wall collision
+        if (isSolid(p.x, p.y)) {
+          let c = Math.floor(p.x / TILE), r = Math.floor(p.y / TILE);
+          if (r >= 0 && r < ROWS && c >= 0 && c < COLS && map[r][c].type === 1 && map[r][c].hp < 500) {
+            map[r][c].hp -= p.damage;
+            if (map[r][c].hp <= 0) {
+              map[r][c] = { type: 3, hp: 0 };
+              spawnDebris(c * TILE + TILE / 2, r * TILE + TILE / 2);
+            }
+          }
+          spawnExplosion(p.x, p.y, 4);
+          projectiles.splice(i, 1);
+          continue;
+        }
+
+        // Mech collision
+        let hit = false;
+        for (let mech of mechs) {
+          if (mech.id === p.ownerId || mech.dead) continue;
+          let dx = mech.x - p.x, dy = mech.y - p.y;
+          if (dx * dx + dy * dy < (MECH_RADIUS + p.size) * (MECH_RADIUS + p.size)) {
+            damageMech(mech, p.damage, mechs.find(m => m.id === p.ownerId));
+            projectiles.splice(i, 1);
+            hit = true;
+            break;
+          }
+        }
+        if (hit) continue;
+
+        // Update trail
+        for (let j = p.trail.length - 1; j >= 0; j--) {
+          p.trail[j].life -= dt;
+          if (p.trail[j].life <= 0) p.trail.splice(j, 1);
+        }
+      }
+
+      // Update beams
+      for (let i = beams.length - 1; i >= 0; i--) {
+        beams[i].life -= dt;
+        if (beams[i].life <= 0) beams.splice(i, 1);
+      }
+
+      // Update particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.life -= dt;
+        if (p.life <= 0) { particles.splice(i, 1); continue; }
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= 0.95;
+        p.vy *= 0.95;
+      }
+
+      // Update camera
+      let player = mechs[0];
+      if (player) {
+        camX = player.x - W / 2;
+        camY = player.y - H / 2;
+        camX = Math.max(0, Math.min(WORLD_W - W, camX));
+        camY = Math.max(0, Math.min(WORLD_H - H, camY));
+      }
+
+      // Update HUD
+      if (player) {
+        score = player.kills - player.deaths;
+        scoreEl.textContent = score;
+        armorEl.textContent = player.dead ? 'DEAD' : Math.max(0, Math.ceil(player.armor));
+        heatEl.textContent = Math.ceil(player.heat);
+      }
+      let mins = Math.floor(timeLeft / 60);
+      let secs = Math.floor(timeLeft % 60);
+      timerEl.textContent = mins + ':' + (secs < 10 ? '0' : '') + secs;
+    }
+
+    // --- DRAW ---
+    function draw() {
+      ctx.fillStyle = '#0a0a1a';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.save();
+      ctx.translate(-camX, -camY);
+
+      // Draw map
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          let tile = map[r][c];
+          let x = c * TILE, y = r * TILE;
+          // Only draw visible tiles
+          if (x + TILE < camX || x > camX + W || y + TILE < camY || y > camY + H) continue;
+
+          if (tile.type === 0) {
+            // Open ground - subtle grid
+            ctx.fillStyle = '#12122a';
+            ctx.fillRect(x, y, TILE, TILE);
+            ctx.strokeStyle = '#1a1a35';
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(x, y, TILE, TILE);
+          } else if (tile.type === 1) {
+            // Building
+            let dmgRatio = tile.hp < 500 ? Math.max(0, tile.hp / 100) : 1;
+            let r2 = Math.floor(60 + 40 * dmgRatio);
+            let g2 = Math.floor(60 + 40 * dmgRatio);
+            let b2 = Math.floor(80 + 50 * dmgRatio);
+            ctx.fillStyle = `rgb(${r2},${g2},${b2})`;
+            ctx.fillRect(x, y, TILE, TILE);
+            // Building detail
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x + 2, y + 2, TILE - 4, TILE - 4);
+            if (tile.hp < 500) {
+              // Damage cracks
+              let cracks = Math.floor((1 - dmgRatio) * 3);
+              ctx.strokeStyle = '#333';
+              for (let i = 0; i < cracks; i++) {
+                ctx.beginPath();
+                ctx.moveTo(x + TILE * 0.3 * (i + 1), y);
+                ctx.lineTo(x + TILE * 0.5, y + TILE * 0.5);
+                ctx.lineTo(x + TILE * 0.7, y + TILE);
+                ctx.stroke();
+              }
+            }
+          } else if (tile.type === 2) {
+            // Forest
+            ctx.fillStyle = '#1a2a1a';
+            ctx.fillRect(x, y, TILE, TILE);
+            // Trees
+            ctx.fillStyle = '#2a4a2a';
+            ctx.beginPath();
+            ctx.arc(x + 8, y + 8, 5, 0, Math.PI * 2);
+            ctx.arc(x + 17, y + 12, 6, 0, Math.PI * 2);
+            ctx.arc(x + 10, y + 18, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#3a5a3a';
+            ctx.beginPath();
+            ctx.arc(x + 8, y + 8, 3, 0, Math.PI * 2);
+            ctx.arc(x + 17, y + 12, 4, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (tile.type === 3) {
+            // Rubble
+            ctx.fillStyle = '#1a1820';
+            ctx.fillRect(x, y, TILE, TILE);
+            ctx.fillStyle = '#333';
+            ctx.fillRect(x + 3, y + 5, 6, 4);
+            ctx.fillRect(x + 14, y + 10, 5, 5);
+            ctx.fillRect(x + 7, y + 16, 8, 3);
+          }
+        }
+      }
+
+      // Draw beams
+      for (let b of beams) {
+        let alpha = b.life / b.maxLife;
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 3 * alpha;
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.moveTo(b.x1, b.y1);
+        ctx.lineTo(b.x2, b.y2);
+        ctx.stroke();
+        // Inner bright line
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1 * alpha;
+        ctx.beginPath();
+        ctx.moveTo(b.x1, b.y1);
+        ctx.lineTo(b.x2, b.y2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw projectiles
+      for (let p of projectiles) {
+        // Trail
+        for (let t of p.trail) {
+          let alpha = t.life / 0.2;
+          ctx.globalAlpha = alpha * 0.5;
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(t.x, t.y, p.size * 0.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // Projectile glow
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw mechs
+      for (let mech of mechs) {
+        if (mech.dead) continue;
+        drawMech(mech);
+      }
+
+      // Draw particles
+      for (let p of particles) {
+        let alpha = p.life / p.maxLife;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.restore();
+
+      // HUD overlay
+      drawHUD();
+    }
+
+    function drawMech(mech) {
+      ctx.save();
+      ctx.translate(mech.x, mech.y);
+
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(2, 2, MECH_RADIUS + 2, MECH_RADIUS, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Shutdown flash
+      if (mech.shutdown) {
+        let flash = Math.sin(Date.now() * 0.02) * 0.5 + 0.5;
+        ctx.shadowColor = '#f00';
+        ctx.shadowBlur = 10 * flash;
+      }
+
+      // Body (rotates with movement)
+      ctx.save();
+      ctx.rotate(mech.angle);
+      // Legs / treads
+      ctx.fillStyle = '#444';
+      ctx.fillRect(-MECH_RADIUS - 2, -MECH_RADIUS + 1, MECH_RADIUS * 2 + 4, 4);
+      ctx.fillRect(-MECH_RADIUS - 2, MECH_RADIUS - 5, MECH_RADIUS * 2 + 4, 4);
+      // Main body
+      ctx.fillStyle = mech.shutdown ? '#633' : mech.color;
+      ctx.fillRect(-MECH_RADIUS + 1, -MECH_RADIUS + 3, MECH_RADIUS * 2 - 2, MECH_RADIUS * 2 - 6);
+      // Body detail
+      ctx.fillStyle = shadeColor(mech.color, -30);
+      ctx.fillRect(-MECH_RADIUS + 3, -MECH_RADIUS + 5, MECH_RADIUS * 2 - 6, MECH_RADIUS * 2 - 10);
+      ctx.restore();
+
+      // Turret (rotates independently)
+      ctx.save();
+      ctx.rotate(mech.turretAngle);
+      // Gun barrel
+      ctx.fillStyle = '#777';
+      ctx.fillRect(4, -2, MECH_RADIUS + 6, 4);
+      // Barrel tip
+      ctx.fillStyle = '#999';
+      ctx.fillRect(MECH_RADIUS + 6, -3, 4, 6);
+      // Turret base
+      ctx.fillStyle = shadeColor(mech.color, 20);
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.shadowBlur = 0;
+
+      // Health bar
+      let hpRatio = mech.armor / mech.maxArmor;
+      ctx.fillStyle = '#300';
+      ctx.fillRect(-MECH_RADIUS, -MECH_RADIUS - 8, MECH_RADIUS * 2, 3);
+      ctx.fillStyle = hpRatio > 0.5 ? '#0f0' : hpRatio > 0.25 ? '#ff0' : '#f00';
+      ctx.fillRect(-MECH_RADIUS, -MECH_RADIUS - 8, MECH_RADIUS * 2 * hpRatio, 3);
+
+      // Heat bar
+      let heatRatio = mech.heat / MAX_HEAT;
+      ctx.fillStyle = '#220';
+      ctx.fillRect(-MECH_RADIUS, -MECH_RADIUS - 4, MECH_RADIUS * 2, 2);
+      ctx.fillStyle = heatRatio > 0.8 ? '#f00' : heatRatio > 0.5 ? '#fa0' : '#0af';
+      ctx.fillRect(-MECH_RADIUS, -MECH_RADIUS - 4, MECH_RADIUS * 2 * Math.min(1, heatRatio), 2);
+
+      // Name label
+      if (!mech.isPlayer) {
+        ctx.fillStyle = '#aaa';
+        ctx.font = '8px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('AI-' + mech.id, 0, MECH_RADIUS + 12);
+      }
+
+      ctx.restore();
+    }
+
+    function shadeColor(hex, amount) {
+      let r = parseInt(hex.slice(1, 3), 16) + amount;
+      let g = parseInt(hex.slice(3, 5), 16) + amount;
+      let b = parseInt(hex.slice(5, 7), 16) + amount;
+      r = Math.max(0, Math.min(255, r));
+      g = Math.max(0, Math.min(255, g));
+      b = Math.max(0, Math.min(255, b));
+      return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0');
+    }
+
+    function drawHUD() {
+      let player = mechs[0];
+      if (!player) return;
+
+      // Weapon display
+      ctx.fillStyle = 'rgba(10, 10, 30, 0.8)';
+      ctx.fillRect(5, H - 70, 160, 65);
+      ctx.strokeStyle = '#88aaff44';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(5, H - 70, 160, 65);
+
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+
+      for (let i = 0; i < 2; i++) {
+        let wName = player.weapons[i];
+        let w = WEAPONS[wName];
+        let y = H - 58 + i * 28;
+        let isActive = (i === player.activeWeapon);
+
+        // Selection indicator
+        if (isActive) {
+          ctx.fillStyle = '#88aaff33';
+          ctx.fillRect(10, y - 8, 148, 22);
+          ctx.fillStyle = '#88aaff';
+          ctx.fillText('>', 12, y + 4);
+        }
+
+        ctx.fillStyle = isActive ? '#fff' : '#888';
+        ctx.fillText((i === 0 ? 'L' : 'R') + ': ' + wName, 22, y + 4);
+
+        // Cooldown bar
+        let cdRatio = player.cooldowns[i] / w.cooldown;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(100, y - 2, 50, 6);
+        ctx.fillStyle = cdRatio > 0 ? '#f80' : '#0f0';
+        ctx.fillRect(100, y - 2, 50 * (1 - cdRatio), 6);
+      }
+
+      // Heat gauge (large)
+      let heatRatio = player.heat / MAX_HEAT;
+      ctx.fillStyle = 'rgba(10, 10, 30, 0.8)';
+      ctx.fillRect(W - 85, H - 70, 80, 65);
+      ctx.strokeStyle = '#88aaff44';
+      ctx.strokeRect(W - 85, H - 70, 80, 65);
+
+      ctx.fillStyle = '#aaa';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('HEAT', W - 45, H - 56);
+
+      // Vertical heat bar
+      ctx.fillStyle = '#222';
+      ctx.fillRect(W - 75, H - 48, 60, 14);
+      let heatColor = heatRatio > 0.8 ? '#f00' : heatRatio > 0.5 ? '#fa0' : '#0af';
+      ctx.fillStyle = heatColor;
+      ctx.fillRect(W - 75, H - 48, 60 * Math.min(1, heatRatio), 14);
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px Courier New';
+      ctx.fillText(Math.ceil(player.heat) + '%', W - 45, H - 38);
+
+      if (player.shutdown) {
+        ctx.fillStyle = '#f00';
+        ctx.font = 'bold 12px Courier New';
+        ctx.fillText('SHUTDOWN', W - 45, H - 18);
+        ctx.fillText(player.shutdownTimer.toFixed(1) + 's', W - 45, H - 7);
+      }
+
+      if (player.dead) {
+        ctx.fillStyle = '#f00';
+        ctx.font = 'bold 14px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('DESTROYED - Respawning ' + player.respawnTimer.toFixed(1) + 's', W / 2, H / 2);
+      }
+
+      // Scoreboard (top right)
+      ctx.fillStyle = 'rgba(10, 10, 30, 0.7)';
+      ctx.fillRect(W - 145, 5, 140, 15 + mechs.length * 14);
+      ctx.strokeStyle = '#88aaff44';
+      ctx.strokeRect(W - 145, 5, 140, 15 + mechs.length * 14);
+
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#88aaff';
+      ctx.fillText('PILOT        K  D  SCR', W - 140, 16);
+
+      // Sort by score
+      let sorted = [...mechs].sort((a, b) => (b.kills - b.deaths) - (a.kills - a.deaths));
+      for (let i = 0; i < sorted.length; i++) {
+        let m = sorted[i];
+        let name = m.isPlayer ? 'YOU' : 'AI-' + m.id;
+        ctx.fillStyle = m.isPlayer ? '#88aaff' : '#888';
+        let s = m.kills - m.deaths;
+        ctx.fillText(
+          name.padEnd(13) + String(m.kills).padStart(2) + ' ' + String(m.deaths).padStart(2) + ' ' + String(s).padStart(3),
+          W - 140, 30 + i * 14
+        );
+      }
+
+      // Minimap
+      let mmW = 96, mmH = 80;
+      let mmX = 5, mmY = 5;
+      ctx.fillStyle = 'rgba(10, 10, 30, 0.8)';
+      ctx.fillRect(mmX, mmY, mmW, mmH);
+      ctx.strokeStyle = '#88aaff44';
+      ctx.strokeRect(mmX, mmY, mmW, mmH);
+
+      let scX = mmW / WORLD_W;
+      let scY = mmH / WORLD_H;
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          let t = map[r][c];
+          if (t.type === 1) {
+            ctx.fillStyle = '#556';
+            ctx.fillRect(mmX + c * TILE * scX, mmY + r * TILE * scY, TILE * scX + 0.5, TILE * scY + 0.5);
+          } else if (t.type === 2) {
+            ctx.fillStyle = '#243';
+            ctx.fillRect(mmX + c * TILE * scX, mmY + r * TILE * scY, TILE * scX + 0.5, TILE * scY + 0.5);
+          }
+        }
+      }
+
+      // Mech dots on minimap
+      for (let m of mechs) {
+        if (m.dead) continue;
+        ctx.fillStyle = m.isPlayer ? '#88aaff' : '#f44';
+        ctx.beginPath();
+        ctx.arc(mmX + m.x * scX, mmY + m.y * scY, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Camera viewport on minimap
+      ctx.strokeStyle = '#88aaff55';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(mmX + camX * scX, mmY + camY * scY, W * scX, H * scY);
+    }
+
+    // --- GAME FLOW ---
+    function startGame() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      score = 0;
+      timeLeft = MATCH_TIME;
+      projectiles = [];
+      particles = [];
+      beams = [];
+      mechs = [];
+
+      generateMap();
+
+      // Create player + 3 AI
+      let colors = ['#4488ff', '#ff4444', '#44cc44', '#ffaa00'];
+      mechs.push(createMech(0, true, colors[0]));
+      mechs.push(createMech(1, false, colors[1]));
+      mechs.push(createMech(2, false, colors[2]));
+      mechs.push(createMech(3, false, colors[3]));
+
+      lastTime = performance.now();
+    }
+
+    function endGame() {
+      gameState = 'gameover';
+      overlay.style.display = 'flex';
+      let player = mechs[0];
+      score = player.kills - player.deaths;
+
+      let sorted = [...mechs].sort((a, b) => (b.kills - b.deaths) - (a.kills - a.deaths));
+      let rank = sorted.findIndex(m => m.isPlayer) + 1;
+
+      overlayTitle.textContent = rank === 1 ? 'VICTORY!' : 'MATCH OVER';
+      let lines = 'Rank #' + rank + ' | Score: ' + score + '\n';
+      lines += 'Kills: ' + player.kills + ' Deaths: ' + player.deaths + '\n\n';
+      lines += 'Final Standings:\n';
+      for (let i = 0; i < sorted.length; i++) {
+        let m = sorted[i];
+        let name = m.isPlayer ? 'YOU' : 'AI-' + m.id;
+        lines += (i + 1) + '. ' + name + ' - K:' + m.kills + ' D:' + m.deaths + ' S:' + (m.kills - m.deaths) + '\n';
+      }
+      overlayText.textContent = lines;
+      overlayText.style.whiteSpace = 'pre';
+
+      scoreEl.textContent = score;
+    }
+
+    // --- INPUT HANDLERS ---
+    document.addEventListener('keydown', e => {
+      keys[e.key.toLowerCase()] = true;
+      if (e.key.toLowerCase() === 'r' && gameState === 'playing') {
+        let player = mechs[0];
+        if (player) {
+          player.activeWeapon = 1 - player.activeWeapon;
+        }
+      }
+      if (e.key.toLowerCase() === 'e' && gameState === 'playing') {
+        let player = mechs[0];
+        if (player && !player.dead && !player.shutdown && player.meleeCD <= 0) {
+          player.meleeCD = 0.8;
+          player.heat += MELEE_HEAT;
+          // Melee attack - check nearby enemies
+          for (let other of mechs) {
+            if (other.id === player.id || other.dead) continue;
+            let dx = other.x - player.x, dy = other.y - player.y;
+            if (Math.sqrt(dx * dx + dy * dy) < MELEE_RANGE) {
+              damageMech(other, MELEE_DMG, player);
+              spawnExplosion(other.x, other.y, 8);
+              break;
+            }
+          }
+          // Melee swing visual
+          for (let i = 0; i < 5; i++) {
+            let a = player.turretAngle + (Math.random() - 0.5) * 1.2;
+            particles.push({
+              x: player.x + Math.cos(a) * 16,
+              y: player.y + Math.sin(a) * 16,
+              vx: Math.cos(a) * 60, vy: Math.sin(a) * 60,
+              life: 0.2, maxLife: 0.2,
+              color: '#fff', size: 3
+            });
+          }
+        }
+      }
+    });
+
+    document.addEventListener('keyup', e => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      let rect = canvas.getBoundingClientRect();
+      mouseX = (e.clientX - rect.left) * (W / rect.width);
+      mouseY = (e.clientY - rect.top) * (H / rect.height);
+    });
+
+    canvas.addEventListener('mousedown', e => {
+      e.preventDefault();
+      if (gameState === 'menu') {
+        startGame();
+        return;
+      }
+      if (gameState === 'gameover') {
+        startGame();
+        return;
+      }
+      if (e.button === 0) mouseDown = true;
+      if (e.button === 2) rightMouseDown = true;
+    });
+
+    canvas.addEventListener('mouseup', e => {
+      if (e.button === 0) mouseDown = false;
+      if (e.button === 2) rightMouseDown = false;
+    });
+
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    // --- MAIN LOOP ---
+    function gameLoop(timestamp) {
+      update(timestamp);
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>
