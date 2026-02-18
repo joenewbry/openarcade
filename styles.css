@@ -520,3 +520,15 @@ body {
 
 .card-pinball h2 { color: #fc6; }
 .card-pinball:hover { border-color: #fc6; box-shadow: 0 8px 30px rgba(255, 204, 102, 0.15); }
+
+.card-battlezone h2 { color: #4e8; }
+.card-battlezone:hover { border-color: #4e8; box-shadow: 0 8px 30px rgba(68, 238, 136, 0.15); }
+
+.card-lemmings h2 { color: #8af; }
+.card-lemmings:hover { border-color: #8af; box-shadow: 0 8px 30px rgba(136, 170, 255, 0.15); }
+
+.card-pvz h2 { color: #6d4; }
+.card-pvz:hover { border-color: #6d4; box-shadow: 0 8px 30px rgba(102, 221, 68, 0.15); }
+
+.card-simcity h2 { color: #fa0; }
+.card-simcity:hover { border-color: #fa0; box-shadow: 0 8px 30px rgba(255, 170, 0, 0.15); }
