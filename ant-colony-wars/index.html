@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ant Colony Wars</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #a62; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(170, 102, 34, 0.4); }
+    h1 { color: #a62; font-size: 1.6rem; text-shadow: 0 0 15px rgba(170, 102, 34, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 0.95rem;
+    }
+    .score-bar span { color: #a62; }
+    canvas {
+      border: 2px solid #a62;
+      box-shadow: 0 0 20px rgba(170, 102, 34, 0.2);
+      display: block;
+      cursor: pointer;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #a62;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.88);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 15px rgba(170,102,34,0.5); }
+    .overlay p { font-size: 1rem; color: #aaa; margin-top: 6px; }
+    .controls {
+      width: 600px;
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .controls button {
+      background: #2a2a3e;
+      color: #a62;
+      border: 1px solid #a62;
+      padding: 6px 14px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .controls button:hover { background: #3a3a4e; }
+    .controls button.active { background: #a62; color: #1a1a2e; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>ANT COLONY WARS</h1>
+  </div>
+  <div class="score-bar">
+    <div>You: <span id="score">0</span> | Food: <span id="playerFood">50</span> | Ants: <span id="playerAnts">20</span></div>
+    <div>Time: <span id="timer">5:00</span></div>
+    <div>AI: <span id="aiScore">0</span> | Food: <span id="aiFood">50</span> | Ants: <span id="aiAnts">20</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:500px;">
+      <h2 id="overlayTitle">ANT COLONY WARS</h2>
+      <p id="overlayText">Click anywhere to start</p>
+      <p style="font-size:0.8rem;color:#777;margin-top:12px;">Assign ants: Workers gather food, Soldiers raid,<br>Diggers expand tunnels. Kill the enemy queen to win!</p>
+    </div>
+  </div>
+  <div class="controls" id="controls" style="display:none;">
+    <button id="btnWorker" class="active" onclick="setRole('worker')">Workers +</button>
+    <button id="btnSoldier" onclick="setRole('soldier')">Soldiers +</button>
+    <button id="btnDigger" onclick="setRole('digger')">Diggers +</button>
+    <button id="btnSpawn" onclick="spawnAnts()">Spawn Ant (10 food)</button>
+    <button id="btnRaid" onclick="launchRaid()">Raid Enemy!</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 500;
+    const scoreEl = document.getElementById('score');
+    const aiScoreEl = document.getElementById('aiScore');
+    const playerFoodEl = document.getElementById('playerFood');
+    const aiFoodEl = document.getElementById('aiFood');
+    const playerAntsEl = document.getElementById('playerAnts');
+    const aiAntsEl = document.getElementById('aiAnts');
+    const timerEl = document.getElementById('timer');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const controlsDiv = document.getElementById('controls');
+
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+    });
+
+    let gameState = 'waiting'; // waiting, playing, gameover
+    let score = 0;
+    let aiScoreVal = 0;
+    let gameTime = 300; // 5 minutes in seconds
+    let lastTime = 0;
+    let accumulator = 0;
+    let selectedRole = 'worker';
+
+    // ---- Colony Data ----
+    const TUNNEL_W = 30;
+    const QUEEN_RADIUS = 8;
+    const ANT_SPEED = 1.2;
+    const FOOD_SPAWN_INTERVAL = 8000;
+    let lastFoodSpawn = 0;
+
+    function createColony(side) {
+      const isLeft = side === 'left';
+      const baseX = isLeft ? 80 : W - 80;
+      const baseY = 200;
+      return {
+        side,
+        isLeft,
+        queenX: baseX,
+        queenY: baseY,
+        queenHP: 100,
+        food: 50,
+        score: 0,
+        antsProduced: 20,
+        foodGathered: 0,
+        ants: [],
+        tunnels: [],
+        raidActive: false,
+        raidCooldown: 0,
+        // Role assignment targets
+        workerTarget: 12,
+        soldierTarget: 4,
+        diggerTarget: 4
+      };
+    }
+
+    function createAnt(colony, role) {
+      return {
+        x: colony.queenX + (Math.random() - 0.5) * 20,
+        y: colony.queenY + (Math.random() - 0.5) * 20,
+        role: role, // worker, soldier, digger
+        hp: role === 'soldier' ? 3 : 1,
+        carrying: 0,
+        targetX: null,
+        targetY: null,
+        state: 'idle', // idle, moving, gathering, returning, fighting, digging, raiding
+        speed: ANT_SPEED * (0.9 + Math.random() * 0.2),
+        animOffset: Math.random() * Math.PI * 2
+      };
+    }
+
+    let player, ai;
+    let foodSources = [];
+
+    // ---- Tunnel System ----
+    function initTunnels(colony) {
+      const bx = colony.queenX;
+      const by = colony.queenY;
+      const dir = colony.isLeft ? 1 : -1;
+      // Queen chamber
+      colony.tunnels.push({ x1: bx - 25, y1: by - 20, x2: bx + 25, y2: by + 20, type: 'chamber' });
+      // Main horizontal
+      colony.tunnels.push({ x1: bx, y1: by - 5, x2: bx + dir * 80, y2: by + 5, type: 'tunnel' });
+      // Upper branch
+      colony.tunnels.push({ x1: bx + dir * 40, y1: by - 5, x2: bx + dir * 40, y2: by - 50, type: 'tunnel' });
+      colony.tunnels.push({ x1: bx + dir * 35, y1: by - 55, x2: bx + dir * 70, y2: by - 35, type: 'chamber' });
+      // Lower branch
+      colony.tunnels.push({ x1: bx + dir * 60, y1: by - 5, x2: bx + dir * 60, y2: by + 50, type: 'tunnel' });
+      colony.tunnels.push({ x1: bx + dir * 45, y1: by + 40, x2: bx + dir * 80, y2: by + 65, type: 'chamber' });
+    }
+
+    function expandTunnel(colony) {
+      const lastTunnel = colony.tunnels[colony.tunnels.length - 1];
+      const dir = colony.isLeft ? 1 : -1;
+      const cx = (lastTunnel.x1 + lastTunnel.x2) / 2;
+      const cy = (lastTunnel.y1 + lastTunnel.y2) / 2;
+      // Dig toward center (where food is)
+      const targetX = cx + dir * (40 + Math.random() * 30);
+      const targetY = cy + (Math.random() - 0.5) * 60;
+      const clampedX = Math.max(30, Math.min(W - 30, targetX));
+      const clampedY = Math.max(60, Math.min(H - 60, targetY));
+      // Add connecting tunnel
+      colony.tunnels.push({ x1: cx - 3, y1: cy - 3, x2: clampedX, y2: clampedY, type: 'tunnel' });
+      // Add small chamber at end
+      colony.tunnels.push({
+        x1: clampedX - 15, y1: clampedY - 12,
+        x2: clampedX + 15, y2: clampedY + 12,
+        type: 'chamber'
+      });
+    }
+
+    function isInsideTunnel(x, y, colony) {
+      for (const t of colony.tunnels) {
+        const minX = Math.min(t.x1, t.x2) - 8;
+        const maxX = Math.max(t.x1, t.x2) + 8;
+        const minY = Math.min(t.y1, t.y2) - 8;
+        const maxY = Math.max(t.y1, t.y2) + 8;
+        if (x >= minX && x <= maxX && y >= minY && y <= maxY) return true;
+      }
+      return false;
+    }
+
+    // ---- Food Sources ----
+    function spawnFoodSource() {
+      const x = 180 + Math.random() * (W - 360);
+      const y = 80 + Math.random() * (H - 160);
+      foodSources.push({ x, y, amount: 15 + Math.floor(Math.random() * 20), maxAmount: 30 });
+    }
+
+    function initFoodSources() {
+      // Spawn food between colonies
+      for (let i = 0; i < 6; i++) {
+        spawnFoodSource();
+      }
+    }
+
+    // ---- Init ----
+    function init() {
+      player = createColony('left');
+      ai = createColony('right');
+      initTunnels(player);
+      initTunnels(ai);
+
+      // Create initial ants
+      for (let i = 0; i < 20; i++) {
+        const role = i < 12 ? 'worker' : (i < 16 ? 'soldier' : 'digger');
+        player.ants.push(createAnt(player, role));
+        ai.ants.push(createAnt(ai, role));
+      }
+
+      foodSources = [];
+      initFoodSources();
+      gameTime = 300;
+      score = 0;
+      aiScoreVal = 0;
+      lastFoodSpawn = 0;
+    }
+
+    // ---- Role Assignment ----
+    function setRole(role) {
+      selectedRole = role;
+      document.getElementById('btnWorker').classList.toggle('active', role === 'worker');
+      document.getElementById('btnSoldier').classList.toggle('active', role === 'soldier');
+      document.getElementById('btnDigger').classList.toggle('active', role === 'digger');
+    }
+
+    function spawnAnts() {
+      if (gameState !== 'playing') return;
+      if (player.food >= 10) {
+        player.food -= 10;
+        const ant = createAnt(player, selectedRole);
+        player.ants.push(ant);
+        player.antsProduced++;
+      }
+    }
+
+    function launchRaid() {
+      if (gameState !== 'playing') return;
+      if (player.raidCooldown > 0) return;
+      const soldiers = player.ants.filter(a => a.role === 'soldier' && a.state !== 'raiding');
+      if (soldiers.length < 2) return;
+      soldiers.forEach(s => {
+        s.state = 'raiding';
+        s.targetX = ai.queenX + (Math.random() - 0.5) * 30;
+        s.targetY = ai.queenY + (Math.random() - 0.5) * 30;
+      });
+      player.raidActive = true;
+      player.raidCooldown = 600; // 10 seconds at 60fps
+    }
+
+    // ---- AI Logic ----
+    function aiThink() {
+      // Balance economy vs military
+      const totalAnts = ai.ants.length;
+      const workerCount = ai.ants.filter(a => a.role === 'worker').length;
+      const soldierCount = ai.ants.filter(a => a.role === 'soldier').length;
+      const diggerCount = ai.ants.filter(a => a.role === 'digger').length;
+
+      // Adaptive ratio based on game state
+      const timeRatio = gameTime / 300;
+      let wantWorkers, wantSoldiers, wantDiggers;
+
+      if (timeRatio > 0.6) {
+        // Early game: focus economy
+        wantWorkers = 0.6; wantSoldiers = 0.2; wantDiggers = 0.2;
+      } else if (timeRatio > 0.3) {
+        // Mid game: build military
+        wantWorkers = 0.4; wantSoldiers = 0.4; wantDiggers = 0.2;
+      } else {
+        // Late game: all-out assault
+        wantWorkers = 0.3; wantSoldiers = 0.6; wantDiggers = 0.1;
+      }
+
+      // If queen is under attack, prioritize soldiers
+      if (ai.queenHP < 70) {
+        wantSoldiers = Math.min(0.7, wantSoldiers + 0.2);
+        wantWorkers = 1 - wantSoldiers - wantDiggers;
+      }
+
+      // Spawn ants
+      if (ai.food >= 10 && totalAnts < 60) {
+        const workerRatio = totalAnts > 0 ? workerCount / totalAnts : 0;
+        const soldierRatio = totalAnts > 0 ? soldierCount / totalAnts : 0;
+        let role = 'worker';
+        if (workerRatio > wantWorkers && soldierRatio < wantSoldiers) role = 'soldier';
+        else if (workerRatio > wantWorkers && soldierRatio >= wantSoldiers) role = 'digger';
+        ai.food -= 10;
+        ai.ants.push(createAnt(ai, role));
+        ai.antsProduced++;
+      }
+
+      // Expand tunnels periodically
+      if (diggerCount > 0 && ai.tunnels.length < 20 && Math.random() < 0.005) {
+        expandTunnel(ai);
+      }
+
+      // Launch raids
+      ai.raidCooldown = Math.max(0, ai.raidCooldown - 1);
+      if (ai.raidCooldown <= 0 && soldierCount >= 3 && timeRatio < 0.7) {
+        const soldiers = ai.ants.filter(a => a.role === 'soldier' && a.state !== 'raiding');
+        if (soldiers.length >= 3) {
+          soldiers.forEach(s => {
+            s.state = 'raiding';
+            s.targetX = player.queenX + (Math.random() - 0.5) * 30;
+            s.targetY = player.queenY + (Math.random() - 0.5) * 30;
+          });
+          ai.raidActive = true;
+          ai.raidCooldown = 480 + Math.random() * 300;
+        }
+      }
+    }
+
+    // ---- Update ----
+    function findNearestFood(ant) {
+      let best = null, bestDist = Infinity;
+      for (const f of foodSources) {
+        if (f.amount <= 0) continue;
+        const d = Math.hypot(f.x - ant.x, f.y - ant.y);
+        if (d < bestDist) { bestDist = d; best = f; }
+      }
+      return best;
+    }
+
+    function moveToward(ant, tx, ty) {
+      const dx = tx - ant.x;
+      const dy = ty - ant.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 2) return true;
+      ant.x += (dx / dist) * ant.speed;
+      ant.y += (dy / dist) * ant.speed;
+      return false;
+    }
+
+    function updateAnts(colony, enemyColony) {
+      for (let i = colony.ants.length - 1; i >= 0; i--) {
+        const ant = colony.ants[i];
+
+        if (ant.role === 'worker') {
+          if (ant.state === 'idle' || ant.state === 'moving') {
+            const food = findNearestFood(ant);
+            if (food) {
+              ant.targetX = food.x;
+              ant.targetY = food.y;
+              ant.state = 'moving';
+              if (moveToward(ant, food.x, food.y)) {
+                ant.state = 'gathering';
+                ant._gatherTimer = 60;
+                ant._foodRef = food;
+              }
+            } else {
+              // Wander near colony
+              if (!ant.targetX || Math.random() < 0.01) {
+                ant.targetX = colony.queenX + (colony.isLeft ? 1 : -1) * (30 + Math.random() * 100);
+                ant.targetY = colony.queenY + (Math.random() - 0.5) * 100;
+              }
+              moveToward(ant, ant.targetX, ant.targetY);
+            }
+          } else if (ant.state === 'gathering') {
+            ant._gatherTimer--;
+            if (ant._gatherTimer <= 0) {
+              if (ant._foodRef && ant._foodRef.amount > 0) {
+                const take = Math.min(3, ant._foodRef.amount);
+                ant.carrying = take;
+                ant._foodRef.amount -= take;
+              }
+              ant.state = 'returning';
+            }
+          } else if (ant.state === 'returning') {
+            if (moveToward(ant, colony.queenX, colony.queenY)) {
+              colony.food += ant.carrying;
+              colony.foodGathered += ant.carrying;
+              ant.carrying = 0;
+              ant.state = 'idle';
+            }
+          }
+        }
+
+        if (ant.role === 'soldier') {
+          if (ant.state === 'raiding') {
+            if (moveToward(ant, ant.targetX, ant.targetY)) {
+              // Attack enemy queen
+              if (Math.hypot(ant.x - enemyColony.queenX, ant.y - enemyColony.queenY) < 30) {
+                enemyColony.queenHP -= 0.15;
+              }
+              // Fight nearby enemy ants
+              for (let j = enemyColony.ants.length - 1; j >= 0; j--) {
+                const enemy = enemyColony.ants[j];
+                if (Math.hypot(ant.x - enemy.x, ant.y - enemy.y) < 12) {
+                  enemy.hp -= 0.05;
+                  ant.hp -= 0.02;
+                  if (enemy.hp <= 0) {
+                    enemyColony.ants.splice(j, 1);
+                  }
+                }
+              }
+              // Wander near target
+              if (Math.random() < 0.02) {
+                ant.targetX = enemyColony.queenX + (Math.random() - 0.5) * 50;
+                ant.targetY = enemyColony.queenY + (Math.random() - 0.5) * 50;
+              }
+            }
+          } else {
+            // Guard: patrol near queen
+            if (!ant.targetX || Math.random() < 0.01) {
+              ant.targetX = colony.queenX + (Math.random() - 0.5) * 60;
+              ant.targetY = colony.queenY + (Math.random() - 0.5) * 60;
+            }
+            moveToward(ant, ant.targetX, ant.targetY);
+            // Defend against raiders
+            for (let j = enemyColony.ants.length - 1; j >= 0; j--) {
+              const enemy = enemyColony.ants[j];
+              if (enemy.state === 'raiding' && Math.hypot(ant.x - enemy.x, ant.y - enemy.y) < 20) {
+                ant.targetX = enemy.x;
+                ant.targetY = enemy.y;
+                enemy.hp -= 0.04;
+                ant.hp -= 0.02;
+                if (enemy.hp <= 0) {
+                  enemyColony.ants.splice(j, 1);
+                }
+              }
+            }
+          }
+        }
+
+        if (ant.role === 'digger') {
+          // Move to furthest tunnel point and dig
+          if (ant.state === 'idle' || ant.state === 'digging') {
+            const lastT = colony.tunnels[colony.tunnels.length - 1];
+            const tx = (lastT.x1 + lastT.x2) / 2;
+            const ty = (lastT.y1 + lastT.y2) / 2;
+            if (moveToward(ant, tx, ty)) {
+              ant.state = 'digging';
+              ant._digTimer = (ant._digTimer || 0) + 1;
+              if (ant._digTimer > 200 && colony.tunnels.length < 18) {
+                expandTunnel(colony);
+                ant._digTimer = 0;
+              }
+            } else {
+              ant.state = 'moving';
+            }
+          }
+        }
+
+        // Remove dead ants
+        if (ant.hp <= 0) {
+          colony.ants.splice(i, 1);
+        }
+      }
+    }
+
+    function update(dt) {
+      if (gameState !== 'playing') return;
+
+      // Timer
+      gameTime -= dt;
+      if (gameTime <= 0) {
+        gameTime = 0;
+        endGame('time');
+        return;
+      }
+
+      // Cooldowns
+      player.raidCooldown = Math.max(0, player.raidCooldown - 1);
+
+      // AI thinking
+      aiThink();
+
+      // Update ants
+      updateAnts(player, ai);
+      updateAnts(ai, player);
+
+      // Respawn food
+      lastFoodSpawn += dt * 1000;
+      if (lastFoodSpawn > FOOD_SPAWN_INTERVAL && foodSources.length < 10) {
+        spawnFoodSource();
+        lastFoodSpawn = 0;
+      }
+      // Remove depleted food
+      foodSources = foodSources.filter(f => f.amount > 0);
+
+      // Calculate scores
+      score = player.antsProduced + player.foodGathered;
+      aiScoreVal = ai.antsProduced + ai.foodGathered;
+
+      // Check queen death
+      if (ai.queenHP <= 0) { endGame('playerWin'); return; }
+      if (player.queenHP <= 0) { endGame('aiWin'); return; }
+
+      // Update UI
+      scoreEl.textContent = score;
+      aiScoreEl.textContent = aiScoreVal;
+      playerFoodEl.textContent = Math.floor(player.food);
+      aiFoodEl.textContent = Math.floor(ai.food);
+      playerAntsEl.textContent = player.ants.length;
+      aiAntsEl.textContent = ai.ants.length;
+      const mins = Math.floor(gameTime / 60);
+      const secs = Math.floor(gameTime % 60);
+      timerEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+      // Update button states
+      document.getElementById('btnSpawn').textContent =
+        player.food >= 10 ? `Spawn ${selectedRole} (10 food)` : 'Need food...';
+      document.getElementById('btnRaid').textContent =
+        player.raidCooldown > 0
+          ? `Raid (${Math.ceil(player.raidCooldown / 60)}s)`
+          : 'Raid Enemy!';
+    }
+
+    function endGame(reason) {
+      gameState = 'gameover';
+      controlsDiv.style.display = 'none';
+      overlay.style.display = 'flex';
+      overlay.style.pointerEvents = 'auto';
+      if (reason === 'playerWin') {
+        overlayTitle.textContent = 'VICTORY!';
+        overlayText.textContent = `Enemy queen destroyed! Score: ${score}. Click to play again.`;
+      } else if (reason === 'aiWin') {
+        overlayTitle.textContent = 'DEFEAT';
+        overlayText.textContent = `Your queen was killed! Score: ${score}. Click to play again.`;
+      } else {
+        // Time up
+        if (score > aiScoreVal) {
+          overlayTitle.textContent = 'VICTORY!';
+          overlayText.textContent = `Time up! You: ${score} vs AI: ${aiScoreVal}. Click to play again.`;
+        } else if (score < aiScoreVal) {
+          overlayTitle.textContent = 'DEFEAT';
+          overlayText.textContent = `Time up! You: ${score} vs AI: ${aiScoreVal}. Click to play again.`;
+        } else {
+          overlayTitle.textContent = 'DRAW';
+          overlayText.textContent = `Time up! Both scored ${score}. Click to play again.`;
+        }
+      }
+    }
+
+    // ---- Render ----
+    function drawTunnels(colony, color) {
+      ctx.fillStyle = color;
+      for (const t of colony.tunnels) {
+        const x = Math.min(t.x1, t.x2);
+        const y = Math.min(t.y1, t.y2);
+        const w = Math.abs(t.x2 - t.x1);
+        const h = Math.abs(t.y2 - t.y1);
+        if (t.type === 'chamber') {
+          ctx.beginPath();
+          ctx.ellipse(x + w/2, y + h/2, w/2 + 4, h/2 + 4, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          const thick = 10;
+          ctx.beginPath();
+          ctx.moveTo(t.x1, t.y1 - thick/2);
+          ctx.lineTo(t.x2, t.y2 - thick/2);
+          ctx.lineTo(t.x2, t.y2 + thick/2);
+          ctx.lineTo(t.x1, t.y1 + thick/2);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawQueen(colony, color) {
+      const pulse = Math.sin(Date.now() * 0.003) * 2;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(colony.queenX, colony.queenY, QUEEN_RADIUS + pulse, QUEEN_RADIUS * 0.7 + pulse * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Crown
+      ctx.fillStyle = '#ffd700';
+      const qx = colony.queenX, qy = colony.queenY - QUEEN_RADIUS - 3;
+      ctx.beginPath();
+      ctx.moveTo(qx - 5, qy + 4);
+      ctx.lineTo(qx - 5, qy);
+      ctx.lineTo(qx - 3, qy + 2);
+      ctx.lineTo(qx, qy - 2);
+      ctx.lineTo(qx + 3, qy + 2);
+      ctx.lineTo(qx + 5, qy);
+      ctx.lineTo(qx + 5, qy + 4);
+      ctx.closePath();
+      ctx.fill();
+      // HP bar
+      const hpW = 30;
+      const hpX = colony.queenX - hpW / 2;
+      const hpY = colony.queenY + QUEEN_RADIUS + 6;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(hpX, hpY, hpW, 4);
+      ctx.fillStyle = colony.queenHP > 50 ? '#4a4' : (colony.queenHP > 25 ? '#a84' : '#a44');
+      ctx.fillRect(hpX, hpY, hpW * (colony.queenHP / 100), 4);
+    }
+
+    function drawAnts(colony) {
+      for (const ant of colony.ants) {
+        const t = Date.now() * 0.01 + ant.animOffset;
+        const wobble = Math.sin(t) * 0.8;
+
+        // Color by role
+        let color;
+        if (ant.role === 'worker') color = colony.isLeft ? '#8b6' : '#b86';
+        else if (ant.role === 'soldier') color = colony.isLeft ? '#66b' : '#b44';
+        else color = colony.isLeft ? '#ba5' : '#a8a';
+
+        if (ant.state === 'raiding') color = '#f44';
+
+        // Body (2 segments)
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(ant.x + wobble, ant.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(ant.x - 2 + wobble * 0.5, ant.y + 1, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Legs (tiny lines)
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 0.5;
+        for (let l = -1; l <= 1; l++) {
+          const lx = ant.x + l * 2 + wobble * 0.3;
+          const ly = ant.y + 2;
+          ctx.beginPath();
+          ctx.moveTo(lx, ly);
+          ctx.lineTo(lx + Math.sin(t + l) * 2, ly + 2.5);
+          ctx.stroke();
+        }
+
+        // Carrying indicator
+        if (ant.carrying > 0) {
+          ctx.fillStyle = '#6b3';
+          ctx.beginPath();
+          ctx.arc(ant.x + 3, ant.y - 3, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawFood() {
+      for (const f of foodSources) {
+        const size = 3 + (f.amount / f.maxAmount) * 6;
+        // Leaf / food pile
+        ctx.fillStyle = '#5a3';
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#7c4';
+        ctx.beginPath();
+        ctx.arc(f.x - 1, f.y - 1, size * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        // Amount
+        ctx.fillStyle = '#ccc';
+        ctx.font = '8px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(f.amount, f.x, f.y - size - 3);
+      }
+    }
+
+    function drawBackground() {
+      // Sky gradient at top
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, 50);
+      skyGrad.addColorStop(0, '#1a2a3e');
+      skyGrad.addColorStop(1, '#2a1a0e');
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, W, 50);
+
+      // Ground surface line
+      ctx.strokeStyle = '#4a3';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 50);
+      for (let x = 0; x <= W; x += 10) {
+        ctx.lineTo(x, 50 + Math.sin(x * 0.05) * 3);
+      }
+      ctx.stroke();
+
+      // Grass blades
+      ctx.strokeStyle = '#5a4';
+      ctx.lineWidth = 1;
+      for (let x = 5; x < W; x += 8) {
+        const h = 5 + Math.sin(x * 0.3) * 3;
+        ctx.beginPath();
+        ctx.moveTo(x, 50);
+        ctx.lineTo(x + Math.sin(Date.now() * 0.001 + x) * 2, 50 - h);
+        ctx.stroke();
+      }
+
+      // Earth fill
+      const earthGrad = ctx.createLinearGradient(0, 50, 0, H);
+      earthGrad.addColorStop(0, '#3a2815');
+      earthGrad.addColorStop(0.3, '#2d1f10');
+      earthGrad.addColorStop(1, '#1a1208');
+      ctx.fillStyle = earthGrad;
+      ctx.fillRect(0, 50, W, H - 50);
+
+      // Dirt texture dots
+      ctx.fillStyle = 'rgba(80, 55, 30, 0.3)';
+      for (let i = 0; i < 80; i++) {
+        const dx = (i * 73 + 17) % W;
+        const dy = 60 + (i * 47 + 31) % (H - 70);
+        ctx.beginPath();
+        ctx.arc(dx, dy, 1 + (i % 3), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Small rocks
+      ctx.fillStyle = '#4a3a2a';
+      for (let i = 0; i < 15; i++) {
+        const rx = (i * 137 + 53) % W;
+        const ry = 80 + (i * 89 + 29) % (H - 100);
+        ctx.beginPath();
+        ctx.ellipse(rx, ry, 3 + (i % 3), 2 + (i % 2), 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Dividing line
+      ctx.strokeStyle = 'rgba(170, 102, 34, 0.15)';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(W / 2, 55);
+      ctx.lineTo(W / 2, H);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Labels
+      ctx.fillStyle = 'rgba(170, 102, 34, 0.3)';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('YOUR COLONY', 120, 42);
+      ctx.fillText('ENEMY COLONY', W - 120, 42);
+    }
+
+    function drawRoleCount(colony, x, y) {
+      const workers = colony.ants.filter(a => a.role === 'worker').length;
+      const soldiers = colony.ants.filter(a => a.role === 'soldier').length;
+      const diggers = colony.ants.filter(a => a.role === 'digger').length;
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = colony.isLeft ? '#8b6' : '#b86';
+      ctx.fillText(`W:${workers}`, x, y);
+      ctx.fillStyle = colony.isLeft ? '#66b' : '#b44';
+      ctx.fillText(`S:${soldiers}`, x + 30, y);
+      ctx.fillStyle = colony.isLeft ? '#ba5' : '#a8a';
+      ctx.fillText(`D:${diggers}`, x + 60, y);
+    }
+
+    function drawBattleEffects() {
+      // Draw sparks near fighting ants
+      const allAnts = [...player.ants, ...ai.ants];
+      for (const ant of allAnts) {
+        if (ant.state === 'raiding') {
+          const spark = Math.random();
+          if (spark < 0.3) {
+            ctx.fillStyle = `rgba(255, ${100 + Math.random() * 155}, 50, ${0.5 + Math.random() * 0.5})`;
+            ctx.beginPath();
+            ctx.arc(ant.x + (Math.random() - 0.5) * 8, ant.y + (Math.random() - 0.5) * 8, 1, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, W, H);
+      drawBackground();
+
+      // Tunnels
+      drawTunnels(player, 'rgba(100, 70, 40, 0.7)');
+      drawTunnels(ai, 'rgba(90, 50, 50, 0.7)');
+
+      // Tunnel borders (lighter)
+      ctx.strokeStyle = 'rgba(140, 100, 60, 0.3)';
+      ctx.lineWidth = 1;
+      for (const colony of [player, ai]) {
+        for (const t of colony.tunnels) {
+          const x = Math.min(t.x1, t.x2);
+          const y = Math.min(t.y1, t.y2);
+          const w = Math.abs(t.x2 - t.x1);
+          const h = Math.abs(t.y2 - t.y1);
+          if (t.type === 'chamber') {
+            ctx.beginPath();
+            ctx.ellipse(x + w/2, y + h/2, w/2 + 4, h/2 + 4, 0, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Food
+      drawFood();
+
+      // Queens
+      drawQueen(player, '#6a6');
+      drawQueen(ai, '#a55');
+
+      // Ants
+      drawAnts(player);
+      drawAnts(ai);
+
+      // Battle effects
+      drawBattleEffects();
+
+      // Role counts
+      drawRoleCount(player, 10, H - 10);
+      drawRoleCount(ai, W - 100, H - 10);
+    }
+
+    // ---- Click to dig/direct ----
+    canvas.addEventListener('click', (e) => {
+      if (gameState === 'waiting') {
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        controlsDiv.style.display = 'flex';
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+      if (gameState === 'gameover') {
+        init();
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        controlsDiv.style.display = 'flex';
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (W / rect.width);
+      const my = (e.clientY - rect.top) * (H / rect.height);
+
+      // Click on left side: direct player ants
+      if (mx < W / 2) {
+        // Click on food: send workers there
+        for (const f of foodSources) {
+          if (Math.hypot(mx - f.x, my - f.y) < 15) {
+            player.ants.filter(a => a.role === 'worker' && a.state !== 'returning').forEach(w => {
+              w.targetX = f.x;
+              w.targetY = f.y;
+              w.state = 'moving';
+            });
+            return;
+          }
+        }
+        // Click empty ground on player side: expand tunnel toward that point
+        if (player.tunnels.length < 18) {
+          const diggers = player.ants.filter(a => a.role === 'digger');
+          if (diggers.length > 0) {
+            const lastT = player.tunnels[player.tunnels.length - 1];
+            const cx = (lastT.x1 + lastT.x2) / 2;
+            const cy = (lastT.y1 + lastT.y2) / 2;
+            const clampedX = Math.max(30, Math.min(W / 2 + 50, mx));
+            const clampedY = Math.max(60, Math.min(H - 30, my));
+            player.tunnels.push({ x1: cx - 3, y1: cy - 3, x2: clampedX, y2: clampedY, type: 'tunnel' });
+            player.tunnels.push({
+              x1: clampedX - 15, y1: clampedY - 12,
+              x2: clampedX + 15, y2: clampedY + 12,
+              type: 'chamber'
+            });
+          }
+        }
+      } else {
+        // Click on right side: direct workers to food there too
+        for (const f of foodSources) {
+          if (Math.hypot(mx - f.x, my - f.y) < 15) {
+            player.ants.filter(a => a.role === 'worker' && a.state !== 'returning').forEach(w => {
+              w.targetX = f.x;
+              w.targetY = f.y;
+              w.state = 'moving';
+            });
+            return;
+          }
+        }
+      }
+    });
+
+    // ---- Game Loop ----
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+      accumulator += dt;
+      const step = 1 / 60;
+      while (accumulator >= step) {
+        update(step);
+        accumulator -= step;
+      }
+      render();
+      if (gameState === 'playing') {
+        requestAnimationFrame(gameLoop);
+      } else if (gameState === 'gameover') {
+        render(); // final frame
+      }
+    }
+
+    // ---- Expose game data ----
+    window.gameData = {};
+    function updateGameData() {
+      window.gameData = {
+        gameState,
+        score,
+        aiScore: aiScoreVal,
+        gameTime,
+        playerAnts: player.ants.length,
+        aiAnts: ai.ants.length,
+        playerFood: player.food,
+        aiFood: ai.food,
+        playerQueenHP: player.queenHP,
+        aiQueenHP: ai.queenHP
+      };
+    }
+
+    // ---- Initialize ----
+    init();
+    render(); // draw initial frame behind overlay
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

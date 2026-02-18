@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Naval Commander - OpenArcade</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #e0e0e0; font-family: 'Courier New', monospace; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow-x: hidden; }
+a { color: #48c; text-decoration: none; }
+a:hover { text-decoration: underline; }
+#back-link { position: absolute; top: 12px; left: 16px; font-size: 14px; z-index: 100; }
+#score-bar { width: 600px; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: #0f0f23; border: 1px solid #48c; border-bottom: none; font-size: 14px; margin-top: 48px; }
+#score-bar .label { color: #888; }
+#score-bar .value { color: #48c; text-shadow: 0 0 8px #48c88; font-weight: bold; }
+#game-container { position: relative; }
+canvas#game { display: block; border: 1px solid #48c; box-shadow: 0 0 20px #48c44; cursor: crosshair; }
+#overlay { position: absolute; top: 0; left: 0; width: 600px; height: 500px; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(26,26,46,0.92); z-index: 50; text-align: center; }
+#overlay.hidden { display: none; }
+#overlay h1 { font-size: 32px; color: #48c; text-shadow: 0 0 16px #48c; margin-bottom: 8px; }
+#overlay h2 { font-size: 18px; color: #aaa; margin-bottom: 20px; font-weight: normal; }
+#overlay .info { font-size: 13px; color: #888; margin-bottom: 16px; line-height: 1.6; max-width: 420px; }
+#overlay button { padding: 12px 36px; font-size: 16px; font-family: 'Courier New', monospace; background: transparent; color: #48c; border: 2px solid #48c; cursor: pointer; text-transform: uppercase; letter-spacing: 2px; transition: all 0.2s; }
+#overlay button:hover { background: #48c; color: #1a1a2e; box-shadow: 0 0 20px #48c88; }
+#info-panel { width: 600px; background: #0f0f23; border: 1px solid #48c; border-top: none; padding: 10px 16px; font-size: 12px; min-height: 60px; display: flex; gap: 16px; flex-wrap: wrap; }
+#info-panel .section { flex: 1; min-width: 120px; }
+#info-panel .section-title { color: #48c; font-weight: bold; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; }
+#info-panel .section-body { color: #aaa; line-height: 1.5; }
+.result-line { font-size: 14px; color: #ccc; margin: 4px 0; }
+.result-highlight { color: #48c; font-weight: bold; }
+</style>
+</head>
+<body>
+<a id="back-link" href="../">&#8592; Back</a>
+<div id="score-bar">
+  <span><span class="label">TURN </span><span class="value" id="hud-turn">1/20</span></span>
+  <span><span class="label">GOLD </span><span class="value" id="hud-gold">10</span></span>
+  <span><span class="label">PORTS </span><span class="value" id="hud-ports">1</span></span>
+  <span><span class="label">SHIPS </span><span class="value" id="hud-ships">3</span></span>
+  <span><span class="label">SCORE </span><span class="value" id="hud-score">0</span></span>
+</div>
+<div id="game-container">
+  <canvas id="game" width="600" height="500"></canvas>
+  <div id="overlay">
+    <h1>NAVAL COMMANDER</h1>
+    <h2>Control the Seas</h2>
+    <div class="info">
+      Build fleets, capture ports, control sea lanes.<br>
+      Click ports to build ships. Click fleets to select, then click a destination.<br>
+      Ship types: Frigate (fast scout), Destroyer (balanced), Battleship (powerful).<br>
+      20 turns. Highest score wins.
+    </div>
+    <button id="start-btn">SET SAIL</button>
+  </div>
+</div>
+<div id="info-panel">
+  <div class="section"><div class="section-title">Selection</div><div class="section-body" id="info-selection">Click a port or fleet</div></div>
+  <div class="section"><div class="section-title">Actions</div><div class="section-body" id="info-actions">-</div></div>
+  <div class="section"><div class="section-title">Intel</div><div class="section-body" id="info-intel">-</div></div>
+</div>
+<script>
+"use strict";
+
+// ── Global state ──
+let gameState = 'menu'; // menu | playing | gameover
+let score = 0;
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 600, H = 500;
+
+// ── Map generation ──
+const ZONES_X = 6, ZONES_Y = 5;
+const ZW = W / ZONES_X, ZH = H / ZONES_Y;
+const MAX_TURNS = 20;
+
+let turn, playerGold, aiGold, ports, fleets, seaLanes, selectedFleet, selectedPort, phase;
+let combatLog, turnLog, animations;
+let mapSeed, islandTiles;
+
+// Ship stats: {name, attack, defense, hp, speed, cost}
+const SHIP_TYPES = {
+  frigate:    { name: 'Frigate',    attack: 2, defense: 1, hp: 3, speed: 3, cost: 5,  symbol: 'F' },
+  destroyer:  { name: 'Destroyer',  attack: 4, defense: 3, hp: 5, speed: 2, cost: 10, symbol: 'D' },
+  battleship: { name: 'Battleship', attack: 7, defense: 5, hp: 8, speed: 1, cost: 18, symbol: 'B' }
+};
+
+function seededRandom(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 16807 + 0) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+function generateMap() {
+  const rng = seededRandom(mapSeed);
+  ports = [];
+  seaLanes = [];
+  islandTiles = [];
+
+  // Generate island tiles (decorative)
+  for (let i = 0; i < 35; i++) {
+    islandTiles.push({
+      x: rng() * W,
+      y: rng() * H,
+      r: 6 + rng() * 18,
+      shade: rng() * 0.3 + 0.15
+    });
+  }
+
+  // Port positions (spread across map)
+  const portPositions = [
+    { x: 60, y: 250, name: 'Haven', owner: 'player' },        // Player home - left
+    { x: 540, y: 250, name: 'Ironhold', owner: 'ai' },        // AI home - right
+    { x: 200, y: 80, name: 'Northwatch', owner: 'neutral' },
+    { x: 400, y: 80, name: 'Stormcrest', owner: 'neutral' },
+    { x: 300, y: 250, name: 'Midway', owner: 'neutral' },
+    { x: 200, y: 420, name: 'Tidecross', owner: 'neutral' },
+    { x: 400, y: 420, name: 'Coral Bay', owner: 'neutral' },
+    { x: 130, y: 140, name: 'Gale Point', owner: 'neutral' },
+    { x: 470, y: 140, name: 'Bastion', owner: 'neutral' },
+    { x: 130, y: 370, name: 'Serpent Isle', owner: 'neutral' },
+    { x: 470, y: 370, name: 'Duskport', owner: 'neutral' },
+  ];
+
+  portPositions.forEach((p, i) => {
+    ports.push({
+      id: i, x: p.x, y: p.y, name: p.name, owner: p.owner,
+      income: p.owner === 'neutral' ? 3 : 5,
+      garrison: p.owner === 'neutral' ? 1 : 0
+    });
+  });
+
+  // Generate sea lanes (connections between ports based on distance)
+  for (let i = 0; i < ports.length; i++) {
+    for (let j = i + 1; j < ports.length; j++) {
+      const dx = ports[i].x - ports[j].x;
+      const dy = ports[i].y - ports[j].y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 220) {
+        seaLanes.push({ from: i, to: j, dist: dist });
+      }
+    }
+  }
+
+  // Ensure connectivity — add extra lanes if needed
+  const connected = new Set([0]);
+  const queue = [0];
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    seaLanes.forEach(l => {
+      const other = l.from === cur ? l.to : (l.to === cur ? l.from : -1);
+      if (other >= 0 && !connected.has(other)) {
+        connected.add(other);
+        queue.push(other);
+      }
+    });
+  }
+  ports.forEach((p, i) => {
+    if (!connected.has(i)) {
+      // Connect to nearest connected port
+      let bestDist = Infinity, bestJ = 0;
+      ports.forEach((q, j) => {
+        if (connected.has(j)) {
+          const d = Math.hypot(p.x - q.x, p.y - q.y);
+          if (d < bestDist) { bestDist = d; bestJ = j; }
+        }
+      });
+      seaLanes.push({ from: i, to: bestJ, dist: bestDist });
+      connected.add(i);
+    }
+  });
+}
+
+function initGame() {
+  turn = 1;
+  playerGold = 10;
+  aiGold = 10;
+  score = 0;
+  selectedFleet = null;
+  selectedPort = null;
+  phase = 'player'; // player | ai | combat
+  combatLog = [];
+  turnLog = '';
+  animations = [];
+  mapSeed = Date.now() % 100000;
+
+  generateMap();
+
+  // Starting fleets
+  fleets = [
+    { id: 0, owner: 'player', portId: 0, ships: [makeShip('frigate'), makeShip('destroyer'), makeShip('frigate')], moving: null, x: ports[0].x, y: ports[0].y },
+    { id: 1, owner: 'ai', portId: 1, ships: [makeShip('frigate'), makeShip('destroyer'), makeShip('frigate')], moving: null, x: ports[1].x, y: ports[1].y },
+  ];
+
+  nextFleetId = 2;
+}
+
+let nextFleetId = 2;
+
+function makeShip(type) {
+  const t = SHIP_TYPES[type];
+  return { type, name: t.name, attack: t.attack, defense: t.defense, hp: t.hp, maxHp: t.hp, speed: t.speed, symbol: t.symbol };
+}
+
+function getPortNeighbors(portId) {
+  const neighbors = [];
+  seaLanes.forEach(l => {
+    if (l.from === portId) neighbors.push(l.to);
+    if (l.to === portId) neighbors.push(l.from);
+  });
+  return neighbors;
+}
+
+function getFleetPower(fleet) {
+  return fleet.ships.reduce((s, ship) => s + ship.attack + ship.defense + ship.hp, 0);
+}
+
+function getFleetAttack(fleet) {
+  return fleet.ships.reduce((s, ship) => s + ship.attack, 0);
+}
+
+// ── Combat ──
+function resolveCombat(attacker, defender) {
+  const log = [];
+  log.push(`${attacker.owner === 'player' ? 'Your' : 'Enemy'} fleet engages!`);
+
+  // Rounds of combat until one side is eliminated
+  let rounds = 0;
+  while (attacker.ships.length > 0 && defender.ships.length > 0 && rounds < 10) {
+    rounds++;
+    // Each ship attacks a random enemy
+    const atkDmg = attacker.ships.reduce((s, sh) => s + sh.attack, 0);
+    const defDmg = defender.ships.reduce((s, sh) => s + sh.attack, 0);
+
+    // Distribute damage to defender ships
+    let remainDmg = atkDmg;
+    for (let i = defender.ships.length - 1; i >= 0 && remainDmg > 0; i--) {
+      const absorbed = Math.min(remainDmg, defender.ships[i].defense);
+      const actual = Math.max(0, remainDmg - absorbed);
+      defender.ships[i].hp -= Math.max(1, Math.floor(actual / Math.max(1, defender.ships.length)));
+      remainDmg = Math.max(0, remainDmg - defender.ships[i].defense - 1);
+    }
+
+    // Distribute damage to attacker ships
+    remainDmg = defDmg;
+    for (let i = attacker.ships.length - 1; i >= 0 && remainDmg > 0; i--) {
+      const absorbed = Math.min(remainDmg, attacker.ships[i].defense);
+      const actual = Math.max(0, remainDmg - absorbed);
+      attacker.ships[i].hp -= Math.max(1, Math.floor(actual / Math.max(1, attacker.ships.length)));
+      remainDmg = Math.max(0, remainDmg - attacker.ships[i].defense - 1);
+    }
+
+    // Remove destroyed ships
+    const defLost = defender.ships.filter(s => s.hp <= 0).length;
+    const atkLost = attacker.ships.filter(s => s.hp <= 0).length;
+    defender.ships = defender.ships.filter(s => s.hp > 0);
+    attacker.ships = attacker.ships.filter(s => s.hp > 0);
+
+    if (defLost > 0) log.push(`Round ${rounds}: ${defLost} enemy ship(s) sunk`);
+    if (atkLost > 0) log.push(`Round ${rounds}: ${atkLost} allied ship(s) lost`);
+  }
+
+  const result = attacker.ships.length > 0 ? 'attacker' : (defender.ships.length > 0 ? 'defender' : 'draw');
+  log.push(result === 'attacker' ? 'Victory!' : (result === 'defender' ? 'Defeated!' : 'Mutual destruction!'));
+  return { result, log };
+}
+
+// ── Player actions ──
+function moveFleetTo(fleet, targetPortId) {
+  if (fleet.owner !== 'player') return;
+  if (fleet.portId === null) return; // already moving
+  const neighbors = getPortNeighbors(fleet.portId);
+  if (!neighbors.includes(targetPortId)) {
+    turnLog = 'Not adjacent! Move to a connected port.';
+    return;
+  }
+  fleet.moving = { from: fleet.portId, to: targetPortId, progress: 0 };
+  fleet.portId = null;
+  selectedFleet = null;
+  turnLog = `Fleet moving to ${ports[targetPortId].name}`;
+}
+
+function buildShip(port, type) {
+  if (port.owner !== 'player') return;
+  const cost = SHIP_TYPES[type].cost;
+  if (playerGold < cost) { turnLog = 'Not enough gold!'; return; }
+  playerGold -= cost;
+
+  // Add to existing fleet at port or create new
+  let fleet = fleets.find(f => f.owner === 'player' && f.portId === port.id);
+  if (!fleet) {
+    fleet = { id: nextFleetId++, owner: 'player', portId: port.id, ships: [], moving: null, x: port.x, y: port.y };
+    fleets.push(fleet);
+  }
+  fleet.ships.push(makeShip(type));
+  turnLog = `Built ${SHIP_TYPES[type].name} at ${port.name} (-${cost}g)`;
+}
+
+function endPlayerTurn() {
+  if (phase !== 'player') return;
+  phase = 'resolve';
+  resolveMovement('player');
+  setTimeout(() => {
+    aiTurn();
+    setTimeout(() => {
+      resolveMovement('ai');
+      setTimeout(() => {
+        collectIncome();
+        checkGameEnd();
+        if (gameState === 'playing') {
+          turn++;
+          phase = 'player';
+          selectedFleet = null;
+          selectedPort = null;
+          updateHUD();
+        }
+      }, 300);
+    }, 300);
+  }, 300);
+}
+
+function resolveMovement(owner) {
+  const moving = fleets.filter(f => f.owner === owner && f.moving);
+  moving.forEach(fleet => {
+    const target = fleet.moving.to;
+    fleet.portId = target;
+    fleet.x = ports[target].x;
+    fleet.y = ports[target].y;
+    fleet.moving = null;
+
+    // Check for combat at destination
+    const enemies = fleets.filter(f => f.owner !== owner && f.portId === target && f.ships.length > 0);
+    enemies.forEach(enemy => {
+      const { result, log } = resolveCombat(fleet, enemy);
+      combatLog = combatLog.concat(log);
+      if (result === 'attacker') {
+        // Track sunk ships for scoring
+        if (owner === 'player') score += 2;
+        fleets = fleets.filter(f => f !== enemy);
+      } else if (result === 'defender') {
+        if (owner !== 'player') score -= 1; // enemy sunk our ships
+        fleets = fleets.filter(f => f !== fleet);
+      } else {
+        fleets = fleets.filter(f => f !== enemy && f !== fleet);
+      }
+    });
+
+    // Capture port if undefended and owned by other
+    const port = ports[target];
+    if (port.owner !== owner && fleets.some(f => f.owner === owner && f.portId === target && f.ships.length > 0)) {
+      // Fight garrison
+      if (port.garrison > 0 && port.owner === 'neutral') {
+        const garrisonFleet = { ships: [] };
+        for (let i = 0; i < port.garrison; i++) garrisonFleet.ships.push(makeShip('frigate'));
+        const attFleet = fleets.find(f => f.owner === owner && f.portId === target && f.ships.length > 0);
+        if (attFleet) {
+          const { result, log } = resolveCombat(attFleet, garrisonFleet);
+          combatLog = combatLog.concat(log);
+          if (result !== 'attacker') {
+            if (result === 'defender' || result === 'draw') {
+              fleets = fleets.filter(f => f !== attFleet);
+            }
+            return;
+          }
+        }
+      }
+      const prev = port.owner;
+      port.owner = owner;
+      port.garrison = 0;
+      combatLog.push(`${owner === 'player' ? 'You' : 'AI'} captured ${port.name}!`);
+      if (owner === 'player') score += 3;
+    }
+  });
+  // Remove empty fleets
+  fleets = fleets.filter(f => f.ships.length > 0);
+}
+
+function collectIncome() {
+  ports.forEach(p => {
+    if (p.owner === 'player') playerGold += p.income;
+    else if (p.owner === 'ai') aiGold += p.income;
+  });
+
+  // Sea lane bonus: if player controls both endpoints
+  seaLanes.forEach(l => {
+    if (ports[l.from].owner === 'player' && ports[l.to].owner === 'player') playerGold += 1;
+    if (ports[l.from].owner === 'ai' && ports[l.to].owner === 'ai') aiGold += 1;
+  });
+}
+
+function countPorts(owner) { return ports.filter(p => p.owner === owner).length; }
+function countShips(owner) { return fleets.filter(f => f.owner === owner).reduce((s, f) => s + f.ships.length, 0); }
+
+function checkGameEnd() {
+  if (turn >= MAX_TURNS) {
+    const playerScore = score + countPorts('player') * 2;
+    const aiScore = countPorts('ai') * 2 + countShips('ai');
+    score = playerScore;
+    gameState = 'gameover';
+    showGameOver(playerScore, aiScore);
+  }
+  // Also end if one side has zero ports and zero ships
+  if (countPorts('player') === 0 && countShips('player') === 0 && turn > 1) {
+    gameState = 'gameover';
+    showGameOver(score, 999);
+  }
+  if (countPorts('ai') === 0 && countShips('ai') === 0 && turn > 1) {
+    score += 10;
+    gameState = 'gameover';
+    showGameOver(score, 0);
+  }
+}
+
+function showGameOver(pScore, aScore) {
+  const overlay = document.getElementById('overlay');
+  overlay.classList.remove('hidden');
+  const won = pScore > aScore;
+  overlay.innerHTML = `
+    <h1>${won ? 'VICTORY' : 'DEFEAT'}</h1>
+    <h2>${won ? 'The seas are yours!' : 'The enemy controls the waves.'}</h2>
+    <div class="result-line">Your Score: <span class="result-highlight">${pScore}</span></div>
+    <div class="result-line">Ports Held: <span class="result-highlight">${countPorts('player')}</span></div>
+    <div class="result-line">Ships Remaining: <span class="result-highlight">${countShips('player')}</span></div>
+    <div class="result-line">Enemy Score: <span class="result-highlight">${aScore}</span></div>
+    <br>
+    <button onclick="startGame()">PLAY AGAIN</button>
+  `;
+}
+
+// ── AI ──
+function aiTurn() {
+  phase = 'ai';
+  const aiPorts = ports.filter(p => p.owner === 'ai');
+  const aiFleets = fleets.filter(f => f.owner === 'ai' && f.portId !== null);
+
+  // Build ships at ports
+  aiPorts.forEach(port => {
+    if (aiGold >= 10) {
+      let fleet = fleets.find(f => f.owner === 'ai' && f.portId === port.id);
+      if (!fleet) {
+        fleet = { id: nextFleetId++, owner: 'ai', portId: port.id, ships: [], moving: null, x: port.x, y: port.y };
+        fleets.push(fleet);
+      }
+      // Strategic build
+      if (aiGold >= 18 && fleet.ships.filter(s => s.type === 'battleship').length < 1) {
+        fleet.ships.push(makeShip('battleship'));
+        aiGold -= 18;
+      } else if (aiGold >= 10) {
+        fleet.ships.push(makeShip('destroyer'));
+        aiGold -= 10;
+      } else if (aiGold >= 5) {
+        fleet.ships.push(makeShip('frigate'));
+        aiGold -= 5;
+      }
+    }
+  });
+
+  // Move fleets — strategic decisions
+  const updatedAiFleets = fleets.filter(f => f.owner === 'ai' && f.portId !== null && !f.moving);
+  updatedAiFleets.forEach(fleet => {
+    if (fleet.ships.length < 1) return;
+    const neighbors = getPortNeighbors(fleet.portId);
+    const power = getFleetPower(fleet);
+
+    // Priority: capture neutral ports, then attack weak player ports, then reinforce
+    let bestTarget = null;
+    let bestScore = -Infinity;
+
+    neighbors.forEach(nId => {
+      const port = ports[nId];
+      let tScore = 0;
+
+      if (port.owner === 'neutral') {
+        tScore = 20 + port.income * 3;
+        // Check if enemy fleet is there
+        const enemyFleet = fleets.find(f => f.owner === 'player' && f.portId === nId);
+        if (enemyFleet) tScore -= getFleetPower(enemyFleet) * 2;
+      } else if (port.owner === 'player') {
+        const enemyFleet = fleets.find(f => f.owner === 'player' && f.portId === nId);
+        const enemyPower = enemyFleet ? getFleetPower(enemyFleet) : 0;
+        if (power > enemyPower * 1.2) {
+          tScore = 30 + port.income * 4 - enemyPower;
+        } else {
+          tScore = -10; // Too risky
+        }
+      } else if (port.owner === 'ai') {
+        // Reinforce or move toward front
+        const hasPlayerNeighbors = getPortNeighbors(nId).some(nn => ports[nn].owner === 'player');
+        if (hasPlayerNeighbors) tScore = 5;
+        else tScore = -5;
+      }
+
+      // Prefer chokepoints (ports with many connections)
+      tScore += getPortNeighbors(nId).length * 1.5;
+
+      // Avoid moving if already at a front-line position
+      const currentHasThreat = neighbors.some(nn => ports[nn].owner === 'player');
+      if (currentHasThreat && port.owner === 'ai') tScore -= 15;
+
+      if (tScore > bestScore) {
+        bestScore = tScore;
+        bestTarget = nId;
+      }
+    });
+
+    if (bestTarget !== null && bestScore > 0) {
+      fleet.moving = { from: fleet.portId, to: bestTarget, progress: 0 };
+      fleet.portId = null;
+    }
+  });
+}
+
+// ── Input handling ──
+canvas.addEventListener('click', (e) => {
+  if (gameState !== 'playing' || phase !== 'player') return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  // Check if clicked a port
+  let clickedPort = null;
+  ports.forEach(p => {
+    if (Math.hypot(mx - p.x, my - p.y) < 20) clickedPort = p;
+  });
+
+  // Check if clicked a fleet
+  let clickedFleet = null;
+  fleets.forEach(f => {
+    if (f.owner === 'player' && f.portId !== null) {
+      const offsetX = f.x - 15;
+      const offsetY = f.y + 18;
+      if (Math.hypot(mx - offsetX, my - offsetY) < 18) clickedFleet = f;
+    }
+  });
+
+  if (selectedFleet) {
+    // Moving selected fleet to a port
+    if (clickedPort) {
+      moveFleetTo(selectedFleet, clickedPort.id);
+      updateHUD();
+      return;
+    }
+    selectedFleet = null;
+    selectedPort = null;
+  }
+
+  if (clickedFleet) {
+    selectedFleet = clickedFleet;
+    selectedPort = null;
+    turnLog = `Fleet selected at ${ports[clickedFleet.portId].name} (${clickedFleet.ships.length} ships)`;
+  } else if (clickedPort) {
+    selectedPort = clickedPort;
+    selectedFleet = null;
+    if (clickedPort.owner === 'player') {
+      turnLog = `${clickedPort.name}: Income ${clickedPort.income}g. Build ships here.`;
+    } else {
+      turnLog = `${clickedPort.name} (${clickedPort.owner}): Income ${clickedPort.income}g`;
+    }
+  }
+  updateHUD();
+});
+
+// Build buttons via keyboard (when port selected)
+document.addEventListener('keydown', (e) => {
+  if (gameState !== 'playing' || phase !== 'player') return;
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    endPlayerTurn();
+    return;
+  }
+  if (selectedPort && selectedPort.owner === 'player') {
+    if (e.key === '1') buildShip(selectedPort, 'frigate');
+    if (e.key === '2') buildShip(selectedPort, 'destroyer');
+    if (e.key === '3') buildShip(selectedPort, 'battleship');
+    updateHUD();
+  }
+});
+
+// Build buttons panel click zones (rendered on canvas)
+let buildButtons = [];
+canvas.addEventListener('click', (e) => {
+  if (gameState !== 'playing' || phase !== 'player') return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  buildButtons.forEach(btn => {
+    if (mx >= btn.x && mx <= btn.x + btn.w && my >= btn.y && my <= btn.y + btn.h) {
+      buildShip(btn.port, btn.type);
+      updateHUD();
+    }
+  });
+  // End turn button
+  if (mx >= W - 90 && mx <= W - 10 && my >= 8 && my <= 30) {
+    endPlayerTurn();
+  }
+}, true);
+
+// ── HUD ──
+function updateHUD() {
+  document.getElementById('hud-turn').textContent = `${turn}/${MAX_TURNS}`;
+  document.getElementById('hud-gold').textContent = playerGold;
+  document.getElementById('hud-ports').textContent = countPorts('player');
+  document.getElementById('hud-ships').textContent = countShips('player');
+  document.getElementById('hud-score').textContent = score;
+
+  // Info panel
+  const selEl = document.getElementById('info-selection');
+  const actEl = document.getElementById('info-actions');
+  const intEl = document.getElementById('info-intel');
+
+  if (selectedFleet) {
+    const p = ports.find(pp => pp.id === selectedFleet.portId);
+    const shipList = selectedFleet.ships.map(s => `${s.symbol}(${s.hp}/${s.maxHp})`).join(' ');
+    selEl.innerHTML = `Fleet at ${p ? p.name : '?'}<br>${shipList}<br>Power: ${getFleetPower(selectedFleet)}`;
+    const neighbors = p ? getPortNeighbors(p.id) : [];
+    actEl.innerHTML = `Click adjacent port to move:<br>${neighbors.map(n => ports[n].name + ' (' + ports[n].owner + ')').join(', ')}`;
+  } else if (selectedPort) {
+    selEl.innerHTML = `${selectedPort.name} (${selectedPort.owner})<br>Income: ${selectedPort.income}g`;
+    if (selectedPort.owner === 'player') {
+      actEl.innerHTML = `Build: [1] Frigate 5g | [2] Destroyer 10g | [3] Battleship 18g`;
+    } else {
+      actEl.innerHTML = selectedPort.owner === 'neutral' ? `Garrison: ${selectedPort.garrison} ship(s)` : 'Enemy controlled';
+    }
+  } else {
+    selEl.innerHTML = 'Click a fleet or port';
+    actEl.innerHTML = turnLog || 'Space/Enter = End Turn';
+  }
+
+  intEl.innerHTML = `AI: ${countPorts('ai')} ports, ${countShips('ai')} ships<br>` +
+    (combatLog.length > 0 ? combatLog.slice(-2).join('<br>') : 'No combat yet');
+}
+
+// ── Rendering ──
+function drawWater() {
+  // Deep ocean background
+  ctx.fillStyle = '#0a1628';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle wave pattern
+  const time = Date.now() / 2000;
+  ctx.strokeStyle = 'rgba(68, 136, 204, 0.06)';
+  ctx.lineWidth = 1;
+  for (let y = 0; y < H; y += 12) {
+    ctx.beginPath();
+    for (let x = 0; x < W; x += 2) {
+      const wave = Math.sin(x / 40 + time + y / 30) * 3;
+      if (x === 0) ctx.moveTo(x, y + wave);
+      else ctx.lineTo(x, y + wave);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawIslands() {
+  islandTiles.forEach(t => {
+    const g = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, t.r);
+    g.addColorStop(0, `rgba(34, 80, 50, ${t.shade + 0.15})`);
+    g.addColorStop(0.6, `rgba(28, 65, 40, ${t.shade})`);
+    g.addColorStop(1, 'rgba(20, 50, 30, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function drawSeaLanes() {
+  seaLanes.forEach(l => {
+    const p1 = ports[l.from];
+    const p2 = ports[l.to];
+    const bothPlayer = p1.owner === 'player' && p2.owner === 'player';
+    const bothAI = p1.owner === 'ai' && p2.owner === 'ai';
+
+    ctx.strokeStyle = bothPlayer ? 'rgba(68,136,204,0.35)' : (bothAI ? 'rgba(204,68,68,0.25)' : 'rgba(100,100,120,0.15)');
+    ctx.lineWidth = bothPlayer ? 2 : 1;
+    ctx.setLineDash(bothPlayer || bothAI ? [] : [4, 6]);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+}
+
+function drawPorts() {
+  ports.forEach(p => {
+    const colors = { player: '#48c', ai: '#c44', neutral: '#888' };
+    const color = colors[p.owner];
+    const isSelected = selectedPort && selectedPort.id === p.id;
+
+    // Port glow
+    if (isSelected || p.owner === 'player') {
+      ctx.shadowBlur = isSelected ? 16 : 8;
+      ctx.shadowColor = color;
+    }
+
+    // Port circle
+    ctx.fillStyle = '#1a1a2e';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isSelected ? 3 : 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Anchor icon
+    ctx.fillStyle = color;
+    ctx.font = 'bold 11px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚓', p.x, p.y);
+
+    ctx.shadowBlur = 0;
+
+    // Port name
+    ctx.fillStyle = '#aaa';
+    ctx.font = '9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.name, p.x, p.y - 20);
+
+    // Income indicator
+    ctx.fillStyle = '#cc8';
+    ctx.font = '8px Courier New';
+    ctx.fillText(`+${p.income}g`, p.x, p.y - 30);
+
+    // Garrison indicator for neutral
+    if (p.owner === 'neutral' && p.garrison > 0) {
+      ctx.fillStyle = '#666';
+      ctx.font = '8px Courier New';
+      ctx.fillText(`[${p.garrison}]`, p.x + 22, p.y);
+    }
+  });
+}
+
+function drawFleets() {
+  fleets.forEach(f => {
+    if (f.ships.length === 0) return;
+    const isSelected = selectedFleet && selectedFleet.id === f.id;
+    const color = f.owner === 'player' ? '#48c' : '#c44';
+
+    let fx = f.x, fy = f.y;
+
+    // Moving animation
+    if (f.moving) {
+      const from = ports[f.moving.from];
+      const to = ports[f.moving.to];
+      f.moving.progress = Math.min(1, f.moving.progress + 0.05);
+      fx = from.x + (to.x - from.x) * f.moving.progress;
+      fy = from.y + (to.y - from.y) * f.moving.progress;
+      f.x = fx;
+      f.y = fy;
+    }
+
+    // Offset from port center
+    const offsetX = f.owner === 'player' ? -15 : 15;
+    const offsetY = 18;
+    const dx = fx + offsetX;
+    const dy = fy + offsetY;
+
+    // Fleet box
+    if (isSelected) {
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = color;
+    }
+
+    ctx.fillStyle = 'rgba(26,26,46,0.9)';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isSelected ? 2 : 1;
+    const bw = Math.max(30, f.ships.length * 10 + 8);
+    ctx.fillRect(dx - bw / 2, dy - 8, bw, 16);
+    ctx.strokeRect(dx - bw / 2, dy - 8, bw, 16);
+
+    ctx.shadowBlur = 0;
+
+    // Ship symbols
+    ctx.fillStyle = color;
+    ctx.font = 'bold 9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const shipStr = f.ships.map(s => s.symbol).join('');
+    ctx.fillText(shipStr, dx, dy);
+
+    // Power indicator
+    ctx.fillStyle = '#666';
+    ctx.font = '7px Courier New';
+    ctx.fillText(`⚔${getFleetAttack(f)}`, dx, dy + 13);
+  });
+}
+
+function drawUI() {
+  buildButtons = [];
+
+  // End Turn button
+  ctx.fillStyle = 'rgba(68,136,204,0.15)';
+  ctx.strokeStyle = '#48c';
+  ctx.lineWidth = 1;
+  const btnX = W - 90, btnY = 8, btnW = 80, btnH = 22;
+  ctx.fillRect(btnX, btnY, btnW, btnH);
+  ctx.strokeRect(btnX, btnY, btnW, btnH);
+  ctx.fillStyle = '#48c';
+  ctx.font = 'bold 10px Courier New';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('END TURN', btnX + btnW / 2, btnY + btnH / 2);
+
+  // Build panel at bottom when player port selected
+  if (selectedPort && selectedPort.owner === 'player' && phase === 'player') {
+    const panelY = H - 36;
+    ctx.fillStyle = 'rgba(15,15,35,0.9)';
+    ctx.fillRect(0, panelY, W, 36);
+    ctx.strokeStyle = '#48c33';
+    ctx.strokeRect(0, panelY, W, 36);
+
+    const types = ['frigate', 'destroyer', 'battleship'];
+    const labels = ['Frigate 5g', 'Destroyer 10g', 'Battleship 18g'];
+    types.forEach((type, i) => {
+      const bx = 20 + i * 180;
+      const by = panelY + 5;
+      const bw = 160, bh = 24;
+      const canAfford = playerGold >= SHIP_TYPES[type].cost;
+
+      ctx.fillStyle = canAfford ? 'rgba(68,136,204,0.15)' : 'rgba(50,50,60,0.15)';
+      ctx.strokeStyle = canAfford ? '#48c' : '#444';
+      ctx.lineWidth = 1;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeRect(bx, by, bw, bh);
+
+      ctx.fillStyle = canAfford ? '#48c' : '#555';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(`[${i + 1}] ${labels[i]}`, bx + bw / 2, by + bh / 2);
+
+      if (canAfford) {
+        buildButtons.push({ x: bx, y: by, w: bw, h: bh, port: selectedPort, type });
+      }
+    });
+  }
+
+  // Movement hint
+  if (selectedFleet && selectedFleet.portId !== null) {
+    const neighbors = getPortNeighbors(selectedFleet.portId);
+    neighbors.forEach(nId => {
+      const p = ports[nId];
+      ctx.strokeStyle = 'rgba(68,136,204,0.5)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 22, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+
+  // Turn indicator
+  ctx.fillStyle = '#48c';
+  ctx.font = '10px Courier New';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`Turn ${turn}/${MAX_TURNS}`, 8, 8);
+  ctx.fillText(`Gold: ${playerGold}`, 8, 22);
+
+  // Combat log flash
+  if (combatLog.length > 0 && phase === 'player') {
+    ctx.fillStyle = 'rgba(15,15,35,0.85)';
+    ctx.fillRect(W / 2 - 140, 40, 280, Math.min(combatLog.length, 4) * 14 + 10);
+    ctx.strokeStyle = '#c44';
+    ctx.strokeRect(W / 2 - 140, 40, 280, Math.min(combatLog.length, 4) * 14 + 10);
+    ctx.fillStyle = '#e88';
+    ctx.font = '10px Courier New';
+    ctx.textAlign = 'center';
+    combatLog.slice(-4).forEach((line, i) => {
+      ctx.fillText(line, W / 2, 55 + i * 14);
+    });
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  drawWater();
+  drawIslands();
+  drawSeaLanes();
+  drawPorts();
+  drawFleets();
+  if (gameState === 'playing') drawUI();
+}
+
+function gameLoop() {
+  render();
+  if (gameState === 'playing') updateHUD();
+  requestAnimationFrame(gameLoop);
+}
+
+// ── Start ──
+function startGame() {
+  gameState = 'playing';
+  document.getElementById('overlay').classList.add('hidden');
+  initGame();
+  combatLog = [];
+  updateHUD();
+}
+
+document.getElementById('start-btn').addEventListener('click', startGame);
+
+gameLoop();
+</script>
+<script src="../recorder.js"></script>
+</body>
+</html>
