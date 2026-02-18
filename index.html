@@ -392,12 +392,144 @@
     (function () {
       var bar = document.getElementById('missionBar');
       var liveStats = document.getElementById('liveStats');
+      var grid = document.querySelector('.games-grid');
+      var pageloadTime = Date.now();
+
+      /* ── Visitor ID (persistent, reuses recorder's collector_id if present) ── */
+      var visitorId = localStorage.getItem('arcade_collector_id');
+      if (!visitorId) {
+        visitorId = 'v-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
+        localStorage.setItem('arcade_collector_id', visitorId);
+      }
+
+      /* ── Event tracking ── */
+      var pageviewId = Math.random().toString(36).slice(2, 10);
+      var chosenArm = null;
+      var cardOrder = [];
+
+      function sendEvent(evt) {
+        evt.visitor_id = visitorId;
+        evt.pageview_id = pageviewId;
+        evt.timestamp = new Date().toISOString();
+        evt.ts_ms = Date.now();
+        evt.viewport_w = window.innerWidth;
+        evt.viewport_h = window.innerHeight;
+        evt.referrer = document.referrer || '';
+        evt.user_agent = navigator.userAgent;
+        try {
+          navigator.sendBeacon('/api/events/landing', JSON.stringify(evt));
+        } catch (e) { /* silent */ }
+      }
+
+      /* ── Beta distribution sampling (Thompson Sampling) ── */
+      function gammaSample(shape) {
+        if (shape < 1) return gammaSample(shape + 1) * Math.pow(Math.random(), 1 / shape);
+        var d = shape - 1/3, c = 1 / Math.sqrt(9 * d), x, v;
+        while (true) {
+          var u1 = Math.random(), u2 = Math.random();
+          x = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+          v = Math.pow(1 + c * x, 3);
+          if (v > 0 && Math.log(Math.random()) < 0.5 * x * x + d - d * v + d * Math.log(v)) return d * v;
+        }
+      }
+
+      function betaSample(a, b) {
+        var ga = gammaSample(a), gb = gammaSample(b);
+        return ga / (ga + gb);
+      }
+
+      /* ── Card ordering strategies ── */
+      var ORDERINGS = {
+        classics: ['pac-man','tetris','space-invaders','donkey-kong','galaga','frogger','asteroids','breakout','pong','centipede','missile-command','dig-dug','qbert','joust','robotron','moon-patrol','bubble-bobble','phoenix','galaxian','1942','xevious','mappy','elevator-action','lode-runner','boulder-dash','rally-x','mr-do','snow-bros','tapper','burger-time','ice-climber','bomberman','amidar'],
+        casual: ['cookie-clicker','2048','snake','flappy','dino','whack-a-mole','bejeweled','doodle-jump','minesweeper','simon','crossy-road','peggle','nonogram','sokoban','lights-out','pipe-dream','puzzle-bobble','pong','tetris','breakout','helicopter','canabalt','slot-racer','air-hockey','columns','tron','dr-mario','puyo-puyo','arkanoid','dx-ball','tower-defense','nibbler'],
+        action: ['galaga','robotron','1942','raiden','space-invaders','asteroids','centipede','phoenix','xevious','galaxian','missile-command','pac-man','frogger','bomberman','donkey-kong','moon-patrol','tron','canabalt','helicopter','duck-hunt','tanks','air-hockey','kaboom','dig-dug','bubble-bobble','joust','breakout','arkanoid','dx-ball','rally-x','mr-do','snow-bros','tetris','flappy']
+      };
+
+      function getDefaultOrder() {
+        return Array.from(grid.children).map(function (el) { return el.getAttribute('data-game'); });
+      }
+
+      function shuffleArray(arr) {
+        var a = arr.slice();
+        for (var i = a.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var t = a[i]; a[i] = a[j]; a[j] = t;
+        }
+        return a;
+      }
+
+      function reorderGrid(orderedGames) {
+        var cardMap = {};
+        Array.from(grid.children).forEach(function (el) {
+          cardMap[el.getAttribute('data-game')] = el;
+        });
+        var placed = {};
+        orderedGames.forEach(function (g) {
+          if (cardMap[g]) { grid.appendChild(cardMap[g]); placed[g] = true; }
+        });
+        Object.keys(cardMap).forEach(function (g) {
+          if (!placed[g]) grid.appendChild(cardMap[g]);
+        });
+      }
+
+      /* ── Thompson Sampling: fetch state, sample, reorder ── */
+      var defaultOrder = getDefaultOrder();
+      fetch('/bandit_state.json?t=' + Math.floor(Date.now() / 3600000))
+        .then(function (r) { return r.json(); })
+        .then(function (state) {
+          var arms = state.arms || [];
+          if (!arms.length) return;
+          var samples = arms.map(function (a) { return betaSample(a.alpha, a.beta); });
+          var bestIdx = 0;
+          for (var i = 1; i < samples.length; i++) {
+            if (samples[i] > samples[bestIdx]) bestIdx = i;
+          }
+          chosenArm = arms[bestIdx].name;
+          if (chosenArm === 'classics') reorderGrid(ORDERINGS.classics);
+          else if (chosenArm === 'casual') reorderGrid(ORDERINGS.casual);
+          else if (chosenArm === 'action') reorderGrid(ORDERINGS.action);
+          else if (chosenArm === 'random') reorderGrid(shuffleArray(defaultOrder));
+          cardOrder = Array.from(grid.children).map(function (el) { return el.getAttribute('data-game'); });
+          sendEvent({
+            event: 'pageview', arm: chosenArm,
+            arm_samples: samples.map(function (s) { return +s.toFixed(4); }),
+            arm_params: arms.map(function (a) { return { name: a.name, alpha: a.alpha, beta: a.beta }; }),
+            card_order_top12: cardOrder.slice(0, 12),
+            is_mobile: window.innerWidth < 768
+          });
+        })
+        .catch(function () {
+          chosenArm = 'default';
+          cardOrder = defaultOrder;
+          sendEvent({ event: 'pageview', arm: 'default', card_order_top12: cardOrder.slice(0, 12), is_mobile: window.innerWidth < 768 });
+        });
+
+      /* ── Track card clicks ── */
+      grid.addEventListener('click', function (e) {
+        var card = e.target.closest('.game-card');
+        if (!card) return;
+        sendEvent({
+          event: 'card_click', arm: chosenArm,
+          game: card.getAttribute('data-game'),
+          position: Array.from(grid.children).indexOf(card),
+          ms_since_load: Date.now() - pageloadTime
+        });
+      });
+
+      /* ── Track scroll depth + exit ── */
+      var maxScroll = 0;
+      window.addEventListener('scroll', function () {
+        var pct = Math.round(100 * (window.scrollY + window.innerHeight) / document.documentElement.scrollHeight);
+        if (pct > maxScroll) maxScroll = pct;
+      }, { passive: true });
+      window.addEventListener('beforeunload', function () {
+        sendEvent({ event: 'page_exit', arm: chosenArm, max_scroll_pct: maxScroll, ms_on_page: Date.now() - pageloadTime });
+      });
 
       /* ── Online users (simulated presence) ── */
       var online = Math.floor(Math.random() * 18) + 8;
       document.getElementById('onlineCount').textContent = online;
       liveStats.classList.add('visible');
-
       setInterval(function () {
         var delta = Math.floor(Math.random() * 5) - 2;
         online = Math.max(3, Math.min(50, online + delta));
@@ -416,37 +548,28 @@
       fetch('/api/stats/arcade')
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          /* Total hours for live-stats bar */
           var secs = d.total_duration_seconds || 0;
           var hrs = Math.floor(secs / 3600);
           var mins = Math.floor((secs % 3600) / 60);
           document.getElementById('totalHours').textContent =
             hrs > 0 ? hrs.toLocaleString() + 'h ' + mins + 'm' : mins + 'm';
-
-          /* Data collected for live-stats bar */
           var bytes = d.total_bytes || 0;
           document.getElementById('totalData').textContent = fmtBytes(bytes);
-
-          /* Mission bar stats */
-          document.getElementById('statSessions').textContent =
-            (d.total_sessions || 0).toLocaleString();
-          document.getElementById('statFrames').textContent =
-            (d.total_frames || 0).toLocaleString();
+          document.getElementById('statSessions').textContent = (d.total_sessions || 0).toLocaleString();
+          document.getElementById('statFrames').textContent = (d.total_frames || 0).toLocaleString();
           document.getElementById('statData').textContent = fmtBytes(bytes);
           bar.classList.add('loaded');
-
-          /* Per-game play counts */
-          var perGame = d.per_game || {};
+          var perGame = d.per_game || d.by_game || {};
           var totalSessions = d.total_sessions || 0;
-          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban','columns','nibbler','crossy-road','kaboom','air-hockey','simon','duck-hunt','tanks','whack-a-mole','slot-racer','pac-man','frogger','bomberman','dig-dug','qbert','lode-runner','boulder-dash','amidar','rally-x','mr-do','galaga','galaxian','centipede','missile-command','phoenix','1942','xevious','raiden','robotron','moon-patrol','donkey-kong','bubble-bobble','ice-climber','elevator-action','mappy','snow-bros','tapper','joust','burger-time','cookie-clicker','dr-mario','puyo-puyo','pipe-dream','puzzle-bobble','bejeweled','arkanoid','dx-ball','peggle','tower-defense','nonogram'];
-          games.forEach(function (g) {
-            var badge = document.querySelector('.plays-badge[data-game="' + g + '"]');
-            if (!badge) return;
-            var count = perGame[g] || 0;
+          document.querySelectorAll('.plays-badge[data-game]').forEach(function (badge) {
+            var g = badge.getAttribute('data-game');
+            var info = perGame[g];
+            var count = info ? (typeof info === 'object' ? (info.sessions || 0) : info) : 0;
             if (count > 0) {
               badge.textContent = count.toLocaleString() + ' plays';
             } else if (totalSessions > 0) {
-              var base = Math.floor(totalSessions / games.length);
+              var nGames = document.querySelectorAll('.plays-badge[data-game]').length;
+              var base = Math.floor(totalSessions / nGames);
               var jitter = Math.floor(Math.random() * Math.max(1, base * 0.4)) - Math.floor(base * 0.2);
               badge.textContent = Math.max(0, base + jitter).toLocaleString() + ' plays';
             }

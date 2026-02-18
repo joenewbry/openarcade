@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "updated_at": "2026-02-17T00:00:00Z",
+  "arms": [
+    {
+      "name": "default",
+      "alpha": 1,
+      "beta": 1,
+      "description": "Original HTML order"
+    },
+    {
+      "name": "classics",
+      "alpha": 1,
+      "beta": 1,
+      "description": "Iconic arcade classics first (Pac-Man, Tetris, Galaga, etc.)"
+    },
+    {
+      "name": "casual",
+      "alpha": 1,
+      "beta": 1,
+      "description": "Easy/casual/modern games first (Cookie Clicker, 2048, Snake, etc.)"
+    },
+    {
+      "name": "action",
+      "alpha": 1,
+      "beta": 1,
+      "description": "High-action shooters first (Galaga, Robotron, 1942, etc.)"
+    },
+    {
+      "name": "random",
+      "alpha": 1,
+      "beta": 1,
+      "description": "Shuffled every pageview (exploration arm)"
+    }
+  ]
+}
