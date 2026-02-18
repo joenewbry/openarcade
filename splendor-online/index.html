@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Splendor Online</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 650px;
+    }
+    .back { color: #e90; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(238, 153, 0, 0.5); }
+    h1 { color: #e90; font-size: 1.6rem; text-shadow: 0 0 15px rgba(238, 153, 0, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 650px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #e90; }
+    canvas {
+      border: 2px solid #e90;
+      box-shadow: 0 0 20px rgba(238, 153, 0, 0.2);
+      display: block;
+      cursor: pointer;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #e90;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>SPLENDOR ONLINE</h1>
+  </div>
+  <div class="score-bar">
+    <div>Player: <span id="score">0</span> prestige</div>
+    <div>AI: <span id="aiScore">0</span> prestige</div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="650" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:650px;height:500px;">
+      <h2 id="overlayTitle">SPLENDOR ONLINE</h2>
+      <p id="overlayText">Click to Start</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 650, H = 500;
+    const scoreEl = document.getElementById('score');
+    const aiScoreEl = document.getElementById('aiScore');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState = 'waiting';
+    let score = 0;
+
+    // --- Gem colors ---
+    const GEM_NAMES = ['ruby', 'sapphire', 'emerald', 'diamond', 'onyx'];
+    const GEM_COLORS = { ruby: '#e33', sapphire: '#44f', emerald: '#3b3', diamond: '#eee', onyx: '#555', gold: '#ea0' };
+    const GEM_LABELS = { ruby: 'R', sapphire: 'S', emerald: 'E', diamond: 'D', onyx: 'O', gold: 'G' };
+    const GEM_SHORT = { ruby: 'Rby', sapphire: 'Sph', emerald: 'Emr', diamond: 'Dia', onyx: 'Onx', gold: 'Gld' };
+
+    // --- Game data ---
+    let supply = {};       // gem supply on table
+    let decks = [[], [], []]; // 3 tier decks (draw piles)
+    let market = [[], [], []]; // 4 face-up cards per tier
+    let nobles = [];
+    let players = [];      // [player, ai]
+    let currentPlayer = 0; // 0 = human, 1 = ai
+    let turnPhase = 'action'; // 'action', 'selectGems', 'discardGems', 'aiTurn', 'animating'
+    let selectedGems = []; // gems selected this turn
+    let hoverCard = null;  // {tier, index} of hovered card
+    let hoverGem = null;   // gem name hovered
+    let hoverButton = null;
+    let message = '';
+    let messageTimer = 0;
+    let roundNumber = 0;
+    let lastRoundTriggered = false;
+    let lastRoundPlayer = -1;
+    let aiThinkTimer = 0;
+
+    // --- Card generation ---
+    function generateDecks() {
+      const rng = mulberry32(Date.now() & 0xFFFFFFFF);
+      // Tier 1: 40 cards, 0-1 prestige, cost 2-5 total gems
+      // Tier 2: 30 cards, 1-3 prestige, cost 5-10 total gems
+      // Tier 3: 20 cards, 3-5 prestige, cost 10-15 total gems
+      const tiers = [
+        { count: 40, minP: 0, maxP: 1, minCost: 2, maxCost: 5 },
+        { count: 30, minP: 1, maxP: 3, minCost: 5, maxCost: 9 },
+        { count: 20, minP: 3, maxP: 5, minCost: 10, maxCost: 14 }
+      ];
+      const allDecks = [[], [], []];
+      for (let t = 0; t < 3; t++) {
+        const cfg = tiers[t];
+        for (let i = 0; i < cfg.count; i++) {
+          const bonus = GEM_NAMES[i % 5];
+          const prestige = cfg.minP + Math.floor(rng() * (cfg.maxP - cfg.minP + 1));
+          const totalCost = cfg.minCost + Math.floor(rng() * (cfg.maxCost - cfg.minCost + 1));
+          const cost = distributeGemCost(totalCost, rng, t);
+          allDecks[t].push({ tier: t, bonus, prestige, cost, id: `${t}-${i}` });
+        }
+        shuffle(allDecks[t], rng);
+      }
+      return allDecks;
+    }
+
+    function distributeGemCost(total, rng, tier) {
+      const cost = {};
+      GEM_NAMES.forEach(g => cost[g] = 0);
+      // Pick 2-4 gem types for cost
+      const numTypes = tier === 0 ? (2 + Math.floor(rng() * 2)) : (2 + Math.floor(rng() * 3));
+      const types = shuffle([...GEM_NAMES], rng).slice(0, Math.min(numTypes, 5));
+      let remaining = total;
+      for (let i = 0; i < types.length - 1; i++) {
+        const maxHere = Math.min(remaining - (types.length - 1 - i), 7);
+        const amt = 1 + Math.floor(rng() * Math.max(1, maxHere - 1));
+        cost[types[i]] = Math.min(amt, remaining - (types.length - 1 - i));
+        remaining -= cost[types[i]];
+      }
+      cost[types[types.length - 1]] = Math.max(1, remaining);
+      return cost;
+    }
+
+    function generateNobles() {
+      // 3+1 nobles: each requires specific bonuses (3-4 of two colors or 2-3 of three colors)
+      const patterns = [
+        { ruby: 4, sapphire: 4 },
+        { emerald: 4, onyx: 4 },
+        { diamond: 3, sapphire: 3, onyx: 3 },
+        { ruby: 3, emerald: 3, diamond: 3 },
+        { sapphire: 3, emerald: 3, ruby: 3 }
+      ];
+      const chosen = shuffle([...patterns]).slice(0, 4);
+      return chosen.map((req, i) => ({ id: `noble-${i}`, prestige: 3, requirements: req }));
+    }
+
+    // --- Seeded RNG ---
+    function mulberry32(a) {
+      return function() {
+        a |= 0; a = a + 0x6D2B79F5 | 0;
+        let t = Math.imul(a ^ a >>> 15, 1 | a);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+
+    function shuffle(arr, rng) {
+      const r = rng || Math.random;
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(r() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // --- Player state ---
+    function newPlayer(name) {
+      const gems = {}; const bonuses = {};
+      GEM_NAMES.forEach(g => { gems[g] = 0; bonuses[g] = 0; });
+      gems.gold = 0;
+      return { name, gems, bonuses, prestige: 0, reserved: [] };
+    }
+
+    function totalGems(p) {
+      let t = 0;
+      GEM_NAMES.forEach(g => t += p.gems[g]);
+      t += p.gems.gold;
+      return t;
+    }
+
+    // --- Card affordability ---
+    function canAfford(player, card) {
+      let goldNeeded = 0;
+      for (const g of GEM_NAMES) {
+        const need = (card.cost[g] || 0) - (player.bonuses[g] || 0);
+        if (need > 0) {
+          const have = player.gems[g] || 0;
+          if (have < need) goldNeeded += need - have;
+        }
+      }
+      return goldNeeded <= (player.gems.gold || 0);
+    }
+
+    function payForCard(player, card) {
+      let goldUsed = 0;
+      for (const g of GEM_NAMES) {
+        let need = (card.cost[g] || 0) - (player.bonuses[g] || 0);
+        if (need <= 0) continue;
+        const fromGems = Math.min(need, player.gems[g] || 0);
+        player.gems[g] -= fromGems;
+        supply[g] += fromGems;
+        need -= fromGems;
+        if (need > 0) {
+          player.gems.gold -= need;
+          supply.gold += need;
+          goldUsed += need;
+        }
+      }
+      player.bonuses[card.bonus] = (player.bonuses[card.bonus] || 0) + 1;
+      player.prestige += card.prestige;
+    }
+
+    // --- Noble check ---
+    function checkNobles(player) {
+      for (let i = nobles.length - 1; i >= 0; i--) {
+        const n = nobles[i];
+        let qualifies = true;
+        for (const g of GEM_NAMES) {
+          if ((n.requirements[g] || 0) > (player.bonuses[g] || 0)) {
+            qualifies = false;
+            break;
+          }
+        }
+        if (qualifies) {
+          player.prestige += n.prestige;
+          nobles.splice(i, 1);
+          setMessage(`${player.name} attracts a Noble! +${n.prestige} prestige`);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // --- Init ---
+    function initGame() {
+      supply = {};
+      GEM_NAMES.forEach(g => supply[g] = 4);
+      supply.gold = 5;
+      const allDecks = generateDecks();
+      decks = allDecks;
+      market = [[], [], []];
+      for (let t = 0; t < 3; t++) {
+        for (let i = 0; i < 4; i++) {
+          if (decks[t].length > 0) market[t].push(decks[t].pop());
+        }
+      }
+      nobles = generateNobles();
+      players = [newPlayer('Player'), newPlayer('AI')];
+      currentPlayer = 0;
+      turnPhase = 'action';
+      selectedGems = [];
+      hoverCard = null;
+      hoverGem = null;
+      hoverButton = null;
+      message = '';
+      messageTimer = 0;
+      roundNumber = 1;
+      lastRoundTriggered = false;
+      lastRoundPlayer = -1;
+      aiThinkTimer = 0;
+      score = 0;
+      scoreEl.textContent = '0';
+      aiScoreEl.textContent = '0';
+    }
+
+    function setMessage(msg) {
+      message = msg;
+      messageTimer = 180;
+    }
+
+    // --- Refill market ---
+    function refillMarket(tier) {
+      while (market[tier].length < 4 && decks[tier].length > 0) {
+        market[tier].push(decks[tier].pop());
+      }
+    }
+
+    // --- Layout constants ---
+    const CARD_W = 80, CARD_H = 58;
+    const CARD_GAP = 8;
+    const TIER_LABELS = ['I', 'II', 'III'];
+    const GEM_TOKEN_R = 14;
+    const MARKET_X = 80;
+    const NOBLE_SIZE = 36;
+
+    // Card positions: tier 2 at top (row 0 on canvas), tier 1 middle, tier 0 bottom
+    function cardPos(tier, index) {
+      // Display tier 2 at top, tier 1 in middle, tier 0 at bottom of card area
+      const displayRow = 2 - tier;
+      const x = MARKET_X + index * (CARD_W + CARD_GAP);
+      const y = 58 + displayRow * (CARD_H + 6);
+      return { x, y };
+    }
+
+    function gemTokenPos(gemIndex) {
+      const x = 470 + (gemIndex % 3) * 58;
+      const y = 72 + Math.floor(gemIndex / 3) * 52;
+      return { x, y };
+    }
+
+    function goldTokenPos() {
+      return { x: 470 + 1 * 58, y: 72 + 2 * 52 };
+    }
+
+    // --- Drawing ---
+    function draw() {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      if (gameState === 'waiting' || players.length === 0) return;
+
+      const p = players[0], ai = players[1];
+
+      // --- AI info (top) ---
+      drawPlayerBar(ai, 0, true);
+
+      // --- Nobles ---
+      drawNobles();
+
+      // --- Card market ---
+      for (let t = 0; t < 3; t++) {
+        // Tier label
+        const displayRow = 2 - t;
+        const ly = 58 + displayRow * (CARD_H + 6) + CARD_H / 2;
+        ctx.fillStyle = '#888';
+        ctx.font = 'bold 12px Courier New';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(TIER_LABELS[t], MARKET_X - 26, ly);
+        // Deck count
+        ctx.font = '9px Courier New';
+        ctx.fillText(`(${decks[t].length})`, MARKET_X - 26, ly + 14);
+
+        for (let i = 0; i < market[t].length; i++) {
+          const pos = cardPos(t, i);
+          const card = market[t][i];
+          const isHover = hoverCard && hoverCard.tier === t && hoverCard.index === i;
+          const affordable = canAfford(p, card);
+          drawCard(card, pos.x, pos.y, isHover, affordable && currentPlayer === 0 && turnPhase === 'action');
+        }
+      }
+
+      // --- Gem supply ---
+      drawGemSupply();
+
+      // --- Player info (bottom) ---
+      drawPlayerBar(p, H - 48, false);
+
+      // --- Player reserved cards ---
+      drawReservedCards(p);
+
+      // --- Selected gems indicator ---
+      if (turnPhase === 'selectGems' && selectedGems.length > 0) {
+        drawSelectedGems();
+      }
+
+      // --- Discard phase ---
+      if (turnPhase === 'discardGems') {
+        drawDiscardUI();
+      }
+
+      // --- Turn indicator ---
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      if (gameState === 'playing') {
+        if (currentPlayer === 0) {
+          if (turnPhase === 'selectGems') {
+            ctx.fillStyle = '#e90';
+            ctx.fillText('Select gems (click tokens) then Confirm', 10, H - 13);
+          } else if (turnPhase === 'discardGems') {
+            ctx.fillStyle = '#f44';
+            ctx.fillText(`Discard gems to 10 (have ${totalGems(p)})`, 10, H - 13);
+          } else {
+            ctx.fillStyle = '#e90';
+            ctx.fillText('Your turn: buy/reserve card or take gems', 10, H - 13);
+          }
+        } else {
+          ctx.fillStyle = '#888';
+          ctx.fillText('AI is thinking...', 10, H - 13);
+        }
+      }
+
+      // --- Message ---
+      if (messageTimer > 0) {
+        const alpha = Math.min(1, messageTimer / 30);
+        ctx.fillStyle = `rgba(238, 153, 0, ${alpha})`;
+        ctx.font = 'bold 13px Courier New';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(message, W / 2, H / 2 - 5);
+      }
+    }
+
+    function drawPlayerBar(player, y, isAI) {
+      // Background bar
+      ctx.fillStyle = isAI ? 'rgba(100, 60, 60, 0.3)' : 'rgba(60, 80, 100, 0.3)';
+      ctx.fillRect(0, y, W, 48);
+
+      // Name and prestige
+      ctx.font = 'bold 13px Courier New';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = isAI ? '#f88' : '#8cf';
+      ctx.fillText(`${player.name}: ${player.prestige} prestige`, 10, y + 4);
+
+      // Gem tokens
+      let gx = 10;
+      ctx.font = '10px Courier New';
+      ctx.textBaseline = 'top';
+      const allGems = [...GEM_NAMES, 'gold'];
+      for (const g of allGems) {
+        if (player.gems[g] > 0 || (g !== 'gold' && player.bonuses[g] > 0)) {
+          // Gem circle
+          ctx.beginPath();
+          ctx.arc(gx + 8, y + 32, 8, 0, Math.PI * 2);
+          ctx.fillStyle = GEM_COLORS[g];
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          // Token count
+          ctx.fillStyle = g === 'diamond' ? '#333' : '#fff';
+          ctx.textAlign = 'center';
+          ctx.fillText(player.gems[g], gx + 8, y + 27);
+          // Bonus count (below)
+          if (g !== 'gold' && player.bonuses[g] > 0) {
+            ctx.fillStyle = '#ff0';
+            ctx.fillText(`+${player.bonuses[g]}`, gx + 8, y + 40);
+          }
+          gx += 30;
+        }
+      }
+
+      // Total gems
+      ctx.fillStyle = '#888';
+      ctx.textAlign = 'right';
+      ctx.fillText(`Gems: ${totalGems(player)}/10`, W - 10, y + 4);
+      if (!isAI) {
+        ctx.fillText(`Reserved: ${player.reserved.length}/3`, W - 10, y + 18);
+      }
+    }
+
+    function drawCard(card, x, y, isHover, isBuyable) {
+      // Card background
+      const tierColors = ['rgba(60,70,90,0.9)', 'rgba(70,60,80,0.9)', 'rgba(90,70,50,0.9)'];
+      ctx.fillStyle = tierColors[card.tier];
+      if (isHover) {
+        ctx.strokeStyle = isBuyable ? '#4f4' : '#e90';
+        ctx.lineWidth = 2;
+      } else {
+        ctx.strokeStyle = isBuyable ? 'rgba(80,255,80,0.5)' : 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = 1;
+      }
+      roundRect(ctx, x, y, CARD_W, CARD_H, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // Bonus gem (top right corner)
+      ctx.beginPath();
+      ctx.arc(x + CARD_W - 14, y + 12, 8, 0, Math.PI * 2);
+      ctx.fillStyle = GEM_COLORS[card.bonus];
+      ctx.fill();
+      ctx.strokeStyle = '#aaa';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+      ctx.fillStyle = card.bonus === 'diamond' ? '#333' : '#fff';
+      ctx.font = 'bold 9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(GEM_LABELS[card.bonus], x + CARD_W - 14, y + 12);
+
+      // Prestige (top left)
+      if (card.prestige > 0) {
+        ctx.fillStyle = '#ff0';
+        ctx.font = 'bold 16px Courier New';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(card.prestige, x + 5, y + 3);
+      }
+
+      // Cost gems (bottom of card)
+      let cx = x + 4;
+      for (const g of GEM_NAMES) {
+        if (card.cost[g] && card.cost[g] > 0) {
+          ctx.beginPath();
+          ctx.arc(cx + 7, y + CARD_H - 12, 7, 0, Math.PI * 2);
+          ctx.fillStyle = GEM_COLORS[g];
+          ctx.fill();
+          ctx.fillStyle = g === 'diamond' ? '#333' : '#fff';
+          ctx.font = 'bold 9px Courier New';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(card.cost[g], cx + 7, y + CARD_H - 12);
+          cx += 16;
+        }
+      }
+    }
+
+    function drawGemSupply() {
+      // Title
+      ctx.fillStyle = '#aaa';
+      ctx.font = 'bold 10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('GEM SUPPLY', 528, 58);
+
+      const allGems = [...GEM_NAMES, 'gold'];
+      for (let i = 0; i < allGems.length; i++) {
+        const g = allGems[i];
+        const pos = i < 5 ? gemTokenPos(i) : goldTokenPos();
+        const isHover = hoverGem === g;
+        const canTake = currentPlayer === 0 && (turnPhase === 'action' || turnPhase === 'selectGems') && supply[g] > 0 && g !== 'gold';
+
+        // Token circle
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, GEM_TOKEN_R, 0, Math.PI * 2);
+        ctx.fillStyle = GEM_COLORS[g];
+        ctx.fill();
+        if (isHover && canTake) {
+          ctx.strokeStyle = '#ff0';
+          ctx.lineWidth = 3;
+        } else {
+          ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+          ctx.lineWidth = 1;
+        }
+        ctx.stroke();
+
+        // Count
+        ctx.fillStyle = (g === 'diamond') ? '#333' : '#fff';
+        ctx.font = 'bold 14px Courier New';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(supply[g], pos.x, pos.y);
+
+        // Label
+        ctx.fillStyle = '#aaa';
+        ctx.font = '8px Courier New';
+        ctx.fillText(GEM_SHORT[g], pos.x, pos.y + GEM_TOKEN_R + 8);
+
+        // Selected indicator
+        const selCount = selectedGems.filter(sg => sg === g).length;
+        if (selCount > 0) {
+          ctx.fillStyle = '#ff0';
+          ctx.font = 'bold 10px Courier New';
+          ctx.fillText(`x${selCount}`, pos.x + GEM_TOKEN_R + 4, pos.y - 6);
+        }
+      }
+
+      // Confirm/Cancel buttons during gem selection
+      if (turnPhase === 'selectGems' && selectedGems.length > 0) {
+        drawButton('Confirm', 480, 198, 72, 22, hoverButton === 'confirm', '#4f4');
+        drawButton('Cancel', 558, 198, 60, 22, hoverButton === 'cancel', '#f44');
+      }
+    }
+
+    function drawButton(text, x, y, w, h, isHover, color) {
+      ctx.fillStyle = isHover ? color : 'rgba(255,255,255,0.1)';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      roundRect(ctx, x, y, w, h, 3);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = isHover ? '#000' : color;
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + w / 2, y + h / 2);
+    }
+
+    function drawNobles() {
+      if (nobles.length === 0) return;
+      ctx.fillStyle = '#aaa';
+      ctx.font = 'bold 9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('NOBLES', 34, 58);
+      for (let i = 0; i < nobles.length; i++) {
+        const n = nobles[i];
+        const nx = 10, ny = 70 + i * (NOBLE_SIZE + 6);
+        ctx.fillStyle = 'rgba(180, 120, 255, 0.2)';
+        ctx.strokeStyle = 'rgba(180, 120, 255, 0.5)';
+        ctx.lineWidth = 1;
+        roundRect(ctx, nx, ny, 48, NOBLE_SIZE, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        // Prestige
+        ctx.fillStyle = '#ff0';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('3', nx + 3, ny + 2);
+
+        // Requirements
+        let ry = ny + 14;
+        ctx.font = '8px Courier New';
+        for (const g of GEM_NAMES) {
+          if (n.requirements[g]) {
+            ctx.fillStyle = GEM_COLORS[g];
+            ctx.fillText(`${GEM_LABELS[g]}:${n.requirements[g]}`, nx + 3, ry);
+            ry += 9;
+          }
+        }
+      }
+    }
+
+    function drawSelectedGems() {
+      ctx.fillStyle = 'rgba(238, 153, 0, 0.15)';
+      roundRect(ctx, 468, 228, 170, 26, 4);
+      ctx.fill();
+      ctx.fillStyle = '#e90';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Taking: ' + selectedGems.map(g => GEM_LABELS[g]).join(', '), 474, 240);
+    }
+
+    function drawReservedCards(player) {
+      if (player.reserved.length === 0) return;
+      ctx.fillStyle = '#aaa';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('Reserved:', 440, H - 48 - CARD_H - 18);
+      for (let i = 0; i < player.reserved.length; i++) {
+        const card = player.reserved[i];
+        const rx = 440 + i * (68 + 4);
+        const ry = H - 48 - CARD_H - 4;
+        const hover = hoverCard && hoverCard.tier === -1 && hoverCard.index === i;
+        drawCard(card, rx, ry, hover, canAfford(player, card) && currentPlayer === 0 && turnPhase === 'action');
+      }
+    }
+
+    function drawDiscardUI() {
+      const p = players[0];
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(0, H / 2 - 60, W, 120);
+      ctx.fillStyle = '#f44';
+      ctx.font = 'bold 14px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`Too many gems! (${totalGems(p)}/10) Click gems to discard`, W / 2, H / 2 - 40);
+
+      let dx = W / 2 - 130;
+      const allGems = [...GEM_NAMES, 'gold'];
+      for (const g of allGems) {
+        if (p.gems[g] > 0) {
+          const isH = hoverGem === g;
+          ctx.beginPath();
+          ctx.arc(dx, H / 2, 16, 0, Math.PI * 2);
+          ctx.fillStyle = GEM_COLORS[g];
+          ctx.fill();
+          ctx.strokeStyle = isH ? '#ff0' : '#aaa';
+          ctx.lineWidth = isH ? 3 : 1;
+          ctx.stroke();
+          ctx.fillStyle = g === 'diamond' ? '#333' : '#fff';
+          ctx.font = 'bold 13px Courier New';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(p.gems[g], dx, H / 2);
+          ctx.fillStyle = '#aaa';
+          ctx.font = '8px Courier New';
+          ctx.fillText(GEM_SHORT[g], dx, H / 2 + 24);
+          dx += 44;
+        }
+      }
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    // --- Hit testing ---
+    function hitTestCard(mx, my) {
+      for (let t = 0; t < 3; t++) {
+        for (let i = 0; i < market[t].length; i++) {
+          const pos = cardPos(t, i);
+          if (mx >= pos.x && mx <= pos.x + CARD_W && my >= pos.y && my <= pos.y + CARD_H) {
+            return { tier: t, index: i, card: market[t][i] };
+          }
+        }
+      }
+      // Reserved cards
+      const p = players[0];
+      for (let i = 0; i < p.reserved.length; i++) {
+        const rx = 440 + i * (68 + 4);
+        const ry = H - 48 - CARD_H - 4;
+        if (mx >= rx && mx <= rx + CARD_W && my >= ry && my <= ry + CARD_H) {
+          return { tier: -1, index: i, card: p.reserved[i] };
+        }
+      }
+      return null;
+    }
+
+    function hitTestGem(mx, my) {
+      for (let i = 0; i < GEM_NAMES.length; i++) {
+        const pos = gemTokenPos(i);
+        const dx = mx - pos.x, dy = my - pos.y;
+        if (dx * dx + dy * dy <= GEM_TOKEN_R * GEM_TOKEN_R + 16) return GEM_NAMES[i];
+      }
+      return null;
+    }
+
+    function hitTestDiscardGem(mx, my) {
+      const p = players[0];
+      let dx = W / 2 - 130;
+      const allGems = [...GEM_NAMES, 'gold'];
+      for (const g of allGems) {
+        if (p.gems[g] > 0) {
+          const ddx = mx - dx, ddy = my - H / 2;
+          if (ddx * ddx + ddy * ddy <= 16 * 16 + 16) return g;
+          dx += 44;
+        }
+      }
+      return null;
+    }
+
+    function hitTestButton(mx, my) {
+      if (turnPhase === 'selectGems' && selectedGems.length > 0) {
+        if (mx >= 480 && mx <= 552 && my >= 198 && my <= 220) return 'confirm';
+        if (mx >= 558 && mx <= 618 && my >= 198 && my <= 220) return 'cancel';
+      }
+      return null;
+    }
+
+    // --- Player actions ---
+    function trySelectGem(gemName) {
+      if (supply[gemName] <= 0) return;
+      const p = players[0];
+
+      if (turnPhase === 'action') {
+        turnPhase = 'selectGems';
+        selectedGems = [gemName];
+        return;
+      }
+
+      if (turnPhase !== 'selectGems') return;
+
+      // Check rules for gem selection
+      const uniqueSelected = [...new Set(selectedGems)];
+
+      if (selectedGems.length === 0) {
+        selectedGems.push(gemName);
+        return;
+      }
+
+      // If already have 1 of this gem selected, trying to take second
+      const countOfThis = selectedGems.filter(g => g === gemName).length;
+
+      if (countOfThis === 1 && selectedGems.length === 1) {
+        // Taking 2 of same: need 4+ in supply (before taking any)
+        if (supply[gemName] >= 4) {
+          selectedGems.push(gemName);
+          // Auto-confirm for 2 same
+          confirmGemSelection();
+        } else {
+          setMessage('Need 4+ tokens to take 2 of same color');
+        }
+        return;
+      }
+
+      if (countOfThis >= 1) {
+        setMessage('Already selected that gem');
+        return;
+      }
+
+      // Taking different gems
+      if (uniqueSelected.length >= 1 && selectedGems.length >= 1 && uniqueSelected.length === selectedGems.length) {
+        // All unique so far, adding another unique
+        if (selectedGems.length >= 3) {
+          setMessage('Max 3 different gems');
+          return;
+        }
+        selectedGems.push(gemName);
+        if (selectedGems.length === 3) {
+          // Auto-confirm for 3 different
+          confirmGemSelection();
+        }
+        return;
+      }
+
+      setMessage('Invalid gem selection');
+    }
+
+    function confirmGemSelection() {
+      if (selectedGems.length === 0) return;
+      const p = players[0];
+
+      // Validate
+      const unique = [...new Set(selectedGems)];
+      if (unique.length === 1 && selectedGems.length === 2) {
+        // 2 of same
+      } else if (unique.length === selectedGems.length && selectedGems.length >= 1 && selectedGems.length <= 3) {
+        // N different (1-3)
+      } else {
+        setMessage('Invalid gem combination');
+        selectedGems = [];
+        turnPhase = 'action';
+        return;
+      }
+
+      // Take gems
+      for (const g of selectedGems) {
+        supply[g]--;
+        p.gems[g]++;
+      }
+
+      selectedGems = [];
+
+      // Check if over 10
+      if (totalGems(p) > 10) {
+        turnPhase = 'discardGems';
+      } else {
+        endPlayerTurn();
+      }
+    }
+
+    function cancelGemSelection() {
+      selectedGems = [];
+      turnPhase = 'action';
+    }
+
+    function tryBuyCard(hit) {
+      const p = players[0];
+      if (!canAfford(p, hit.card)) {
+        setMessage('Cannot afford this card');
+        return;
+      }
+      payForCard(p, hit.card);
+      if (hit.tier >= 0) {
+        market[hit.tier].splice(hit.index, 1);
+        refillMarket(hit.tier);
+      } else {
+        p.reserved.splice(hit.index, 1);
+      }
+      setMessage(`Bought card: +${hit.card.prestige} prestige, +1 ${hit.card.bonus} bonus`);
+      checkNobles(p);
+      updateScores();
+
+      if (totalGems(p) > 10) {
+        turnPhase = 'discardGems';
+      } else {
+        endPlayerTurn();
+      }
+    }
+
+    function tryReserveCard(hit) {
+      const p = players[0];
+      if (hit.tier < 0) {
+        setMessage('Cannot reserve a reserved card');
+        return;
+      }
+      if (p.reserved.length >= 3) {
+        setMessage('Max 3 reserved cards');
+        return;
+      }
+      const card = market[hit.tier].splice(hit.index, 1)[0];
+      p.reserved.push(card);
+      refillMarket(hit.tier);
+      // Get gold token
+      if (supply.gold > 0) {
+        supply.gold--;
+        p.gems.gold++;
+      }
+      setMessage(`Reserved card + 1 Gold`);
+
+      if (totalGems(p) > 10) {
+        turnPhase = 'discardGems';
+      } else {
+        endPlayerTurn();
+      }
+    }
+
+    function discardGem(gemName) {
+      const p = players[0];
+      if (p.gems[gemName] <= 0) return;
+      p.gems[gemName]--;
+      supply[gemName]++;
+      if (totalGems(p) <= 10) {
+        endPlayerTurn();
+      }
+    }
+
+    function endPlayerTurn() {
+      turnPhase = 'action';
+      updateScores();
+      // Mark that the round should end after AI's turn if someone hit 15
+      if (players[0].prestige >= 15 || players[1].prestige >= 15) {
+        lastRoundTriggered = true;
+      }
+      // Always let AI take its turn for equal play
+      currentPlayer = 1;
+      turnPhase = 'aiTurn';
+      aiThinkTimer = 40;
+    }
+
+    function updateScores() {
+      score = players[0].prestige;
+      scoreEl.textContent = players[0].prestige;
+      aiScoreEl.textContent = players[1].prestige;
+    }
+
+    function checkWinCondition() {
+      // Track when someone reaches 15+
+      if (players[0].prestige >= 15 || players[1].prestige >= 15) {
+        lastRoundTriggered = true;
+      }
+      // Game ends after AI finishes its turn (both had equal turns in the round).
+      // Player always goes first, so after AI = round complete.
+      // endAITurn sets currentPlayer=0 before calling this.
+      if (lastRoundTriggered && currentPlayer === 0 &&
+          (players[0].prestige >= 15 || players[1].prestige >= 15)) {
+        let winner;
+        if (players[0].prestige > players[1].prestige) {
+          winner = 'Player';
+        } else if (players[1].prestige > players[0].prestige) {
+          winner = 'AI';
+        } else {
+          winner = 'Tie';
+        }
+        gameState = 'over';
+        overlay.style.display = 'flex';
+        if (winner === 'Tie') {
+          overlayTitle.textContent = 'TIE GAME!';
+        } else {
+          overlayTitle.textContent = winner === 'Player' ? 'YOU WIN!' : 'AI WINS!';
+        }
+        overlayText.textContent = `${players[0].prestige} vs ${players[1].prestige} prestige. Click to restart.`;
+      }
+    }
+
+    // --- AI Logic ---
+    function aiTurn() {
+      const ai = players[1];
+
+      // 1. Try to buy highest prestige card we can afford
+      let bestBuy = null;
+      let bestBuyScore = -1;
+      for (let t = 2; t >= 0; t--) {
+        for (let i = 0; i < market[t].length; i++) {
+          const card = market[t][i];
+          if (canAfford(ai, card)) {
+            const cardScore = card.prestige * 10 + evaluateBonusValue(ai, card.bonus);
+            if (cardScore > bestBuyScore) {
+              bestBuyScore = cardScore;
+              bestBuy = { tier: t, index: i, card };
+            }
+          }
+        }
+      }
+      // Also check reserved cards
+      for (let i = 0; i < ai.reserved.length; i++) {
+        const card = ai.reserved[i];
+        if (canAfford(ai, card)) {
+          const cardScore = card.prestige * 10 + evaluateBonusValue(ai, card.bonus);
+          if (cardScore > bestBuyScore) {
+            bestBuyScore = cardScore;
+            bestBuy = { tier: -1, index: i, card };
+          }
+        }
+      }
+
+      if (bestBuy && bestBuyScore >= 5) {
+        // Buy the card
+        payForCard(ai, bestBuy.card);
+        if (bestBuy.tier >= 0) {
+          market[bestBuy.tier].splice(bestBuy.index, 1);
+          refillMarket(bestBuy.tier);
+        } else {
+          ai.reserved.splice(bestBuy.index, 1);
+        }
+        setMessage(`AI bought card: +${bestBuy.card.prestige} prestige`);
+        checkNobles(ai);
+        endAITurn();
+        return;
+      }
+
+      // 2. Consider reserving a high-value card
+      if (ai.reserved.length < 3) {
+        let bestReserve = null;
+        let bestReserveScore = -1;
+        for (let t = 2; t >= 0; t--) {
+          for (let i = 0; i < market[t].length; i++) {
+            const card = market[t][i];
+            if (card.prestige >= 3) {
+              const closeScore = howCloseToAfford(ai, card);
+              if (closeScore >= 0.4) {
+                const reserveScore = card.prestige * 10 + closeScore * 20;
+                if (reserveScore > bestReserveScore) {
+                  bestReserveScore = reserveScore;
+                  bestReserve = { tier: t, index: i, card };
+                }
+              }
+            }
+          }
+        }
+        if (bestReserve && bestReserveScore > 30 && supply.gold > 0) {
+          const card = market[bestReserve.tier].splice(bestReserve.index, 1)[0];
+          ai.reserved.push(card);
+          refillMarket(bestReserve.tier);
+          if (supply.gold > 0) {
+            supply.gold--;
+            ai.gems.gold++;
+          }
+          setMessage('AI reserved a card');
+          endAITurn();
+          return;
+        }
+      }
+
+      // 3. Take gems strategically
+      // Evaluate which gems are most needed
+      const gemValue = {};
+      GEM_NAMES.forEach(g => gemValue[g] = 0);
+
+      // Score gems by how much they help buy desired cards
+      for (let t = 0; t < 3; t++) {
+        for (const card of market[t]) {
+          const weight = card.prestige >= 3 ? 3 : (card.prestige >= 1 ? 2 : 1);
+          for (const g of GEM_NAMES) {
+            const need = Math.max(0, (card.cost[g] || 0) - (ai.bonuses[g] || 0) - (ai.gems[g] || 0));
+            gemValue[g] += need * weight;
+          }
+        }
+      }
+      // Also consider reserved cards with higher priority
+      for (const card of ai.reserved) {
+        for (const g of GEM_NAMES) {
+          const need = Math.max(0, (card.cost[g] || 0) - (ai.bonuses[g] || 0) - (ai.gems[g] || 0));
+          gemValue[g] += need * 5;
+        }
+      }
+
+      // Sort by value
+      const sortedGems = [...GEM_NAMES].filter(g => supply[g] > 0).sort((a, b) => gemValue[b] - gemValue[a]);
+
+      // Try to take 2 of the most valuable gem
+      if (sortedGems.length > 0 && supply[sortedGems[0]] >= 4 && gemValue[sortedGems[0]] > 3) {
+        supply[sortedGems[0]] -= 2;
+        ai.gems[sortedGems[0]] += 2;
+        setMessage(`AI took 2 ${sortedGems[0]} gems`);
+        aiDiscardExcess();
+        endAITurn();
+        return;
+      }
+
+      // Take 3 different gems
+      const toTake = sortedGems.slice(0, Math.min(3, sortedGems.length));
+      if (toTake.length > 0) {
+        for (const g of toTake) {
+          supply[g]--;
+          ai.gems[g]++;
+        }
+        setMessage(`AI took ${toTake.length} gems`);
+        aiDiscardExcess();
+        endAITurn();
+        return;
+      }
+
+      // If nothing else, buy any affordable card
+      if (bestBuy) {
+        payForCard(ai, bestBuy.card);
+        if (bestBuy.tier >= 0) {
+          market[bestBuy.tier].splice(bestBuy.index, 1);
+          refillMarket(bestBuy.tier);
+        } else {
+          ai.reserved.splice(bestBuy.index, 1);
+        }
+        setMessage(`AI bought card: +${bestBuy.card.prestige} prestige`);
+        checkNobles(ai);
+        endAITurn();
+        return;
+      }
+
+      // Pass (shouldn't happen normally)
+      setMessage('AI passes');
+      endAITurn();
+    }
+
+    function evaluateBonusValue(player, bonusColor) {
+      // How valuable is getting +1 of this bonus?
+      let value = 0;
+      // Check all visible cards and reserved cards
+      const cards = [...market[0], ...market[1], ...market[2], ...player.reserved];
+      for (const card of cards) {
+        const need = (card.cost[bonusColor] || 0) - (player.bonuses[bonusColor] || 0);
+        if (need > 0) {
+          value += card.prestige >= 3 ? 3 : (card.prestige >= 1 ? 2 : 1);
+        }
+      }
+      // Noble value
+      for (const n of nobles) {
+        const need = (n.requirements[bonusColor] || 0) - (player.bonuses[bonusColor] || 0);
+        if (need > 0 && need <= 2) value += 4;
+      }
+      return value;
+    }
+
+    function howCloseToAfford(player, card) {
+      let totalCost = 0;
+      let canPay = 0;
+      for (const g of GEM_NAMES) {
+        const cost = card.cost[g] || 0;
+        if (cost === 0) continue;
+        totalCost += cost;
+        const effective = (player.bonuses[g] || 0) + (player.gems[g] || 0);
+        canPay += Math.min(cost, effective);
+      }
+      if (totalCost === 0) return 1;
+      return canPay / totalCost;
+    }
+
+    function aiDiscardExcess() {
+      const ai = players[1];
+      // Discard least valuable gems
+      while (totalGems(ai) > 10) {
+        let worstGem = null;
+        let worstScore = Infinity;
+        const allGems = [...GEM_NAMES, 'gold'];
+        for (const g of allGems) {
+          if (ai.gems[g] > 0) {
+            // Gold is always worst to discard (most valuable), so score it high
+            const score = g === 'gold' ? 100 : evaluateGemNeed(ai, g);
+            if (score < worstScore) {
+              worstScore = score;
+              worstGem = g;
+            }
+          }
+        }
+        if (worstGem) {
+          ai.gems[worstGem]--;
+          supply[worstGem]++;
+        } else break;
+      }
+    }
+
+    function evaluateGemNeed(player, gem) {
+      let need = 0;
+      const cards = [...market[0], ...market[1], ...market[2], ...player.reserved];
+      for (const card of cards) {
+        const required = Math.max(0, (card.cost[gem] || 0) - (player.bonuses[gem] || 0));
+        need += required;
+      }
+      return need;
+    }
+
+    function endAITurn() {
+      updateScores();
+      currentPlayer = 0;
+      turnPhase = 'action';
+      roundNumber++;
+      checkWinCondition();
+    }
+
+    // --- Event handlers ---
+    canvas.addEventListener('mousemove', (e) => {
+      if (gameState !== 'playing') return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (W / rect.width);
+      const my = (e.clientY - rect.top) * (H / rect.height);
+
+      hoverCard = hitTestCard(mx, my);
+
+      if (turnPhase === 'discardGems') {
+        hoverGem = hitTestDiscardGem(mx, my);
+      } else {
+        hoverGem = hitTestGem(mx, my);
+      }
+
+      hoverButton = hitTestButton(mx, my);
+    });
+
+    canvas.addEventListener('click', (e) => {
+      if (gameState === 'waiting') {
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        initGame();
+        return;
+      }
+      if (gameState === 'over') {
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        initGame();
+        return;
+      }
+      if (gameState !== 'playing' || currentPlayer !== 0) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (W / rect.width);
+      const my = (e.clientY - rect.top) * (H / rect.height);
+
+      // Discard phase
+      if (turnPhase === 'discardGems') {
+        const dGem = hitTestDiscardGem(mx, my);
+        if (dGem) discardGem(dGem);
+        return;
+      }
+
+      // Button clicks
+      const btn = hitTestButton(mx, my);
+      if (btn === 'confirm') {
+        confirmGemSelection();
+        return;
+      }
+      if (btn === 'cancel') {
+        cancelGemSelection();
+        return;
+      }
+
+      // Gem clicks
+      const gem = hitTestGem(mx, my);
+      if (gem && (turnPhase === 'action' || turnPhase === 'selectGems')) {
+        trySelectGem(gem);
+        return;
+      }
+
+      // Card clicks (buy)
+      if (turnPhase === 'action') {
+        const hit = hitTestCard(mx, my);
+        if (hit) {
+          if (e.shiftKey) {
+            tryReserveCard(hit);
+          } else {
+            tryBuyCard(hit);
+          }
+          return;
+        }
+      }
+    });
+
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (gameState !== 'playing' || currentPlayer !== 0 || turnPhase !== 'action') return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (W / rect.width);
+      const my = (e.clientY - rect.top) * (H / rect.height);
+      const hit = hitTestCard(mx, my);
+      if (hit) tryReserveCard(hit);
+    });
+
+    // --- Game loop ---
+    function gameLoop() {
+      if (messageTimer > 0) messageTimer--;
+
+      if (gameState === 'playing' && currentPlayer === 1 && turnPhase === 'aiTurn') {
+        aiThinkTimer--;
+        if (aiThinkTimer <= 0) {
+          aiTurn();
+        }
+      }
+
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>
