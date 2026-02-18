@@ -571,6 +571,7 @@
       /* ── Event tracking ── */
       var pageviewId = Math.random().toString(36).slice(2, 10);
       var chosenArm = null;
+      var chosenVisualArm = null;
       var cardOrder = [];
 
       function sendEvent(evt) {
@@ -638,36 +639,110 @@
         });
       }
 
-      /* ── Thompson Sampling: fetch state, sample, reorder ── */
+      /* ── Visual treatment: inject preview media into cards ── */
+      function applyVisualTreatment(arm) {
+        if (arm === 'text') return; // current default — no change
+        var cards = grid.querySelectorAll('.game-card');
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            var card = entry.target;
+            var preview = card.querySelector('.card-preview');
+            if (!preview || preview.dataset.loaded) return;
+            preview.dataset.loaded = '1';
+            var game = card.getAttribute('data-game');
+            if (arm === 'video') {
+              var video = document.createElement('video');
+              video.autoplay = true;
+              video.muted = true;
+              video.loop = true;
+              video.playsInline = true;
+              video.poster = game + '/preview.webp';
+              video.src = game + '/preview.mp4';
+              video.onerror = function () {
+                // Fallback to poster image if video missing
+                var img = document.createElement('img');
+                img.src = game + '/preview.webp';
+                img.alt = card.querySelector('h2').textContent;
+                img.onerror = function () { preview.remove(); };
+                preview.innerHTML = '';
+                preview.appendChild(img);
+              };
+              preview.appendChild(video);
+            } else if (arm === 'image') {
+              var img = document.createElement('img');
+              img.src = game + '/preview.webp';
+              img.alt = card.querySelector('h2').textContent;
+              img.loading = 'lazy';
+              img.onerror = function () { preview.remove(); };
+              preview.appendChild(img);
+            }
+            observer.unobserve(card);
+          });
+        }, { rootMargin: '200px' });
+
+        cards.forEach(function (card) {
+          var preview = document.createElement('div');
+          preview.className = 'card-preview';
+          // Insert after card-header
+          var header = card.querySelector('.card-header');
+          header.parentNode.insertBefore(preview, header.nextSibling);
+          observer.observe(card);
+        });
+      }
+
+      /* ── Thompson Sampling: fetch state, sample, reorder + visual ── */
+      function sampleBestArm(arms) {
+        var samples = arms.map(function (a) { return betaSample(a.alpha, a.beta); });
+        var bestIdx = 0;
+        for (var i = 1; i < samples.length; i++) {
+          if (samples[i] > samples[bestIdx]) bestIdx = i;
+        }
+        return { name: arms[bestIdx].name, samples: samples };
+      }
+
       var defaultOrder = getDefaultOrder();
       fetch('/bandit_state.json?t=' + Math.floor(Date.now() / 3600000))
         .then(function (r) { return r.json(); })
         .then(function (state) {
+          /* ── Ordering bandit ── */
           var arms = state.arms || [];
-          if (!arms.length) return;
-          var samples = arms.map(function (a) { return betaSample(a.alpha, a.beta); });
-          var bestIdx = 0;
-          for (var i = 1; i < samples.length; i++) {
-            if (samples[i] > samples[bestIdx]) bestIdx = i;
+          if (arms.length) {
+            var orderResult = sampleBestArm(arms);
+            chosenArm = orderResult.name;
+            if (chosenArm === 'classics') reorderGrid(ORDERINGS.classics);
+            else if (chosenArm === 'casual') reorderGrid(ORDERINGS.casual);
+            else if (chosenArm === 'action') reorderGrid(ORDERINGS.action);
+            else if (chosenArm === 'random') reorderGrid(shuffleArray(defaultOrder));
+          } else {
+            chosenArm = 'default';
           }
-          chosenArm = arms[bestIdx].name;
-          if (chosenArm === 'classics') reorderGrid(ORDERINGS.classics);
-          else if (chosenArm === 'casual') reorderGrid(ORDERINGS.casual);
-          else if (chosenArm === 'action') reorderGrid(ORDERINGS.action);
-          else if (chosenArm === 'random') reorderGrid(shuffleArray(defaultOrder));
           cardOrder = Array.from(grid.children).map(function (el) { return el.getAttribute('data-game'); });
+
+          /* ── Visual treatment bandit ── */
+          var visualArms = state.visual_arms || [];
+          if (visualArms.length) {
+            var visualResult = sampleBestArm(visualArms);
+            chosenVisualArm = visualResult.name;
+          } else {
+            chosenVisualArm = 'text';
+          }
+          applyVisualTreatment(chosenVisualArm);
+
           sendEvent({
-            event: 'pageview', arm: chosenArm,
-            arm_samples: samples.map(function (s) { return +s.toFixed(4); }),
+            event: 'pageview',
+            arm: chosenArm, visual_arm: chosenVisualArm,
             arm_params: arms.map(function (a) { return { name: a.name, alpha: a.alpha, beta: a.beta }; }),
+            visual_arm_params: visualArms.map(function (a) { return { name: a.name, alpha: a.alpha, beta: a.beta }; }),
             card_order_top12: cardOrder.slice(0, 12),
             is_mobile: window.innerWidth < 768
           });
         })
         .catch(function () {
           chosenArm = 'default';
+          chosenVisualArm = 'text';
           cardOrder = defaultOrder;
-          sendEvent({ event: 'pageview', arm: 'default', card_order_top12: cardOrder.slice(0, 12), is_mobile: window.innerWidth < 768 });
+          sendEvent({ event: 'pageview', arm: 'default', visual_arm: 'text', card_order_top12: cardOrder.slice(0, 12), is_mobile: window.innerWidth < 768 });
         });
 
       /* ── Track card clicks ── */
@@ -675,7 +750,7 @@
         var card = e.target.closest('.game-card');
         if (!card) return;
         sendEvent({
-          event: 'card_click', arm: chosenArm,
+          event: 'card_click', arm: chosenArm, visual_arm: chosenVisualArm,
           game: card.getAttribute('data-game'),
           position: Array.from(grid.children).indexOf(card),
           ms_since_load: Date.now() - pageloadTime
@@ -689,7 +764,7 @@
         if (pct > maxScroll) maxScroll = pct;
       }, { passive: true });
       window.addEventListener('beforeunload', function () {
-        sendEvent({ event: 'page_exit', arm: chosenArm, max_scroll_pct: maxScroll, ms_on_page: Date.now() - pageloadTime });
+        sendEvent({ event: 'page_exit', arm: chosenArm, visual_arm: chosenVisualArm, max_scroll_pct: maxScroll, ms_on_page: Date.now() - pageloadTime });
       });
 
       /* ── Online users (simulated presence) ── */

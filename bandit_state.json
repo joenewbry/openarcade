@@ -32,5 +32,25 @@
       "beta": 1,
       "description": "Shuffled every pageview (exploration arm)"
     }
+  ],
+  "visual_arms": [
+    {
+      "name": "text",
+      "alpha": 1,
+      "beta": 1,
+      "description": "Text-only cards (current default)"
+    },
+    {
+      "name": "image",
+      "alpha": 1,
+      "beta": 1,
+      "description": "Static WebP screenshot at top of each card"
+    },
+    {
+      "name": "video",
+      "alpha": 1,
+      "beta": 1,
+      "description": "Autoplay muted looping MP4 preview at top of each card"
+    }
   ]
 }
