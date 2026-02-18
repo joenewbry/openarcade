@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Factory Chain</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #fa0; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 170, 0, 0.4); }
+    h1 { color: #fa0; font-size: 1.8rem; text-shadow: 0 0 15px rgba(255, 170, 0, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #fa0; }
+    .timer { color: #aaa; font-size: 0.9rem; }
+    canvas {
+      border: 2px solid #fa0;
+      box-shadow: 0 0 20px rgba(255, 170, 0, 0.2);
+      display: block;
+      cursor: pointer;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #fa0;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.88);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 15px rgba(255, 170, 0, 0.5); }
+    .overlay p { font-size: 1rem; color: #aaa; margin-top: 6px; }
+    .toolbar {
+      display: flex;
+      gap: 6px;
+      width: 600px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .toolbar button {
+      background: #16213e;
+      color: #fa0;
+      border: 1px solid #fa0;
+      padding: 6px 12px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: all 0.15s;
+    }
+    .toolbar button:hover { background: #1e2d4f; box-shadow: 0 0 8px rgba(255, 170, 0, 0.3); }
+    .toolbar button.active { background: #fa0; color: #1a1a2e; font-weight: bold; }
+    .toolbar button:disabled { opacity: 0.4; cursor: default; }
+    .info {
+      width: 600px;
+      margin-top: 8px;
+      font-size: 0.75rem;
+      color: #888;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>FACTORY CHAIN</h1>
+  </div>
+  <div class="score-bar">
+    <div>You: <span id="score">0</span></div>
+    <div class="timer" id="timer">3:00</div>
+    <div>AI: <span id="aiScore">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:500px;">
+      <h2 id="overlayTitle">FACTORY CHAIN</h2>
+      <p id="overlayText">Click anywhere to start</p>
+    </div>
+  </div>
+  <div class="toolbar" id="toolbar">
+    <button id="btnSmelter" onclick="selectTool('smelter')">Smelter ($5)</button>
+    <button id="btnAssembler" onclick="selectTool('assembler')">Assembler ($8)</button>
+    <button id="btnConstructor" onclick="selectTool('constructor')">Constructor ($12)</button>
+    <button id="btnBelt" onclick="selectTool('belt')">Belt ($1)</button>
+    <button id="btnDelete" onclick="selectTool('delete')">Delete</button>
+  </div>
+  <div class="info" id="infoText">Place machines on your factory floor. Connect with belts. Produce goods for points!</div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 500;
+    const scoreEl = document.getElementById('score');
+    const aiScoreEl = document.getElementById('aiScore');
+    const timerEl = document.getElementById('timer');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const infoEl = document.getElementById('infoText');
+
+    let gameState = 'waiting';
+    let score = 0;
+
+    // Prevent defaults
+    document.addEventListener('keydown', e => {
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+      if (gameState === 'waiting') { startGame(); return; }
+      if (gameState === 'over') { init(); return; }
+    });
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    // ---- Constants ----
+    const GRID_COLS = 10;
+    const GRID_ROWS = 8;
+    const CELL = 28;
+    const DIVIDER_X = 300; // split screen
+    const P_OFF_X = 10;   // player factory offset
+    const P_OFF_Y = 38;
+    const A_OFF_X = 310;  // AI factory offset
+    const A_OFF_Y = 38;
+    const GAME_TIME = 180; // 3 minutes
+
+    const COLORS = {
+      bg: '#1a1a2e',
+      grid: '#222244',
+      gridLine: '#2a2a4e',
+      player: '#fa0',
+      ai: '#f55',
+      smelter: '#e88030',
+      assembler: '#50a0e0',
+      constructor: '#a060d0',
+      belt: '#888',
+      ore: '#997755',
+      ingot: '#ccaa44',
+      part: '#6090cc',
+      product: '#cc66ff',
+      rawInput: '#55cc55',
+    };
+
+    // Machine types
+    const MACHINE_TYPES = {
+      smelter:     { name: 'Smelter',     cost: 5,  color: COLORS.smelter,     w: 2, h: 2, processTime: 60, input: 'ore',    output: 'ingot',   symbol: 'S' },
+      assembler:   { name: 'Assembler',   cost: 8,  color: COLORS.assembler,   w: 2, h: 2, processTime: 90, input: 'ingot',  output: 'part',    symbol: 'A' },
+      constructor: { name: 'Constructor', cost: 12, color: COLORS.constructor, w: 2, h: 2, processTime: 120,input: 'part',   output: 'product', symbol: 'C' },
+    };
+
+    // Product values
+    const PRODUCT_VALUES = { ingot: 2, part: 5, product: 15 };
+
+    let timeLeft, playerMoney, aiMoney, playerScore, aiScore;
+    let playerGrid, aiGrid; // 2D arrays
+    let playerMachines, aiMachines;
+    let playerBelts, aiBelts;
+    let playerItems, aiItems; // floating items on belts
+    let selectedTool;
+    let beltStart; // for drawing belts
+    let hoverCell; // {gx, gy}
+    let animFrame;
+    let lastTick;
+    let oreSpawnTimer;
+    let aiPlanTimer;
+    let aiNextAction;
+
+    // ---- Grid cell states ----
+    // 0 = empty, 'belt' = belt, machineId = part of machine
+    function makeGrid() {
+      let g = [];
+      for (let r = 0; r < GRID_ROWS; r++) {
+        g[r] = [];
+        for (let c = 0; c < GRID_COLS; c++) g[r][c] = 0;
+      }
+      return g;
+    }
+
+    function init() {
+      gameState = 'waiting';
+      score = 0;
+      playerScore = 0;
+      aiScore = 0;
+      playerMoney = 30;
+      aiMoney = 30;
+      timeLeft = GAME_TIME;
+      playerGrid = makeGrid();
+      aiGrid = makeGrid();
+      playerMachines = [];
+      aiMachines = [];
+      playerBelts = [];
+      aiBelts = [];
+      playerItems = [];
+      aiItems = [];
+      selectedTool = null;
+      beltStart = null;
+      hoverCell = null;
+      oreSpawnTimer = 0;
+      aiPlanTimer = 0;
+      aiNextAction = null;
+      lastTick = 0;
+
+      updateButtons();
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'FACTORY CHAIN';
+      overlayText.textContent = 'Click anywhere to start';
+      scoreEl.textContent = '0';
+      aiScoreEl.textContent = '0';
+      timerEl.textContent = '3:00';
+      infoEl.textContent = 'Place machines on your factory floor. Connect with belts. Produce goods for points!';
+      draw();
+    }
+
+    function startGame() {
+      if (gameState === 'playing') return;
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      lastTick = performance.now();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ---- Machine & Belt Logic ----
+    function canPlaceMachine(grid, machines, gx, gy, type) {
+      const t = MACHINE_TYPES[type];
+      if (gx + t.w > GRID_COLS || gy + t.h > GRID_ROWS) return false;
+      for (let dy = 0; dy < t.h; dy++)
+        for (let dx = 0; dx < t.w; dx++)
+          if (grid[gy + dy][gx + dx] !== 0) return false;
+      return true;
+    }
+
+    function placeMachine(grid, machines, gx, gy, type) {
+      const id = machines.length + 1;
+      const t = MACHINE_TYPES[type];
+      const m = {
+        id, type, gx, gy, w: t.w, h: t.h,
+        inputBuffer: 0,
+        progress: 0,
+        outputBuffer: 0,
+      };
+      machines.push(m);
+      for (let dy = 0; dy < t.h; dy++)
+        for (let dx = 0; dx < t.w; dx++)
+          grid[gy + dy][gx + dx] = 'm' + id;
+      return m;
+    }
+
+    function canPlaceBelt(grid, gx, gy) {
+      if (gx < 0 || gx >= GRID_COLS || gy < 0 || gy >= GRID_ROWS) return false;
+      return grid[gy][gx] === 0;
+    }
+
+    function placeBelt(grid, belts, x1, y1, x2, y2) {
+      // Place belts along a path from (x1,y1) to (x2,y2)
+      let placed = [];
+      let cx = x1, cy = y1;
+      const maxSteps = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+      for (let s = 0; s <= maxSteps && s < 30; s++) {
+        if (grid[cy][cx] === 0) {
+          grid[cy][cx] = 'belt';
+          const b = { gx: cx, gy: cy };
+          belts.push(b);
+          placed.push(b);
+        }
+        if (cx !== x2) cx += (x2 > cx) ? 1 : -1;
+        else if (cy !== y2) cy += (y2 > cy) ? 1 : -1;
+        else break;
+      }
+      return placed;
+    }
+
+    function deleteTile(grid, machines, belts, gx, gy) {
+      if (gx < 0 || gx >= GRID_COLS || gy < 0 || gy >= GRID_ROWS) return;
+      const cell = grid[gy][gx];
+      if (cell === 'belt') {
+        grid[gy][gx] = 0;
+        const idx = belts.findIndex(b => b.gx === gx && b.gy === gy);
+        if (idx >= 0) belts.splice(idx, 1);
+      } else if (typeof cell === 'string' && cell.startsWith('m')) {
+        const mid = parseInt(cell.substring(1));
+        const mIdx = machines.findIndex(m => m.id === mid);
+        if (mIdx >= 0) {
+          const m = machines[mIdx];
+          for (let dy = 0; dy < m.h; dy++)
+            for (let dx = 0; dx < m.w; dx++)
+              grid[m.gy + dy][m.gx + dx] = 0;
+          machines.splice(mIdx, 1);
+        }
+      }
+    }
+
+    // Find what machine or belt is adjacent to the right side of a machine
+    function findOutputTarget(grid, machines, m) {
+      // Check cells to the right of machine
+      const rx = m.gx + m.w;
+      if (rx >= GRID_COLS) return null;
+      for (let dy = 0; dy < m.h; dy++) {
+        const cell = grid[m.gy + dy][rx];
+        if (cell === 'belt') return { type: 'belt', gx: rx, gy: m.gy + dy };
+        if (typeof cell === 'string' && cell.startsWith('m')) {
+          const mid = parseInt(cell.substring(1));
+          const target = machines.find(mm => mm.id === mid);
+          if (target) return { type: 'machine', machine: target };
+        }
+      }
+      return null;
+    }
+
+    // Find what feeds into the left side of a machine
+    function findInputSource(grid, m) {
+      const lx = m.gx - 1;
+      if (lx < 0) return 'edge'; // left edge = raw material source
+      for (let dy = 0; dy < m.h; dy++) {
+        const cell = grid[m.gy + dy][lx];
+        if (cell === 'belt') return 'belt';
+        if (lx === 0 && cell === 0) return 'edge'; // near edge
+      }
+      if (m.gx === 0) return 'edge';
+      return null;
+    }
+
+    // Trace belts from a point moving right to find next machine
+    function traceBeltRight(grid, machines, startX, startY) {
+      let x = startX, y = startY;
+      const visited = new Set();
+      while (x < GRID_COLS) {
+        const key = x + ',' + y;
+        if (visited.has(key)) break;
+        visited.add(key);
+        const cell = grid[y][x];
+        if (typeof cell === 'string' && cell.startsWith('m')) {
+          const mid = parseInt(cell.substring(1));
+          return machines.find(mm => mm.id === mid) || null;
+        }
+        if (cell !== 'belt' && x !== startX) break;
+        // Try to continue: prefer right, then up/down
+        if (x + 1 < GRID_COLS) {
+          const next = grid[y][x + 1];
+          if (next === 'belt' || (typeof next === 'string' && next.startsWith('m'))) { x++; continue; }
+        }
+        if (y + 1 < GRID_ROWS) {
+          const next = grid[y + 1][x];
+          if (next === 'belt' || (typeof next === 'string' && next.startsWith('m'))) { y++; continue; }
+        }
+        if (y - 1 >= 0) {
+          const next = grid[y - 1][x];
+          if (next === 'belt' || (typeof next === 'string' && next.startsWith('m'))) { y--; continue; }
+        }
+        break;
+      }
+      return null;
+    }
+
+    // Trace belt left to find source machine or edge
+    function traceBeltLeft(grid, machines, startX, startY) {
+      let x = startX, y = startY;
+      const visited = new Set();
+      while (x >= 0) {
+        const key = x + ',' + y;
+        if (visited.has(key)) break;
+        visited.add(key);
+        const cell = grid[y][x];
+        if (typeof cell === 'string' && cell.startsWith('m')) {
+          const mid = parseInt(cell.substring(1));
+          return { type: 'machine', machine: machines.find(mm => mm.id === mid) };
+        }
+        if (cell !== 'belt' && x !== startX) break;
+        if (x === 0) return { type: 'edge' };
+        // Try to continue left
+        if (x - 1 >= 0) {
+          const next = grid[y][x - 1];
+          if (next === 'belt' || (typeof next === 'string' && next.startsWith('m')) || x - 1 === 0) { x--; continue; }
+        }
+        if (y + 1 < GRID_ROWS && grid[y + 1][x] === 'belt') { y++; continue; }
+        if (y - 1 >= 0 && grid[y - 1][x] === 'belt') { y--; continue; }
+        break;
+      }
+      return null;
+    }
+
+    // Check if machine right side touches exit (right edge) or belt leading to exit
+    function canOutput(grid, machines, m) {
+      const rx = m.gx + m.w;
+      if (rx >= GRID_COLS) return 'exit';
+      for (let dy = 0; dy < m.h; dy++) {
+        const cell = grid[m.gy + dy][rx];
+        if (cell === 'belt') {
+          const target = traceBeltRight(grid, machines, rx, m.gy + dy);
+          if (target) return target;
+          // Check if belt leads to right edge
+          let bx = rx;
+          while (bx < GRID_COLS && grid[m.gy + dy][bx] === 'belt') bx++;
+          if (bx >= GRID_COLS) return 'exit';
+        }
+        if (typeof cell === 'string' && cell.startsWith('m')) {
+          const mid = parseInt(cell.substring(1));
+          return machines.find(mm => mm.id === mid);
+        }
+      }
+      return null;
+    }
+
+    // Check if machine can receive input (left side at edge, or connected via belt/machine)
+    function canReceiveInput(grid, machines, m) {
+      if (m.gx === 0) return 'edge';
+      const lx = m.gx - 1;
+      for (let dy = 0; dy < m.h; dy++) {
+        if (lx < 0) return 'edge';
+        const cell = grid[m.gy + dy][lx];
+        if (cell === 'belt') {
+          const src = traceBeltLeft(grid, machines, lx, m.gy + dy);
+          if (src) return src;
+        }
+        if (typeof cell === 'string' && cell.startsWith('m')) {
+          const mid = parseInt(cell.substring(1));
+          return machines.find(mm => mm.id === mid);
+        }
+      }
+      return null;
+    }
+
+    // ---- Simulation ----
+    function simulate(dt, grid, machines, belts, items, isAI) {
+      const fps60dt = dt / (1000/60);
+      let earnedScore = 0;
+
+      // Spawn ore at left edge every ~2 seconds for machines at column 0 that are smelters
+      // Actually: machines connected to left edge get ore automatically
+      for (const m of machines) {
+        const t = MACHINE_TYPES[m.type];
+        const inputSrc = canReceiveInput(grid, machines, m);
+
+        // Feed input
+        if (m.type === 'smelter' && inputSrc) {
+          // Smelters get ore from edge or from belt connected to edge
+          if (inputSrc === 'edge' || (inputSrc && inputSrc.type === 'edge')) {
+            if (m.inputBuffer < 3) {
+              m.inputBuffer = Math.min(3, m.inputBuffer + 0.03 * fps60dt);
+            }
+          }
+        }
+
+        // Process
+        if (m.inputBuffer >= 1) {
+          m.progress += fps60dt;
+          if (m.progress >= t.processTime) {
+            m.progress = 0;
+            m.inputBuffer -= 1;
+            m.outputBuffer += 1;
+          }
+        }
+
+        // Output
+        if (m.outputBuffer >= 1) {
+          const dest = canOutput(grid, machines, m);
+          if (dest === 'exit') {
+            // Sell the product
+            earnedScore += PRODUCT_VALUES[t.output] || 1;
+            m.outputBuffer -= 1;
+          } else if (dest && typeof dest === 'object' && dest.id) {
+            // Feed into next machine
+            const destType = MACHINE_TYPES[dest.type];
+            if (destType.input === t.output && dest.inputBuffer < 3) {
+              dest.inputBuffer += 1;
+              m.outputBuffer -= 1;
+            }
+          }
+        }
+      }
+
+      return earnedScore;
+    }
+
+    // ---- AI ----
+    function aiThink() {
+      // Greedy strategy: build production chains left to right
+      // Priority: Smelter near left, then Assembler, then Constructor, belts between
+      const chains = countAIChains();
+
+      // Count machines by type
+      let smelters = aiMachines.filter(m => m.type === 'smelter').length;
+      let assemblers = aiMachines.filter(m => m.type === 'assembler').length;
+      let constructors = aiMachines.filter(m => m.type === 'constructor').length;
+
+      // Strategy: build chains of S -> A -> C from left to right
+      // Try placing smelter at col 0, assembler at col 3, constructor at col 6
+      // With belts connecting them
+
+      if (smelters < 2 && aiMoney >= 6) {
+        // Place smelter on left side
+        const pos = findAISlot(aiGrid, 'smelter', 0, 3);
+        if (pos) {
+          aiMoney -= MACHINE_TYPES.smelter.cost;
+          placeMachine(aiGrid, aiMachines, pos.x, pos.y, 'smelter');
+          // Place belts from edge to smelter if not at col 0
+          return;
+        }
+      }
+
+      if (assemblers < smelters && aiMoney >= 9) {
+        // Place assembler in middle
+        const pos = findAISlot(aiGrid, 'assembler', 3, 6);
+        if (pos) {
+          aiMoney -= MACHINE_TYPES.assembler.cost;
+          const m = placeMachine(aiGrid, aiMachines, pos.x, pos.y, 'assembler');
+          // Connect nearest smelter to this assembler via belt
+          aiConnectMachines('smelter', m);
+          return;
+        }
+      }
+
+      if (constructors < assemblers && aiMoney >= 13) {
+        const pos = findAISlot(aiGrid, 'constructor', 5, 8);
+        if (pos) {
+          aiMoney -= MACHINE_TYPES.constructor.cost;
+          const m = placeMachine(aiGrid, aiMachines, pos.x, pos.y, 'constructor');
+          aiConnectMachines('assembler', m);
+          return;
+        }
+      }
+
+      // Connect any unconnected output to right edge with belts
+      for (const m of aiMachines) {
+        const out = canOutput(aiGrid, aiMachines, m);
+        if (!out && aiMoney >= 1) {
+          // Place belts from machine right to edge or next machine
+          const rx = m.gx + m.w;
+          const ry = m.gy;
+          if (rx < GRID_COLS && aiGrid[ry][rx] === 0) {
+            aiGrid[ry][rx] = 'belt';
+            aiBelts.push({ gx: rx, gy: ry });
+            aiMoney -= 1;
+            return;
+          }
+        }
+      }
+
+      // If we have money and chains are producing, add more smelters
+      if (aiMoney >= 6 && smelters < 3) {
+        const pos = findAISlot(aiGrid, 'smelter', 0, 3);
+        if (pos) {
+          aiMoney -= MACHINE_TYPES.smelter.cost;
+          placeMachine(aiGrid, aiMachines, pos.x, pos.y, 'smelter');
+          return;
+        }
+      }
+
+      // Extend belt chains to right edge for products to exit
+      for (const m of aiMachines) {
+        if (m.outputBuffer >= 1) {
+          const rx = m.gx + m.w;
+          for (let x = rx; x < GRID_COLS; x++) {
+            for (let dy = 0; dy < m.h; dy++) {
+              if (aiGrid[m.gy + dy][x] === 0 && aiMoney >= 1) {
+                aiGrid[m.gy + dy][x] = 'belt';
+                aiBelts.push({ gx: x, gy: m.gy + dy });
+                aiMoney -= 1;
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    function findAISlot(grid, type, minCol, maxCol) {
+      const t = MACHINE_TYPES[type];
+      for (let c = minCol; c <= maxCol && c + t.w <= GRID_COLS; c++) {
+        for (let r = 0; r + t.h <= GRID_ROWS; r++) {
+          if (canPlaceMachine(grid, aiMachines, c, r, type)) {
+            return { x: c, y: r };
+          }
+        }
+      }
+      // Expand search
+      for (let c = 0; c + t.w <= GRID_COLS; c++) {
+        for (let r = 0; r + t.h <= GRID_ROWS; r++) {
+          if (canPlaceMachine(grid, aiMachines, c, r, type)) {
+            return { x: c, y: r };
+          }
+        }
+      }
+      return null;
+    }
+
+    function aiConnectMachines(srcType, destMachine) {
+      // Find nearest source machine and place belts between them
+      let bestSrc = null;
+      let bestDist = 999;
+      for (const m of aiMachines) {
+        if (m.type === srcType) {
+          const dist = Math.abs((m.gx + m.w) - destMachine.gx) + Math.abs(m.gy - destMachine.gy);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestSrc = m;
+          }
+        }
+      }
+      if (!bestSrc) return;
+
+      // Place belts from source right edge to dest left edge
+      let sx = bestSrc.gx + bestSrc.w;
+      let sy = bestSrc.gy;
+      let dx = destMachine.gx - 1;
+      let dy = destMachine.gy;
+
+      // Horizontal then vertical belt path
+      let x = sx, y = sy;
+      const maxBelts = 15;
+      let placed = 0;
+      while ((x !== dx + 1 || y !== dy) && placed < maxBelts) {
+        if (x >= 0 && x < GRID_COLS && y >= 0 && y < GRID_ROWS && aiGrid[y][x] === 0) {
+          aiGrid[y][x] = 'belt';
+          aiBelts.push({ gx: x, gy: y });
+          aiMoney -= 1;
+          placed++;
+          if (aiMoney < 1) return;
+        }
+        if (x < dx + 1) x++;
+        else if (x > dx + 1) x--;
+        else if (y < dy) y++;
+        else if (y > dy) y--;
+        else break;
+      }
+    }
+
+    function countAIChains() {
+      return aiMachines.length;
+    }
+
+    // ---- Money ----
+    function addIncome(dt) {
+      // Passive income: $1 per 3 seconds
+      const rate = 1 / 3;
+      const inc = rate * (dt / 1000);
+      playerMoney += inc;
+      aiMoney += inc;
+    }
+
+    // ---- Input ----
+    let mouseX = 0, mouseY = 0;
+
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+
+      // Only track hover on player side
+      if (mouseX < DIVIDER_X) {
+        const gx = Math.floor((mouseX - P_OFF_X) / CELL);
+        const gy = Math.floor((mouseY - P_OFF_Y) / CELL);
+        if (gx >= 0 && gx < GRID_COLS && gy >= 0 && gy < GRID_ROWS) {
+          hoverCell = { gx, gy };
+        } else {
+          hoverCell = null;
+        }
+      } else {
+        hoverCell = null;
+      }
+    });
+
+    canvas.addEventListener('click', e => {
+      if (gameState === 'waiting') { startGame(); return; }
+      if (gameState === 'over') { init(); return; }
+      if (gameState !== 'playing') return;
+
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      // Only interact with player side
+      if (mx >= DIVIDER_X) return;
+
+      const gx = Math.floor((mx - P_OFF_X) / CELL);
+      const gy = Math.floor((my - P_OFF_Y) / CELL);
+      if (gx < 0 || gx >= GRID_COLS || gy < 0 || gy >= GRID_ROWS) return;
+
+      if (selectedTool === 'delete') {
+        deleteTile(playerGrid, playerMachines, playerBelts, gx, gy);
+        return;
+      }
+
+      if (selectedTool === 'belt') {
+        if (!beltStart) {
+          beltStart = { gx, gy };
+          infoEl.textContent = 'Click endpoint to draw belt path';
+        } else {
+          const cost = Math.abs(gx - beltStart.gx) + Math.abs(gy - beltStart.gy) + 1;
+          if (playerMoney >= cost) {
+            const placed = placeBelt(playerGrid, playerBelts, beltStart.gx, beltStart.gy, gx, gy);
+            playerMoney -= placed.length;
+          } else {
+            infoEl.textContent = 'Not enough money for belts!';
+          }
+          beltStart = null;
+        }
+        return;
+      }
+
+      if (selectedTool && MACHINE_TYPES[selectedTool]) {
+        const t = MACHINE_TYPES[selectedTool];
+        if (playerMoney < t.cost) {
+          infoEl.textContent = 'Not enough money! Need $' + t.cost;
+          return;
+        }
+        if (canPlaceMachine(playerGrid, playerMachines, gx, gy, selectedTool)) {
+          placeMachine(playerGrid, playerMachines, gx, gy, selectedTool);
+          playerMoney -= t.cost;
+          infoEl.textContent = t.name + ' placed!';
+        } else {
+          infoEl.textContent = 'Cannot place here - space occupied';
+        }
+        return;
+      }
+
+      // Clicking without tool - show info about cell
+      const cell = playerGrid[gy][gx];
+      if (typeof cell === 'string' && cell.startsWith('m')) {
+        const mid = parseInt(cell.substring(1));
+        const m = playerMachines.find(mm => mm.id === mid);
+        if (m) {
+          const t = MACHINE_TYPES[m.type];
+          infoEl.textContent = `${t.name}: input=${m.inputBuffer.toFixed(1)}, progress=${Math.floor(m.progress)}/${t.processTime}, output=${m.outputBuffer}`;
+        }
+      }
+    });
+
+    function selectTool(tool) {
+      if (selectedTool === tool) {
+        selectedTool = null;
+        beltStart = null;
+      } else {
+        selectedTool = tool;
+        beltStart = null;
+        if (tool === 'belt') infoEl.textContent = 'Click start point, then end point to draw belt';
+        else if (tool === 'delete') infoEl.textContent = 'Click a machine or belt to remove it';
+        else if (MACHINE_TYPES[tool]) infoEl.textContent = `Click to place ${MACHINE_TYPES[tool].name} (${MACHINE_TYPES[tool].w}x${MACHINE_TYPES[tool].h})`;
+      }
+      updateButtons();
+    }
+
+    function updateButtons() {
+      document.querySelectorAll('.toolbar button').forEach(b => b.classList.remove('active'));
+      if (selectedTool) {
+        const btn = document.getElementById('btn' + selectedTool.charAt(0).toUpperCase() + selectedTool.slice(1));
+        if (btn) btn.classList.add('active');
+      }
+    }
+
+    // ---- Draw ----
+    function drawFactory(offX, offY, grid, machines, belts, items, label, money, isPlayer) {
+      // Background
+      ctx.fillStyle = '#12122a';
+      ctx.fillRect(offX, offY, GRID_COLS * CELL, GRID_ROWS * CELL);
+
+      // Grid lines
+      ctx.strokeStyle = '#1e1e40';
+      ctx.lineWidth = 0.5;
+      for (let r = 0; r <= GRID_ROWS; r++) {
+        ctx.beginPath();
+        ctx.moveTo(offX, offY + r * CELL);
+        ctx.lineTo(offX + GRID_COLS * CELL, offY + r * CELL);
+        ctx.stroke();
+      }
+      for (let c = 0; c <= GRID_COLS; c++) {
+        ctx.beginPath();
+        ctx.moveTo(offX + c * CELL, offY);
+        ctx.lineTo(offX + c * CELL, offY + GRID_ROWS * CELL);
+        ctx.stroke();
+      }
+
+      // Input/output indicators
+      ctx.fillStyle = 'rgba(85, 204, 85, 0.15)';
+      ctx.fillRect(offX, offY, CELL * 0.3, GRID_ROWS * CELL);
+      ctx.fillStyle = 'rgba(255, 170, 0, 0.15)';
+      ctx.fillRect(offX + GRID_COLS * CELL - CELL * 0.3, offY, CELL * 0.3, GRID_ROWS * CELL);
+
+      // Left edge arrows (ore input)
+      ctx.fillStyle = '#5c5';
+      ctx.font = '10px Courier New';
+      for (let r = 0; r < GRID_ROWS; r += 2) {
+        ctx.fillText('\u25B6', offX + 1, offY + r * CELL + CELL * 0.65);
+      }
+
+      // Right edge arrows (product exit)
+      ctx.fillStyle = '#fa0';
+      for (let r = 0; r < GRID_ROWS; r += 2) {
+        ctx.fillText('\u25B6', offX + GRID_COLS * CELL - 10, offY + r * CELL + CELL * 0.65);
+      }
+
+      // Belts
+      for (const b of belts) {
+        const bx = offX + b.gx * CELL;
+        const by = offY + b.gy * CELL;
+        ctx.fillStyle = '#3a3a5e';
+        ctx.fillRect(bx + 2, by + 2, CELL - 4, CELL - 4);
+        // Belt arrows
+        ctx.fillStyle = '#666';
+        ctx.font = '12px Courier New';
+        ctx.fillText('\u25B8', bx + 8, by + 18);
+      }
+
+      // Machines
+      for (const m of machines) {
+        const t = MACHINE_TYPES[m.type];
+        const mx = offX + m.gx * CELL;
+        const my = offY + m.gy * CELL;
+        const mw = m.w * CELL;
+        const mh = m.h * CELL;
+
+        // Machine body
+        ctx.fillStyle = t.color;
+        ctx.globalAlpha = 0.3;
+        ctx.fillRect(mx + 1, my + 1, mw - 2, mh - 2);
+        ctx.globalAlpha = 1;
+
+        // Border
+        ctx.strokeStyle = t.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(mx + 1, my + 1, mw - 2, mh - 2);
+
+        // Symbol
+        ctx.fillStyle = t.color;
+        ctx.font = 'bold 18px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(t.symbol, mx + mw / 2, my + mh / 2 - 4);
+
+        // Progress bar
+        if (m.inputBuffer >= 1) {
+          const prog = m.progress / t.processTime;
+          ctx.fillStyle = 'rgba(255,255,255,0.15)';
+          ctx.fillRect(mx + 4, my + mh - 10, mw - 8, 6);
+          ctx.fillStyle = t.color;
+          ctx.fillRect(mx + 4, my + mh - 10, (mw - 8) * prog, 6);
+        }
+
+        // Input/output indicators
+        ctx.font = '9px Courier New';
+        ctx.textAlign = 'left';
+        if (m.inputBuffer > 0) {
+          ctx.fillStyle = '#aaa';
+          ctx.fillText('in:' + Math.floor(m.inputBuffer), mx + 2, my + 12);
+        }
+        if (m.outputBuffer > 0) {
+          ctx.fillStyle = '#fff';
+          ctx.fillText('out:' + m.outputBuffer, mx + mw - 28, my + 12);
+        }
+
+        ctx.textAlign = 'left';
+      }
+
+      // Label
+      ctx.fillStyle = isPlayer ? '#fa0' : '#f55';
+      ctx.font = 'bold 11px Courier New';
+      ctx.fillText(label, offX + 2, offY - 4);
+
+      // Money
+      ctx.fillStyle = '#5c5';
+      ctx.font = '10px Courier New';
+      ctx.fillText('$' + Math.floor(money), offX + GRID_COLS * CELL - 35, offY - 4);
+
+      // Hover highlight (player only)
+      if (isPlayer && hoverCell && selectedTool) {
+        const hx = offX + hoverCell.gx * CELL;
+        const hy = offY + hoverCell.gy * CELL;
+        if (MACHINE_TYPES[selectedTool]) {
+          const t = MACHINE_TYPES[selectedTool];
+          const canPlace = canPlaceMachine(playerGrid, playerMachines, hoverCell.gx, hoverCell.gy, selectedTool);
+          ctx.fillStyle = canPlace ? 'rgba(255,170,0,0.2)' : 'rgba(255,50,50,0.2)';
+          ctx.fillRect(hx, hy, t.w * CELL, t.h * CELL);
+          ctx.strokeStyle = canPlace ? '#fa0' : '#f33';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.strokeRect(hx, hy, t.w * CELL, t.h * CELL);
+          ctx.setLineDash([]);
+        } else if (selectedTool === 'belt') {
+          ctx.fillStyle = 'rgba(255,170,0,0.15)';
+          ctx.fillRect(hx, hy, CELL, CELL);
+          if (beltStart) {
+            // Draw preview belt path
+            ctx.strokeStyle = 'rgba(255,170,0,0.4)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(offX + beltStart.gx * CELL + CELL / 2, offY + beltStart.gy * CELL + CELL / 2);
+            ctx.lineTo(offX + hoverCell.gx * CELL + CELL / 2, offY + beltStart.gy * CELL + CELL / 2);
+            ctx.lineTo(offX + hoverCell.gx * CELL + CELL / 2, offY + hoverCell.gy * CELL + CELL / 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        } else if (selectedTool === 'delete') {
+          ctx.fillStyle = 'rgba(255,50,50,0.2)';
+          ctx.fillRect(hx, hy, CELL, CELL);
+        }
+      }
+    }
+
+    function draw() {
+      // Clear
+      ctx.fillStyle = COLORS.bg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Title area
+      ctx.fillStyle = '#fa0';
+      ctx.font = 'bold 13px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('YOUR FACTORY', 150, 14);
+      ctx.fillStyle = '#f55';
+      ctx.fillText('AI FACTORY', 450, 14);
+      ctx.textAlign = 'left';
+
+      // Divider
+      ctx.strokeStyle = '#fa0';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(DIVIDER_X, 20);
+      ctx.lineTo(DIVIDER_X, H);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw factories
+      drawFactory(P_OFF_X, P_OFF_Y, playerGrid, playerMachines, playerBelts, playerItems, 'PLAYER', playerMoney, true);
+      drawFactory(A_OFF_X, A_OFF_Y, aiGrid, aiMachines, aiBelts, aiItems, 'AI', aiMoney, false);
+
+      // Recipe legend at bottom
+      const ly = H - 38;
+      ctx.fillStyle = '#666';
+      ctx.font = '10px Courier New';
+      ctx.fillText('Ore \u2192 Smelter \u2192 Ingot($2) \u2192 Assembler \u2192 Part($5) \u2192 Constructor \u2192 Product($15)', 20, ly);
+      ctx.fillText('Raw ore arrives at left edge. Products exit right edge for points.', 20, ly + 14);
+
+      // Belt start marker
+      if (beltStart && selectedTool === 'belt') {
+        const bsx = P_OFF_X + beltStart.gx * CELL + CELL / 2;
+        const bsy = P_OFF_Y + beltStart.gy * CELL + CELL / 2;
+        ctx.beginPath();
+        ctx.arc(bsx, bsy, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#fa0';
+        ctx.fill();
+      }
+    }
+
+    // ---- Game Loop ----
+    function gameLoop(ts) {
+      if (gameState !== 'playing') return;
+      const dt = ts - lastTick;
+      lastTick = ts;
+
+      // Timer
+      timeLeft -= dt / 1000;
+      if (timeLeft <= 0) {
+        timeLeft = 0;
+        endGame();
+        return;
+      }
+      const mins = Math.floor(timeLeft / 60);
+      const secs = Math.floor(timeLeft % 60);
+      timerEl.textContent = mins + ':' + (secs < 10 ? '0' : '') + secs;
+
+      // Income
+      addIncome(dt);
+
+      // Simulate both factories
+      const pEarned = simulate(dt, playerGrid, playerMachines, playerBelts, playerItems, false);
+      const aEarned = simulate(dt, aiGrid, aiMachines, aiBelts, aiItems, true);
+      playerScore += pEarned;
+      aiScore += aEarned;
+      score = playerScore;
+
+      scoreEl.textContent = Math.floor(playerScore);
+      aiScoreEl.textContent = Math.floor(aiScore);
+
+      // AI thinking every ~2.5 seconds
+      aiPlanTimer += dt;
+      if (aiPlanTimer >= 2500) {
+        aiPlanTimer = 0;
+        aiThink();
+      }
+
+      draw();
+      animFrame = requestAnimationFrame(gameLoop);
+    }
+
+    function endGame() {
+      gameState = 'over';
+      score = playerScore;
+      overlay.style.display = 'flex';
+      if (playerScore > aiScore) {
+        overlayTitle.textContent = 'YOU WIN!';
+        overlayText.innerHTML = `Your factory: ${Math.floor(playerScore)} pts<br>AI factory: ${Math.floor(aiScore)} pts<br><br>Click to play again`;
+      } else if (aiScore > playerScore) {
+        overlayTitle.textContent = 'AI WINS';
+        overlayText.innerHTML = `AI factory: ${Math.floor(aiScore)} pts<br>Your factory: ${Math.floor(playerScore)} pts<br><br>Click to play again`;
+      } else {
+        overlayTitle.textContent = 'TIE GAME';
+        overlayText.innerHTML = `Both scored ${Math.floor(playerScore)} pts<br><br>Click to play again`;
+      }
+      draw();
+    }
+
+    // ---- Start ----
+    canvas.addEventListener('click', e => {
+      if (gameState === 'over') { init(); }
+    });
+
+    init();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>
