@@ -259,3 +259,27 @@ body {
 
 .card-2048 h2 { color: #f84; }
 .card-2048:hover { border-color: #f84; box-shadow: 0 8px 30px rgba(255, 136, 68, 0.15); }
+
+.card-dino h2 { color: #a4f; }
+.card-dino:hover { border-color: #a4f; box-shadow: 0 8px 30px rgba(170, 68, 255, 0.15); }
+
+.card-lander h2 { color: #48f; }
+.card-lander:hover { border-color: #48f; box-shadow: 0 8px 30px rgba(68, 136, 255, 0.15); }
+
+.card-minesweeper h2 { color: #8f0; }
+.card-minesweeper:hover { border-color: #8f0; box-shadow: 0 8px 30px rgba(136, 255, 0, 0.15); }
+
+.card-lightsout h2 { color: #4fc; }
+.card-lightsout:hover { border-color: #4fc; box-shadow: 0 8px 30px rgba(68, 255, 204, 0.15); }
+
+.card-helicopter h2 { color: #f4a; }
+.card-helicopter:hover { border-color: #f4a; box-shadow: 0 8px 30px rgba(255, 68, 170, 0.15); }
+
+.card-canabalt h2 { color: #0af; }
+.card-canabalt:hover { border-color: #0af; box-shadow: 0 8px 30px rgba(0, 170, 255, 0.15); }
+
+.card-doodlejump h2 { color: #fa0; }
+.card-doodlejump:hover { border-color: #fa0; box-shadow: 0 8px 30px rgba(255, 170, 0, 0.15); }
+
+.card-sokoban h2 { color: #f08; }
+.card-sokoban:hover { border-color: #f08; box-shadow: 0 8px 30px rgba(255, 0, 136, 0.15); }

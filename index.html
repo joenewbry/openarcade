@@ -96,6 +96,46 @@
         <p class="description">Slide numbered tiles on a 4x4 grid. Matching numbers merge and double. Reach 2048 and keep going for high scores.</p>
         <p class="controls"><span>Controls:</span> Arrow keys to slide tiles</p>
       </a>
+      <a href="dino/index.html" class="game-card card-dino" data-game="dino">
+        <div class="card-header"><h2>Dino Run</h2><span class="plays-badge" data-game="dino"></span></div>
+        <p class="description">Run endlessly through the desert! Jump over cacti and duck under pterodactyls. Speed increases the longer you survive.</p>
+        <p class="controls"><span>Controls:</span> Space/Up to jump, Down to duck</p>
+      </a>
+      <a href="lunar-lander/index.html" class="game-card card-lander" data-game="lunar-lander">
+        <div class="card-header"><h2>Lunar Lander</h2><span class="plays-badge" data-game="lunar-lander"></span></div>
+        <p class="description">Guide your spacecraft to a safe landing on the lunar surface. Control thrust and rotation to touch down gently on the pad. Too fast and you crash!</p>
+        <p class="controls"><span>Controls:</span> Left/Right to rotate, Up to thrust, land gently on the pad</p>
+      </a>
+      <a href="minesweeper/index.html" class="game-card card-minesweeper" data-game="minesweeper">
+        <div class="card-header"><h2>Minesweeper</h2><span class="plays-badge" data-game="minesweeper"></span></div>
+        <p class="description">Click to reveal tiles and find all the mines! Numbers tell you how many mines are adjacent. Clear the board to win!</p>
+        <p class="controls"><span>Controls:</span> Left-click to reveal, Right-click to flag</p>
+      </a>
+      <a href="lights-out/index.html" class="game-card card-lightsout" data-game="lights-out">
+        <div class="card-header"><h2>Lights Out</h2><span class="plays-badge" data-game="lights-out"></span></div>
+        <p class="description">Toggle lights on and off to turn them all off! Clicking a light toggles it and its neighbors. Solve each puzzle in the fewest clicks possible.</p>
+        <p class="controls"><span>Controls:</span> Click on lights to toggle them</p>
+      </a>
+      <a href="helicopter/index.html" class="game-card card-helicopter" data-game="helicopter">
+        <div class="card-header"><h2>Helicopter</h2><span class="plays-badge" data-game="helicopter"></span></div>
+        <p class="description">Hold to fly up, release to fall down. Navigate through an endless cave that gets narrower and more treacherous. One touch and you crash!</p>
+        <p class="controls"><span>Controls:</span> Hold Space or click/hold mouse to ascend</p>
+      </a>
+      <a href="canabalt/index.html" class="game-card card-canabalt" data-game="canabalt">
+        <div class="card-header"><h2>Canabalt</h2><span class="plays-badge" data-game="canabalt"></span></div>
+        <p class="description">Sprint across rooftops at breakneck speed! One button to jump. Time your leaps between buildings and dodge obstacles. How far can you run?</p>
+        <p class="controls"><span>Controls:</span> Space or Up to jump</p>
+      </a>
+      <a href="doodle-jump/index.html" class="game-card card-doodlejump" data-game="doodle-jump">
+        <div class="card-header"><h2>Doodle Jump</h2><span class="plays-badge" data-game="doodle-jump"></span></div>
+        <p class="description">Bounce ever higher on platforms! Land on green, blue, and breakable platforms as you climb. Miss one and it's game over.</p>
+        <p class="controls"><span>Controls:</span> Left/Right to move, auto-bounce on platforms</p>
+      </a>
+      <a href="sokoban/index.html" class="game-card card-sokoban" data-game="sokoban">
+        <div class="card-header"><h2>Sokoban</h2><span class="plays-badge" data-game="sokoban"></span></div>
+        <p class="description">Push all the boxes onto the target positions! Plan your moves carefully -- you can push boxes but never pull them. Fewest moves wins!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Z to undo, R to reset</p>
+      </a>
     </div>
   </div>
   <script>
@@ -148,7 +188,7 @@
           /* Per-game play counts */
           var perGame = d.per_game || {};
           var totalSessions = d.total_sessions || 0;
-          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048'];
+          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban'];
           games.forEach(function (g) {
             var badge = document.querySelector('.plays-badge[data-game="' + g + '"]');
             if (!badge) return;

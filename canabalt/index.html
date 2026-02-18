@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Canabalt</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #0af; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(0, 170, 255, 0.4); }
+    h1 { color: #0af; font-size: 2rem; text-shadow: 0 0 15px rgba(0, 170, 255, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #0af; }
+    canvas {
+      border: 2px solid #0af;
+      box-shadow: 0 0 20px rgba(0, 170, 255, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #0af;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>CANABALT</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span>m</div>
+    <div>Best: <span id="best">0</span>m</div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="350"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:350px;">
+      <h2 id="overlayTitle">CANABALT</h2>
+      <p id="overlayText">Press SPACE or UP to start</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    // Theme
+    const THEME = '#0af';
+    const THEME_DIM = '#068';
+    const THEME_GLOW = 'rgba(0, 170, 255, 0.5)';
+
+    // Physics
+    const GRAVITY = 0.6;
+    const JUMP_FORCE = -11;
+    const GROUND_Y = H - 40; // visual ground reference
+    const INITIAL_SPEED = 4;
+    const MAX_SPEED = 12;
+    const ACCELERATION = 0.003;
+
+    // Building generation
+    const MIN_BUILDING_W = 120;
+    const MAX_BUILDING_W = 300;
+    const MIN_GAP = 40;
+    const MAX_GAP = 120;
+    const MIN_BUILDING_H = 80;
+    const MAX_BUILDING_H = 180;
+    const BUILDING_TOP_BASE = H - MIN_BUILDING_H;
+
+    // Player
+    const PLAYER_W = 14;
+    const PLAYER_H = 28;
+    const PLAYER_X = 120; // fixed screen X position
+
+    // Obstacle
+    const OBSTACLE_TYPES = ['box', 'antenna'];
+
+    // Parallax layers
+    let farBuildings = [];
+    let midBuildings = [];
+
+    // Game state
+    let score, best = 0, gameState;
+    let player, buildings, obstacles, speed, distance, frameCount;
+    let shakeTimer, shakeIntensity;
+    let animFrame;
+    let jumpPressed;
+    let particles;
+
+    // Generate parallax buildings
+    function generateParallax() {
+      farBuildings = [];
+      midBuildings = [];
+      for (let x = 0; x < W + 200; x += 40 + Math.random() * 60) {
+        const h = 40 + Math.random() * 80;
+        farBuildings.push({ x, w: 30 + Math.random() * 50, h });
+      }
+      for (let x = 0; x < W + 200; x += 50 + Math.random() * 70) {
+        const h = 60 + Math.random() * 100;
+        midBuildings.push({ x, w: 40 + Math.random() * 60, h });
+      }
+    }
+
+    function createBuilding(x) {
+      const w = MIN_BUILDING_W + Math.random() * (MAX_BUILDING_W - MIN_BUILDING_W);
+      const h = MIN_BUILDING_H + Math.random() * (MAX_BUILDING_H - MIN_BUILDING_H);
+      const topY = H - h;
+      // Windows pattern
+      const windowRows = Math.floor(h / 20);
+      const windowCols = Math.floor(w / 20);
+      const windows = [];
+      for (let r = 1; r < windowRows; r++) {
+        for (let c = 1; c < windowCols; c++) {
+          windows.push({ on: Math.random() > 0.4 });
+        }
+      }
+      return { x, w, h, topY, windows, windowRows, windowCols };
+    }
+
+    function createObstacle(buildingX, buildingW, buildingTopY) {
+      // Only add obstacles sometimes and not too close to edges
+      if (Math.random() > 0.4) return null;
+      const type = OBSTACLE_TYPES[Math.floor(Math.random() * OBSTACLE_TYPES.length)];
+      const margin = 40;
+      const ox = buildingX + margin + Math.random() * (buildingW - margin * 2);
+      if (type === 'box') {
+        return { type, x: ox, y: buildingTopY - 16, w: 18, h: 16 };
+      } else {
+        return { type, x: ox, y: buildingTopY - 40, w: 6, h: 40 };
+      }
+    }
+
+    function init() {
+      score = 0;
+      distance = 0;
+      speed = INITIAL_SPEED;
+      frameCount = 0;
+      shakeTimer = 0;
+      shakeIntensity = 0;
+      jumpPressed = false;
+      particles = [];
+      scoreEl.textContent = '0';
+      gameState = 'waiting';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'CANABALT';
+      overlayText.textContent = 'Press SPACE or UP to start';
+
+      generateParallax();
+
+      // Create initial buildings
+      buildings = [];
+      obstacles = [];
+      let bx = 0;
+      while (bx < W + 400) {
+        const b = createBuilding(bx);
+        // First building: ensure player starts on it
+        if (buildings.length === 0) {
+          b.topY = H - 140;
+          b.h = 140;
+          b.w = 250;
+        }
+        buildings.push(b);
+        // Maybe add obstacle (not on first building)
+        if (buildings.length > 1) {
+          const obs = createObstacle(b.x, b.w, b.topY);
+          if (obs) obstacles.push(obs);
+        }
+        bx = b.x + b.w + MIN_GAP + Math.random() * (MAX_GAP - MIN_GAP);
+      }
+
+      player = {
+        x: PLAYER_X,
+        y: buildings[0].topY - PLAYER_H,
+        vy: 0,
+        onGround: true,
+        runFrame: 0
+      };
+
+      draw();
+    }
+
+    function start() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      cancelAnimationFrame(animFrame);
+      loop();
+    }
+
+    function loop() {
+      if (gameState !== 'playing') return;
+      update();
+      draw();
+      animFrame = requestAnimationFrame(loop);
+    }
+
+    function jump() {
+      if (player.onGround) {
+        player.vy = JUMP_FORCE;
+        player.onGround = false;
+        // Add jump particles
+        for (let i = 0; i < 5; i++) {
+          particles.push({
+            x: player.x + PLAYER_W / 2,
+            y: player.y + PLAYER_H,
+            vx: -speed * 0.5 + (Math.random() - 0.5) * 2,
+            vy: -Math.random() * 3,
+            life: 20 + Math.random() * 10,
+            maxLife: 30
+          });
+        }
+      }
+    }
+
+    function update() {
+      frameCount++;
+
+      // Increase speed over time
+      speed = Math.min(MAX_SPEED, speed + ACCELERATION);
+
+      // Distance / score
+      distance += speed;
+      score = Math.floor(distance / 10);
+      scoreEl.textContent = score;
+      if (score > best) {
+        best = score;
+        bestEl.textContent = best;
+      }
+
+      // Player physics
+      player.vy += GRAVITY;
+      player.y += player.vy;
+      player.onGround = false;
+
+      // Run animation
+      if (frameCount % 4 === 0) {
+        player.runFrame = (player.runFrame + 1) % 4;
+      }
+
+      // Move buildings
+      for (let i = buildings.length - 1; i >= 0; i--) {
+        buildings[i].x -= speed;
+        if (buildings[i].x + buildings[i].w < -50) {
+          buildings.splice(i, 1);
+        }
+      }
+
+      // Move obstacles
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        obstacles[i].x -= speed;
+        if (obstacles[i].x < -50) {
+          obstacles.splice(i, 1);
+        }
+      }
+
+      // Generate new buildings at the right
+      const lastB = buildings[buildings.length - 1];
+      if (lastB && lastB.x + lastB.w < W + 200) {
+        // Gap scales with speed
+        const gapScale = Math.min(1, (speed - INITIAL_SPEED) / (MAX_SPEED - INITIAL_SPEED));
+        const gap = MIN_GAP + gapScale * (MAX_GAP - MIN_GAP) * 0.6 + Math.random() * (MAX_GAP - MIN_GAP) * 0.4;
+        const nx = lastB.x + lastB.w + gap;
+        const nb = createBuilding(nx);
+        // Keep building height somewhat near the last one (not too drastic)
+        const lastTop = lastB.topY;
+        const heightVariation = 60;
+        nb.topY = Math.max(H - MAX_BUILDING_H, Math.min(H - MIN_BUILDING_H,
+          lastTop + (Math.random() - 0.5) * heightVariation * 2));
+        nb.h = H - nb.topY;
+        buildings.push(nb);
+        const obs = createObstacle(nb.x, nb.w, nb.topY);
+        if (obs) obstacles.push(obs);
+      }
+
+      // Collision with buildings (landing)
+      for (const b of buildings) {
+        // Check if player is within building X bounds
+        if (player.x + PLAYER_W > b.x && player.x < b.x + b.w) {
+          // Landing on top
+          if (player.vy >= 0 && player.y + PLAYER_H >= b.topY && player.y + PLAYER_H <= b.topY + player.vy + 10) {
+            const landingVy = player.vy;
+            player.y = b.topY - PLAYER_H;
+            player.vy = 0;
+            player.onGround = true;
+
+            // Landing particles
+            if (landingVy > 2) {
+              for (let i = 0; i < 3; i++) {
+                particles.push({
+                  x: player.x + Math.random() * PLAYER_W,
+                  y: b.topY,
+                  vx: (Math.random() - 0.5) * 3 - speed * 0.3,
+                  vy: -Math.random() * 2,
+                  life: 15 + Math.random() * 10,
+                  maxLife: 25
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Collision with obstacles
+      for (const obs of obstacles) {
+        const px = player.x, py = player.y;
+        if (px + PLAYER_W > obs.x && px < obs.x + obs.w &&
+            py + PLAYER_H > obs.y && py < obs.y + obs.h) {
+          // Hit obstacle - stumble effect (reduce speed)
+          speed = Math.max(INITIAL_SPEED, speed * 0.6);
+          shakeTimer = 10;
+          shakeIntensity = 4;
+          // Knock particles (before destroying position)
+          const obsCenter = { x: obs.x + obs.w / 2, y: obs.y + obs.h / 2 };
+          for (let i = 0; i < 8; i++) {
+            particles.push({
+              x: obsCenter.x,
+              y: obsCenter.y,
+              vx: (Math.random() - 0.5) * 6,
+              vy: -Math.random() * 5,
+              life: 20 + Math.random() * 10,
+              maxLife: 30
+            });
+          }
+          // Destroy the obstacle
+          obs.x = -1000;
+        }
+      }
+
+      // Fall off screen = game over
+      if (player.y > H + 50) {
+        gameOver();
+        return;
+      }
+
+      // Update shake
+      if (shakeTimer > 0) shakeTimer--;
+
+      // Update particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.15;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+
+      // Move parallax
+      for (const fb of farBuildings) {
+        fb.x -= speed * 0.15;
+        if (fb.x + fb.w < 0) fb.x += W + fb.w + 100;
+      }
+      for (const mb of midBuildings) {
+        mb.x -= speed * 0.4;
+        if (mb.x + mb.w < 0) mb.x += W + mb.w + 100;
+      }
+    }
+
+    function gameOver() {
+      gameState = 'over';
+      cancelAnimationFrame(animFrame);
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'GAME OVER';
+      overlayText.textContent = `${score}m — Press any key to restart`;
+    }
+
+    function draw() {
+      ctx.save();
+
+      // Screen shake
+      if (shakeTimer > 0) {
+        const sx = (Math.random() - 0.5) * shakeIntensity;
+        const sy = (Math.random() - 0.5) * shakeIntensity;
+        ctx.translate(sx, sy);
+      }
+
+      // Sky gradient
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+      skyGrad.addColorStop(0, '#050510');
+      skyGrad.addColorStop(0.4, '#0a0a20');
+      skyGrad.addColorStop(1, '#141430');
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Stars
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      for (let i = 0; i < 30; i++) {
+        const sx = (i * 191 + 37) % W;
+        const sy = (i * 127 + 53) % (H * 0.5);
+        ctx.fillRect(sx, sy, 1.5, 1.5);
+      }
+
+      // Far buildings (parallax layer 1)
+      farBuildings.forEach((fb, bi) => {
+        ctx.fillStyle = '#0a0a18';
+        ctx.fillRect(fb.x, H - fb.h, fb.w, fb.h);
+        // Dim windows (deterministic pattern)
+        ctx.fillStyle = 'rgba(0, 170, 255, 0.06)';
+        let wIdx = 0;
+        for (let wy = H - fb.h + 8; wy < H - 4; wy += 12) {
+          for (let wx = fb.x + 5; wx < fb.x + fb.w - 5; wx += 10) {
+            if (((wIdx * 7 + bi * 13) % 5) > 1) ctx.fillRect(wx, wy, 4, 4);
+            wIdx++;
+          }
+        }
+      });
+
+      // Mid buildings (parallax layer 2)
+      midBuildings.forEach((mb, bi) => {
+        ctx.fillStyle = '#0e0e22';
+        ctx.fillRect(mb.x, H - mb.h, mb.w, mb.h);
+        // Slightly brighter windows (deterministic pattern)
+        ctx.fillStyle = 'rgba(0, 170, 255, 0.1)';
+        let wIdx = 0;
+        for (let wy = H - mb.h + 8; wy < H - 4; wy += 14) {
+          for (let wx = mb.x + 6; wx < mb.x + mb.w - 6; wx += 12) {
+            if (((wIdx * 11 + bi * 7) % 4) > 0) ctx.fillRect(wx, wy, 5, 5);
+            wIdx++;
+          }
+        }
+      });
+
+      // Near buildings (gameplay layer)
+      buildings.forEach(b => {
+        // Building body
+        const bGrad = ctx.createLinearGradient(b.x, b.topY, b.x, H);
+        bGrad.addColorStop(0, '#1a1a35');
+        bGrad.addColorStop(1, '#12122a');
+        ctx.fillStyle = bGrad;
+        ctx.fillRect(b.x, b.topY, b.w, b.h);
+
+        // Building top edge (neon line)
+        ctx.strokeStyle = THEME;
+        ctx.shadowColor = THEME;
+        ctx.shadowBlur = 6;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.topY);
+        ctx.lineTo(b.x + b.w, b.topY);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Building side edges
+        ctx.strokeStyle = THEME_DIM;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.topY);
+        ctx.lineTo(b.x, H);
+        ctx.moveTo(b.x + b.w, b.topY);
+        ctx.lineTo(b.x + b.w, H);
+        ctx.stroke();
+
+        // Windows
+        const wSize = 6;
+        const wGap = 14;
+        for (let wy = b.topY + 12; wy < H - 10; wy += wGap) {
+          for (let wx = b.x + 10; wx < b.x + b.w - 10; wx += wGap) {
+            const col = Math.floor((wx - b.x) / wGap);
+            const row = Math.floor((wy - b.topY) / wGap);
+            // Deterministic window on/off based on position
+            const isOn = ((col * 7 + row * 13 + Math.floor(b.x) * 3) % 5) > 1;
+            if (isOn) {
+              ctx.fillStyle = 'rgba(0, 170, 255, 0.2)';
+            } else {
+              ctx.fillStyle = 'rgba(0, 170, 255, 0.04)';
+            }
+            ctx.fillRect(wx, wy, wSize, wSize);
+          }
+        }
+      });
+
+      // Obstacles
+      obstacles.forEach(obs => {
+        if (obs.x < -100) return;
+        if (obs.type === 'box') {
+          ctx.fillStyle = '#2a2a4a';
+          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+          ctx.strokeStyle = THEME_DIM;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+          // X mark on box
+          ctx.strokeStyle = 'rgba(0, 170, 255, 0.3)';
+          ctx.beginPath();
+          ctx.moveTo(obs.x + 3, obs.y + 3);
+          ctx.lineTo(obs.x + obs.w - 3, obs.y + obs.h - 3);
+          ctx.moveTo(obs.x + obs.w - 3, obs.y + 3);
+          ctx.lineTo(obs.x + 3, obs.y + obs.h - 3);
+          ctx.stroke();
+        } else {
+          // Antenna
+          ctx.strokeStyle = '#555';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(obs.x + obs.w / 2, obs.y);
+          ctx.lineTo(obs.x + obs.w / 2, obs.y + obs.h);
+          ctx.stroke();
+          // Blinking light at top
+          const blink = Math.sin(frameCount * 0.15) > 0;
+          if (blink) {
+            ctx.fillStyle = '#f44';
+            ctx.shadowColor = '#f44';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(obs.x + obs.w / 2, obs.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+          } else {
+            ctx.fillStyle = '#622';
+            ctx.beginPath();
+            ctx.arc(obs.x + obs.w / 2, obs.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      });
+
+      // Particles
+      particles.forEach(p => {
+        const alpha = p.life / p.maxLife;
+        ctx.fillStyle = `rgba(0, 170, 255, ${alpha * 0.8})`;
+        ctx.fillRect(p.x, p.y, 3, 3);
+      });
+
+      // Player (running figure)
+      drawPlayer();
+
+      // Distance indicator line at bottom
+      ctx.fillStyle = 'rgba(0, 170, 255, 0.1)';
+      ctx.fillRect(0, H - 2, W, 2);
+
+      // Speed indicator
+      if (gameState === 'playing') {
+        const speedPercent = (speed - INITIAL_SPEED) / (MAX_SPEED - INITIAL_SPEED);
+        ctx.fillStyle = 'rgba(0, 170, 255, 0.15)';
+        ctx.fillRect(0, H - 4, W * speedPercent, 4);
+      }
+
+      ctx.restore();
+    }
+
+    function drawPlayer() {
+      const px = player.x;
+      const py = player.y;
+      const frame = player.runFrame;
+      const onGround = player.onGround;
+
+      ctx.fillStyle = THEME;
+      ctx.shadowColor = THEME;
+      ctx.shadowBlur = 10;
+
+      // Head
+      ctx.beginPath();
+      ctx.arc(px + PLAYER_W / 2, py + 5, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body
+      ctx.strokeStyle = THEME;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+
+      // Torso
+      ctx.beginPath();
+      ctx.moveTo(px + PLAYER_W / 2, py + 10);
+      ctx.lineTo(px + PLAYER_W / 2, py + 20);
+      ctx.stroke();
+
+      if (onGround) {
+        // Running legs animation
+        const legAngle1 = Math.sin(frame * Math.PI / 2) * 6;
+        const legAngle2 = -legAngle1;
+
+        // Left leg
+        ctx.beginPath();
+        ctx.moveTo(px + PLAYER_W / 2, py + 20);
+        ctx.lineTo(px + PLAYER_W / 2 + legAngle1, py + PLAYER_H);
+        ctx.stroke();
+
+        // Right leg
+        ctx.beginPath();
+        ctx.moveTo(px + PLAYER_W / 2, py + 20);
+        ctx.lineTo(px + PLAYER_W / 2 + legAngle2, py + PLAYER_H);
+        ctx.stroke();
+
+        // Arms pumping
+        ctx.beginPath();
+        ctx.moveTo(px + PLAYER_W / 2, py + 13);
+        ctx.lineTo(px + PLAYER_W / 2 - legAngle1 * 0.8, py + 18);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(px + PLAYER_W / 2, py + 13);
+        ctx.lineTo(px + PLAYER_W / 2 + legAngle1 * 0.8, py + 18);
+        ctx.stroke();
+      } else {
+        // In air - legs tucked / extended
+        if (player.vy < 0) {
+          // Jumping up - legs tucked
+          ctx.beginPath();
+          ctx.moveTo(px + PLAYER_W / 2, py + 20);
+          ctx.lineTo(px + PLAYER_W / 2 - 4, py + PLAYER_H - 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(px + PLAYER_W / 2, py + 20);
+          ctx.lineTo(px + PLAYER_W / 2 + 4, py + PLAYER_H - 2);
+          ctx.stroke();
+        } else {
+          // Falling - legs spread
+          ctx.beginPath();
+          ctx.moveTo(px + PLAYER_W / 2, py + 20);
+          ctx.lineTo(px + PLAYER_W / 2 - 5, py + PLAYER_H);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(px + PLAYER_W / 2, py + 20);
+          ctx.lineTo(px + PLAYER_W / 2 + 6, py + PLAYER_H);
+          ctx.stroke();
+        }
+
+        // Arms out
+        ctx.beginPath();
+        ctx.moveTo(px + PLAYER_W / 2, py + 13);
+        ctx.lineTo(px + PLAYER_W / 2 - 8, py + 10);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px + PLAYER_W / 2, py + 13);
+        ctx.lineTo(px + PLAYER_W / 2 + 6, py + 16);
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 0;
+      ctx.lineCap = 'butt';
+    }
+
+    // Keyboard handler
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      if (gameState === 'waiting') {
+        start();
+        return;
+      }
+
+      if (gameState === 'over') {
+        init();
+        return;
+      }
+
+      if (gameState === 'playing') {
+        if ((e.key === ' ' || e.key === 'ArrowUp') && !jumpPressed) {
+          jumpPressed = true;
+          jump();
+        }
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.key === ' ' || e.key === 'ArrowUp') {
+        jumpPressed = false;
+      }
+    });
+
+    init();
+  </script>
+  <script src="../recorder.js?v=3"></script>
+</body>
+</html>

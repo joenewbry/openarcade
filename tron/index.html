@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tron</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 500px;
+    }
+    .back { color: #0f8; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
+    h1 { color: #0f8; font-size: 2rem; text-shadow: 0 0 15px rgba(0, 255, 136, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 500px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #0f8; }
+    canvas {
+      border: 2px solid #0f8;
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #0f8;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>TRON</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Best: <span id="best">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="500" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:500px;height:500px;">
+      <h2 id="overlayTitle">TRON</h2>
+      <p id="overlayText">Press any arrow key to start</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    // Grid settings
+    const CELL = 10;
+    const COLS = W / CELL;
+    const ROWS = H / CELL;
+    const TICK_INTERVAL = 80;
+
+    // Colors
+    const PLAYER_COLOR = '#0f8';
+    const PLAYER_GLOW = 'rgba(0, 255, 136, 0.6)';
+    const PLAYER_TRAIL = 'rgba(0, 255, 136, 0.35)';
+    const AI_COLOR = '#f80';
+    const AI_GLOW = 'rgba(255, 136, 0, 0.6)';
+    const AI_TRAIL = 'rgba(255, 136, 0, 0.35)';
+
+    // Directions
+    const DIR = {
+      UP:    { x:  0, y: -1 },
+      DOWN:  { x:  0, y:  1 },
+      LEFT:  { x: -1, y:  0 },
+      RIGHT: { x:  1, y:  0 }
+    };
+
+    let score, best = 0, gameState;
+    let timer;
+
+    // Game objects
+    let player, ai;
+    let grid; // 0 = empty, 1 = player trail, 2 = AI trail
+    let roundDelay;
+    let wins, rounds;
+
+    function init() {
+      score = 0;
+      wins = 0;
+      rounds = 0;
+      scoreEl.textContent = '0';
+      gameState = 'waiting';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'TRON';
+      overlayText.textContent = 'Press any arrow key to start';
+      resetRound();
+      draw();
+    }
+
+    function resetRound() {
+      // Initialize grid
+      grid = new Uint8Array(COLS * ROWS);
+
+      // Player starts on the left side
+      player = {
+        x: Math.floor(COLS * 0.25),
+        y: Math.floor(ROWS / 2),
+        dir: { ...DIR.RIGHT },
+        nextDir: { ...DIR.RIGHT },
+        alive: true,
+        trail: []
+      };
+
+      // AI starts on the right side
+      ai = {
+        x: Math.floor(COLS * 0.75),
+        y: Math.floor(ROWS / 2),
+        dir: { ...DIR.LEFT },
+        alive: true,
+        trail: []
+      };
+
+      // Place initial positions
+      setGrid(player.x, player.y, 1);
+      player.trail.push({ x: player.x, y: player.y });
+
+      setGrid(ai.x, ai.y, 2);
+      ai.trail.push({ x: ai.x, y: ai.y });
+    }
+
+    function setGrid(x, y, val) {
+      if (x >= 0 && x < COLS && y >= 0 && y < ROWS) {
+        grid[y * COLS + x] = val;
+      }
+    }
+
+    function getGrid(x, y) {
+      if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return -1; // wall
+      return grid[y * COLS + x];
+    }
+
+    function start() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      roundDelay = 0;
+      tick();
+    }
+
+    function tick() {
+      clearTimeout(timer);
+      if (gameState !== 'playing') return;
+      update();
+      draw();
+      timer = setTimeout(tick, TICK_INTERVAL);
+    }
+
+    function update() {
+      // Handle round transition delay
+      if (roundDelay > 0) {
+        roundDelay--;
+        if (roundDelay === 0) {
+          resetRound();
+        }
+        return;
+      }
+
+      if (!player.alive && !ai.alive) return;
+
+      // Apply player direction change (prevent 180-degree reversal)
+      player.dir = { ...player.nextDir };
+
+      // Move player
+      if (player.alive) {
+        const nx = player.x + player.dir.x;
+        const ny = player.y + player.dir.y;
+        const cell = getGrid(nx, ny);
+        if (cell !== 0) {
+          player.alive = false;
+        } else {
+          player.x = nx;
+          player.y = ny;
+          setGrid(player.x, player.y, 1);
+          player.trail.push({ x: player.x, y: player.y });
+        }
+      }
+
+      // AI decides direction
+      if (ai.alive) {
+        aiDecide();
+        const nx = ai.x + ai.dir.x;
+        const ny = ai.y + ai.dir.y;
+        const cell = getGrid(nx, ny);
+        if (cell !== 0) {
+          ai.alive = false;
+        } else {
+          ai.x = nx;
+          ai.y = ny;
+          setGrid(ai.x, ai.y, 2);
+          ai.trail.push({ x: ai.x, y: ai.y });
+        }
+      }
+
+      // Check round result
+      if (!player.alive || !ai.alive) {
+        rounds++;
+        if (player.alive && !ai.alive) {
+          // Player wins the round
+          wins++;
+          score += 10 + Math.floor(player.trail.length / 2);
+          scoreEl.textContent = score;
+          if (score > best) {
+            best = score;
+            bestEl.textContent = best;
+          }
+        }
+
+        if (!player.alive) {
+          // Player died - game over
+          gameOver();
+          return;
+        }
+
+        // AI died, player survived - start new round after delay
+        roundDelay = 15; // ~1.2 seconds at 80ms tick
+      }
+    }
+
+    function aiDecide() {
+      // AI strategy: look ahead and choose the safest direction
+      // with a preference for cutting toward the player
+
+      const currentDir = ai.dir;
+      const possibleDirs = [];
+
+      // Get all valid directions (not the reverse of current)
+      for (const key in DIR) {
+        const d = DIR[key];
+        // Can't reverse
+        if (d.x + currentDir.x === 0 && d.y + currentDir.y === 0) continue;
+        possibleDirs.push(d);
+      }
+
+      // Score each direction by counting open space (flood fill lookahead)
+      let bestDir = currentDir;
+      let bestScore = -1;
+
+      for (const d of possibleDirs) {
+        const nx = ai.x + d.x;
+        const ny = ai.y + d.y;
+
+        // Immediately blocked
+        if (getGrid(nx, ny) !== 0) continue;
+
+        // Count reachable cells in that direction (simple BFS, capped)
+        const openCount = countOpen(nx, ny, 80);
+
+        // Bias toward the player to be more aggressive
+        const toPlayerX = player.x - ai.x;
+        const toPlayerY = player.y - ai.y;
+        const dot = d.x * toPlayerX + d.y * toPlayerY;
+        const aggressiveBonus = dot > 0 ? 3 : 0;
+
+        const dirScore = openCount + aggressiveBonus;
+
+        if (dirScore > bestScore) {
+          bestScore = dirScore;
+          bestDir = d;
+        }
+      }
+
+      // If bestScore is still -1, all directions are blocked; keep going straight into death
+      if (bestScore >= 0) {
+        ai.dir = { ...bestDir };
+      }
+    }
+
+    function countOpen(startX, startY, maxCount) {
+      // BFS flood fill to count reachable empty cells
+      const visited = new Set();
+      const queue = [startX + startY * COLS];
+      visited.add(queue[0]);
+      let count = 0;
+
+      while (queue.length > 0 && count < maxCount) {
+        const idx = queue.shift();
+        const cx = idx % COLS;
+        const cy = Math.floor(idx / COLS);
+        count++;
+
+        for (const key in DIR) {
+          const d = DIR[key];
+          const nx = cx + d.x;
+          const ny = cy + d.y;
+          const nIdx = nx + ny * COLS;
+          if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS &&
+              !visited.has(nIdx) && grid[nIdx] === 0) {
+            visited.add(nIdx);
+            queue.push(nIdx);
+          }
+        }
+      }
+
+      return count;
+    }
+
+    function gameOver() {
+      gameState = 'over';
+      clearTimeout(timer);
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'GAME OVER';
+      overlayText.textContent = `Score: ${score} (${wins}/${rounds} rounds won) \u2014 Press any key`;
+    }
+
+    function draw() {
+      // Background
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid lines
+      ctx.strokeStyle = '#16213e';
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x <= W; x += CELL) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, H);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= H; y += CELL) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
+      }
+
+      // Draw player trail
+      ctx.shadowBlur = 0;
+      player.trail.forEach((seg, i) => {
+        const isHead = (i === player.trail.length - 1) && player.alive;
+        if (isHead) return; // Draw head separately
+        ctx.fillStyle = PLAYER_TRAIL;
+        ctx.fillRect(seg.x * CELL + 1, seg.y * CELL + 1, CELL - 2, CELL - 2);
+      });
+
+      // Draw AI trail
+      ai.trail.forEach((seg, i) => {
+        const isHead = (i === ai.trail.length - 1) && ai.alive;
+        if (isHead) return;
+        ctx.fillStyle = AI_TRAIL;
+        ctx.fillRect(seg.x * CELL + 1, seg.y * CELL + 1, CELL - 2, CELL - 2);
+      });
+
+      // Draw player head with glow
+      if (player.alive && player.trail.length > 0) {
+        ctx.fillStyle = PLAYER_COLOR;
+        ctx.shadowColor = PLAYER_COLOR;
+        ctx.shadowBlur = 15;
+        ctx.fillRect(player.x * CELL, player.y * CELL, CELL, CELL);
+        ctx.shadowBlur = 0;
+      } else if (!player.alive && player.trail.length > 0) {
+        // Draw crash marker
+        const last = player.trail[player.trail.length - 1];
+        ctx.fillStyle = '#f00';
+        ctx.shadowColor = '#f00';
+        ctx.shadowBlur = 20;
+        ctx.fillRect(last.x * CELL, last.y * CELL, CELL, CELL);
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw AI head with glow
+      if (ai.alive && ai.trail.length > 0) {
+        ctx.fillStyle = AI_COLOR;
+        ctx.shadowColor = AI_COLOR;
+        ctx.shadowBlur = 15;
+        ctx.fillRect(ai.x * CELL, ai.y * CELL, CELL, CELL);
+        ctx.shadowBlur = 0;
+      } else if (!ai.alive && ai.trail.length > 0) {
+        const last = ai.trail[ai.trail.length - 1];
+        ctx.fillStyle = '#f00';
+        ctx.shadowColor = '#f00';
+        ctx.shadowBlur = 20;
+        ctx.fillRect(last.x * CELL, last.y * CELL, CELL, CELL);
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw round info during play
+      if (gameState === 'playing') {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.font = '12px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText('YOU', 8, 16);
+        ctx.fillStyle = PLAYER_COLOR;
+        ctx.fillRect(38, 7, 10, 10);
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.textAlign = 'right';
+        ctx.fillText('CPU', W - 20, 16);
+        ctx.fillStyle = AI_COLOR;
+        ctx.fillRect(W - 18, 7, 10, 10);
+
+        // Round counter
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Round ${rounds + 1}`, W / 2, 16);
+
+        // New round flash
+        if (roundDelay > 10) {
+          ctx.fillStyle = PLAYER_COLOR;
+          ctx.font = '24px Courier New';
+          ctx.textAlign = 'center';
+          ctx.shadowColor = PLAYER_COLOR;
+          ctx.shadowBlur = 20;
+          ctx.fillText('ROUND WON!', W / 2, H / 2);
+          ctx.shadowBlur = 0;
+        }
+      }
+    }
+
+    // Keyboard handler
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      if (gameState === 'waiting') {
+        // Set initial direction based on key pressed
+        const keyDirs = {
+          ArrowUp: DIR.UP,
+          ArrowDown: DIR.DOWN,
+          ArrowLeft: DIR.LEFT,
+          ArrowRight: DIR.RIGHT
+        };
+        if (keyDirs[e.key]) {
+          // Only allow non-left directions since player starts going right
+          if (!(keyDirs[e.key].x + DIR.RIGHT.x === 0 && keyDirs[e.key].y + DIR.RIGHT.y === 0)) {
+            player.nextDir = { ...keyDirs[e.key] };
+            player.dir = { ...keyDirs[e.key] };
+          }
+        }
+        start();
+        return;
+      }
+
+      if (gameState === 'over') {
+        init();
+        return;
+      }
+
+      if (gameState === 'playing') {
+        const keyDirs = {
+          ArrowUp: DIR.UP,
+          ArrowDown: DIR.DOWN,
+          ArrowLeft: DIR.LEFT,
+          ArrowRight: DIR.RIGHT
+        };
+        const d = keyDirs[e.key];
+        if (d) {
+          // Prevent 180-degree reversal
+          if (d.x + player.dir.x !== 0 || d.y + player.dir.y !== 0) {
+            player.nextDir = { ...d };
+          }
+        }
+      }
+    });
+
+    init();
+  </script>
+  <script src="../recorder.js?v=3"></script>
+</body>
+</html>
