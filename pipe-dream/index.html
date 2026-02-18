@@ -233,11 +233,12 @@
 
     function countdownTick() {
       if (gameState !== 'playing') return;
-      timerEl.textContent = flowCountdown;
       if (flowCountdown <= 0) {
+        timerEl.textContent = '0';
         beginFlow();
         return;
       }
+      timerEl.textContent = flowCountdown;
       flowCountdown--;
       countdownId = setTimeout(countdownTick, 1000);
     }
@@ -353,6 +354,8 @@
       gameState = 'over';
       animating = false;
       clearTimeout(countdownId);
+      cancelAnimationFrame(animFrameId);
+      draw(); // final render
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'GAME OVER';
       overlayText.textContent = 'Pipes: ' + pipesUsed + ' | Score: ' + score + ' -- Press SPACE to restart';
@@ -399,16 +402,13 @@
     function drawPipeShape(context, x, y, size, typeIdx) {
       const cx = x + size / 2;
       const cy = y + size / 2;
-      const pw = size * 0.32; // pipe width
+      const pw = size * 0.34; // pipe width
       const hw = pw / 2;
       const conn = PIPE_TYPES[typeIdx].conn;
+      const isCross = typeIdx === 6;
 
-      // Pipe walls: dark interior with border
+      // Fill interior for each arm
       context.fillStyle = '#1e2d4d';
-      context.strokeStyle = '#3a5a8a';
-      context.lineWidth = 1.5;
-
-      // Draw each arm from center to edge
       for (let d = 0; d < 4; d++) {
         if (!conn[d]) continue;
         context.save();
@@ -418,72 +418,91 @@
         context.restore();
       }
 
-      // Draw outlines (arms)
+      // Pipe wall outlines with neon glow
+      context.strokeStyle = '#4a7a9a';
+      context.lineWidth = 1.5;
+      context.shadowColor = '#4dc';
+      context.shadowBlur = 3;
+
       for (let d = 0; d < 4; d++) {
         if (!conn[d]) continue;
         context.save();
         context.translate(cx, cy);
         context.rotate(d * Math.PI / 2);
-        // left wall
+        // Left wall of arm
         context.beginPath();
-        context.moveTo(-hw, 0);
+        context.moveTo(-hw, hw);
         context.lineTo(-hw, -size / 2);
         context.stroke();
-        // right wall
+        // Right wall of arm
         context.beginPath();
-        context.moveTo(hw, 0);
+        context.moveTo(hw, hw);
         context.lineTo(hw, -size / 2);
         context.stroke();
         context.restore();
       }
 
-      // Draw rounded end caps where arms DON'T connect
+      // End caps where pipe doesn't connect
       for (let d = 0; d < 4; d++) {
         if (conn[d]) continue;
-        // Draw a cap closing off this direction
-        const nd = (d + 3) % 4; // check adjacent
-        const pd = (d + 1) % 4;
-        // Only draw cap wall segments between connected arms
-      }
-
-      // Draw connecting arcs for bends
-      if (typeIdx >= 2 && typeIdx <= 5) {
-        // It's a bend piece - draw rounded inner corner
-        const connDirs = [];
-        for (let d = 0; d < 4; d++) if (conn[d]) connDirs.push(d);
-        if (connDirs.length === 2) {
-          // Draw inner corner arc
+        // Check if adjacent directions are connected
+        const prev = (d + 3) % 4;
+        const next = (d + 1) % 4;
+        if (conn[prev] || conn[next]) {
           context.save();
           context.translate(cx, cy);
-          // The two connected directions
-          const d1 = connDirs[0], d2 = connDirs[1];
+          context.rotate(d * Math.PI / 2);
+          // Close off this side with a cap line
+          context.beginPath();
+          context.moveTo(-hw, -hw);
+          context.lineTo(hw, -hw);
+          context.stroke();
           context.restore();
         }
+      }
+
+      context.shadowBlur = 0;
+
+      // Cross-piece divider lines
+      if (isCross) {
+        context.strokeStyle = '#2a3a5a';
+        context.lineWidth = 1;
+        // Horizontal divider (above and below center)
+        context.beginPath();
+        context.moveTo(cx - size / 2, cy - hw);
+        context.lineTo(cx + size / 2, cy - hw);
+        context.stroke();
+        context.beginPath();
+        context.moveTo(cx - size / 2, cy + hw);
+        context.lineTo(cx + size / 2, cy + hw);
+        context.stroke();
       }
     }
 
     function drawWater(context, x, y, size, filled, animInfo) {
       const cx = x + size / 2;
       const cy = y + size / 2;
-      const pw = size * 0.32;
+      const pw = size * 0.34;
       const ww = pw * 0.55; // water width (inside pipe)
       const hw = ww / 2;
+      const halfCell = size / 2;
 
       context.fillStyle = WATER_COLOR;
       context.shadowColor = WATER_GLOW;
       context.shadowBlur = 6;
 
-      // Draw filled water segments
+      // Draw filled water segments (already traversed)
       if (filled) {
         for (let d = 0; d < 4; d++) {
           if (!filled[d]) continue;
           context.save();
           context.translate(cx, cy);
           context.rotate(d * Math.PI / 2);
-          context.fillRect(-hw, -size / 2, ww, size / 2);
+          // Arm from edge to center (in rotated space, "up" = toward edge)
+          context.fillRect(-hw, -halfCell, ww, halfCell);
           context.restore();
         }
-        // Center blob if any filled
+        // Center blob
         if (filled.some(f => f)) {
           context.fillRect(cx - hw, cy - hw, ww, ww);
         }
@@ -492,34 +511,33 @@
       // Animated water for current flow step
       if (animInfo) {
         const { fromDir, exitDir, progress } = animInfo;
-        const p = progress;
 
-        if (p <= 0.5) {
-          // Water entering: from edge toward center
-          const t = p * 2;
+        if (progress <= 0.5) {
+          // Phase 1: from entry edge toward center
+          const t = progress * 2;
           context.save();
           context.translate(cx, cy);
           context.rotate(fromDir * Math.PI / 2);
-          context.fillRect(-hw, -size / 2, ww, t * size / 2);
+          context.fillRect(-hw, -halfCell, ww, t * halfCell);
           context.restore();
         } else {
-          // Entry side fully filled
+          // Phase 2: entry side fully filled + center + exit progressing
+          // Entry arm
           context.save();
           context.translate(cx, cy);
           context.rotate(fromDir * Math.PI / 2);
-          context.fillRect(-hw, -size / 2, ww, size / 2);
+          context.fillRect(-hw, -halfCell, ww, halfCell);
           context.restore();
 
           // Center
           context.fillRect(cx - hw, cy - hw, ww, ww);
 
-          // Water exiting: center toward edge
-          const t = (p - 0.5) * 2;
+          // Exit arm: from center toward edge
+          const t = (progress - 0.5) * 2;
           context.save();
           context.translate(cx, cy);
           context.rotate(exitDir * Math.PI / 2);
-          // Draw from center outward (negative y in rotated space)
-          context.fillRect(-hw, 0, ww, -(t * size / 2));
+          context.fillRect(-hw, 0, ww, -(t * halfCell));
           context.restore();
         }
       }
@@ -575,7 +593,7 @@
 
       // Draw water spout if flow started
       if (flowStarted) {
-        const ww = size * 0.32 * 0.55;
+        const ww = size * 0.34 * 0.55;
         context.fillStyle = WATER_COLOR;
         context.shadowColor = WATER_GLOW;
         context.shadowBlur = 8;
@@ -669,7 +687,7 @@
         ctx.shadowColor = '#4dc';
         ctx.shadowBlur = 12;
         ctx.font = 'bold 15px Courier New';
-        ctx.fillText('Water in ' + (flowCountdown + 1) + 's - place pipes!', W / 2, H - 12);
+        ctx.fillText('Water in ' + timerEl.textContent + 's - place pipes!', W / 2, H - 12);
         ctx.shadowBlur = 0;
       } else if (gameState === 'playing' && flowStarted) {
         ctx.fillStyle = WATER_COLOR;

@@ -54,6 +54,25 @@
     }
     .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
     .overlay p { font-size: 1rem; color: #aaa; }
+    .game-row { display: flex; gap: 20px; align-items: flex-start; }
+    .keypad { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 20px; }
+    .keypad-row { display: flex; gap: 4px; }
+    .kp-key {
+      width: 44px; height: 44px;
+      background: #16213e;
+      border: 2px solid #0f3460;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; color: #555;
+      transition: background 0.06s, border-color 0.06s, color 0.06s, box-shadow 0.06s;
+    }
+    .kp-key.active {
+      background: rgba(68, 255, 221, 0.15);
+      border-color: #4fd;
+      color: #4fd;
+      box-shadow: 0 0 12px rgba(68, 255, 221, 0.4);
+    }
+    .kp-spacer { width: 44px; height: 44px; }
   </style>
 </head>
 <body>
@@ -65,11 +84,25 @@
     <div>Score: <span id="score">0</span></div>
     <div>Best: <span id="best">0</span></div>
   </div>
-  <div style="position: relative; display: inline-block;">
-    <canvas id="game" width="480" height="480"></canvas>
-    <div class="overlay" id="overlay" style="width:480px;height:480px;">
-      <h2 id="overlayTitle">RALLY-X</h2>
-      <p id="overlayText">Press SPACE to start</p>
+  <div class="game-row">
+    <div style="position: relative; display: inline-block;">
+      <canvas id="game" width="480" height="480"></canvas>
+      <div class="overlay" id="overlay" style="width:480px;height:480px;">
+        <h2 id="overlayTitle">RALLY-X</h2>
+        <p id="overlayText">Arrow keys to steer, Space for smoke<br>Press any key to start</p>
+      </div>
+    </div>
+    <div class="keypad">
+      <div class="keypad-row">
+        <div class="kp-spacer"></div>
+        <div class="kp-key" id="kp-up">&uarr;</div>
+        <div class="kp-spacer"></div>
+      </div>
+      <div class="keypad-row">
+        <div class="kp-key" id="kp-left">&larr;</div>
+        <div class="kp-key" id="kp-down">&darr;</div>
+        <div class="kp-key" id="kp-right">&rarr;</div>
+      </div>
     </div>
   </div>
 
@@ -86,9 +119,9 @@
     let score, best = 0, gameState;
 
     // --- Constants ---
-    const TILE = 24;          // maze tile size in world pixels
-    const MAZE_COLS = 40;     // maze width in tiles
-    const MAZE_ROWS = 40;     // maze height in tiles
+    const TILE = 24;
+    const MAZE_COLS = 40;
+    const MAZE_ROWS = 40;
     const MAZE_W = MAZE_COLS * TILE;
     const MAZE_H = MAZE_ROWS * TILE;
     const CAR_SIZE = 16;
@@ -96,39 +129,22 @@
     const ENEMY_SPEED_BASE = 1.4;
     const FLAG_SIZE = 10;
     const SMOKE_RADIUS = 12;
-    const SMOKE_DURATION = 180;  // frames smoke lasts
+    const SMOKE_DURATION = 180;
     const SMOKE_SLOW_FACTOR = 0.3;
     const FUEL_MAX = 1000;
-    const FUEL_DRAIN = 0.4;    // per frame while moving
+    const FUEL_DRAIN = 0.4;
     const FUEL_SMOKE_COST = 40;
     const SMOKE_MAX = 10;
     const RADAR_SIZE = 100;
     const RADAR_MARGIN = 8;
 
-    // Direction vectors: 0=up, 1=right, 2=down, 3=left
     const DX = [0, 1, 0, -1];
     const DY = [-1, 0, 1, 0];
 
-    // --- Game state variables ---
-    let maze;       // 2D array: 0=wall, 1=path
-    let player;     // {x, y, dir, moving}
-    let enemies;    // [{x, y, dir, speed}]
-    let flags;      // [{x, y, collected}]
-    let smokes;     // [{x, y, timer}]
-    let fuel;
-    let smokeCount;
-    let level;
-    let flagsLeft;
-    let frameCount;
-    let keys;
-    let cameraX, cameraY;
-    let roundBonus;
-    let bonusTimer;    // countdown to show bonus
-    let showingBonus;
+    let maze, player, enemies, flags, smokes, fuel, smokeCount, level, flagsLeft, frameCount, keys;
+    let cameraX, cameraY, roundBonus, bonusTimer, showingBonus;
 
-    // --- Maze generation (randomized DFS) ---
     function generateMaze(cols, rows) {
-      // Start with all walls
       const m = [];
       for (let r = 0; r < rows; r++) {
         m[r] = [];
@@ -136,12 +152,9 @@
           m[r][c] = 0;
         }
       }
-
-      // Carve paths using randomized DFS on odd cells
       function carve(cx, cy) {
         m[cy][cx] = 1;
         const dirs = [0, 1, 2, 3];
-        // Shuffle directions
         for (let i = dirs.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
@@ -150,51 +163,38 @@
           const nx = cx + DX[d] * 2;
           const ny = cy + DY[d] * 2;
           if (nx >= 1 && nx < cols - 1 && ny >= 1 && ny < rows - 1 && m[ny][nx] === 0) {
-            m[cy + DY[d]][cx + DX[d]] = 1; // carve wall between
+            m[cy + DY[d]][cx + DX[d]] = 1;
             carve(nx, ny);
           }
         }
       }
-
       carve(1, 1);
-
-      // Add extra passages to make maze more open (remove some random walls)
       const extraPassages = Math.floor(cols * rows * 0.08);
       for (let i = 0; i < extraPassages; i++) {
         const rx = 1 + Math.floor(Math.random() * (cols - 2));
         const ry = 1 + Math.floor(Math.random() * (rows - 2));
         if (m[ry][rx] === 0) {
-          // Check if at least 2 adjacent cells are paths
           let adj = 0;
           if (ry > 0 && m[ry - 1][rx] === 1) adj++;
           if (ry < rows - 1 && m[ry + 1][rx] === 1) adj++;
           if (rx > 0 && m[ry][rx - 1] === 1) adj++;
           if (rx < cols - 1 && m[ry][rx + 1] === 1) adj++;
-          if (adj >= 2) {
-            m[ry][rx] = 1;
-          }
+          if (adj >= 2) m[ry][rx] = 1;
         }
       }
-
       return m;
     }
 
-    // Check if a world-coordinate rectangle is on a path (not colliding with walls)
     function isPassable(wx, wy, size) {
       const margin = 2;
-      const x1 = wx + margin;
-      const y1 = wy + margin;
-      const x2 = wx + size - margin - 1;
-      const y2 = wy + size - margin - 1;
-
-      // Check four corners
+      const x1 = wx + margin, y1 = wy + margin;
+      const x2 = wx + size - margin - 1, y2 = wy + size - margin - 1;
       const corners = [
         [Math.floor(x1 / TILE), Math.floor(y1 / TILE)],
         [Math.floor(x2 / TILE), Math.floor(y1 / TILE)],
         [Math.floor(x1 / TILE), Math.floor(y2 / TILE)],
         [Math.floor(x2 / TILE), Math.floor(y2 / TILE)]
       ];
-
       for (const [col, row] of corners) {
         if (col < 0 || col >= MAZE_COLS || row < 0 || row >= MAZE_ROWS) return false;
         if (maze[row][col] === 0) return false;
@@ -202,7 +202,6 @@
       return true;
     }
 
-    // Find a random passable cell, returning its center in world coords
     function randomPassablePos() {
       let attempts = 0;
       while (attempts < 1000) {
@@ -216,63 +215,46 @@
       return { x: TILE + 4, y: TILE + 4 };
     }
 
-    // BFS-based pathfinding for enemies
     function bfsDirection(fromX, fromY, toX, toY) {
       const fc = Math.floor((fromX + CAR_SIZE / 2) / TILE);
       const fr = Math.floor((fromY + CAR_SIZE / 2) / TILE);
       const tc = Math.floor((toX + CAR_SIZE / 2) / TILE);
       const tr = Math.floor((toY + CAR_SIZE / 2) / TILE);
-
       if (fc === tc && fr === tr) return -1;
-
       const visited = new Set();
       const queue = [];
-      // Each entry: [col, row, firstDir]
       for (let d = 0; d < 4; d++) {
-        const nc = fc + DX[d];
-        const nr = fr + DY[d];
+        const nc = fc + DX[d], nr = fr + DY[d];
         if (nc >= 0 && nc < MAZE_COLS && nr >= 0 && nr < MAZE_ROWS && maze[nr][nc] === 1) {
           if (nc === tc && nr === tr) return d;
           const key = nr * MAZE_COLS + nc;
-          if (!visited.has(key)) {
-            visited.add(key);
-            queue.push([nc, nr, d]);
-          }
+          if (!visited.has(key)) { visited.add(key); queue.push([nc, nr, d]); }
         }
       }
-
       let idx = 0;
       while (idx < queue.length && idx < 2000) {
         const [c, r, firstDir] = queue[idx++];
         for (let d = 0; d < 4; d++) {
-          const nc = c + DX[d];
-          const nr = r + DY[d];
+          const nc = c + DX[d], nr = r + DY[d];
           if (nc >= 0 && nc < MAZE_COLS && nr >= 0 && nr < MAZE_ROWS && maze[nr][nc] === 1) {
             if (nc === tc && nr === tr) return firstDir;
             const key = nr * MAZE_COLS + nc;
-            if (!visited.has(key)) {
-              visited.add(key);
-              queue.push([nc, nr, firstDir]);
-            }
+            if (!visited.has(key)) { visited.add(key); queue.push([nc, nr, firstDir]); }
           }
         }
       }
-
-      // Fallback: random passable direction
       const dirs = [0, 1, 2, 3];
       for (let i = dirs.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
       }
       for (const d of dirs) {
-        const nc = fc + DX[d];
-        const nr = fr + DY[d];
+        const nc = fc + DX[d], nr = fr + DY[d];
         if (nc >= 0 && nc < MAZE_COLS && nr >= 0 && nr < MAZE_ROWS && maze[nr][nc] === 1) return d;
       }
       return 0;
     }
 
-    // --- Init ---
     function init() {
       score = 0;
       scoreEl.textContent = '0';
@@ -289,25 +271,17 @@
     function setupLevel() {
       maze = generateMaze(MAZE_COLS, MAZE_ROWS);
       player = { ...randomPassablePos(), dir: 1, moving: false };
-
-      // Place flags
       const numFlags = 8 + level * 2;
       flags = [];
       for (let i = 0; i < numFlags; i++) {
-        let pos;
-        let tooClose = true;
-        let attempts = 0;
+        let pos, tooClose = true, attempts = 0;
         while (tooClose && attempts < 100) {
           pos = randomPassablePos();
           tooClose = false;
-          // Don't place too close to player
-          const dx = pos.x - player.x;
-          const dy = pos.y - player.y;
+          const dx = pos.x - player.x, dy = pos.y - player.y;
           if (Math.sqrt(dx * dx + dy * dy) < TILE * 5) tooClose = true;
-          // Don't place too close to other flags
           for (const f of flags) {
-            const fdx = pos.x - f.x;
-            const fdy = pos.y - f.y;
+            const fdx = pos.x - f.x, fdy = pos.y - f.y;
             if (Math.sqrt(fdx * fdx + fdy * fdy) < TILE * 3) { tooClose = true; break; }
           }
           attempts++;
@@ -315,18 +289,13 @@
         flags.push({ x: pos.x, y: pos.y, collected: false });
       }
       flagsLeft = flags.length;
-
-      // Place enemies
       const numEnemies = 2 + Math.floor(level * 1.5);
       enemies = [];
       for (let i = 0; i < numEnemies; i++) {
-        let pos;
-        let tooClose = true;
-        let attempts = 0;
+        let pos, tooClose = true, attempts = 0;
         while (tooClose && attempts < 100) {
           pos = randomPassablePos();
-          const dx = pos.x - player.x;
-          const dy = pos.y - player.y;
+          const dx = pos.x - player.x, dy = pos.y - player.y;
           tooClose = Math.sqrt(dx * dx + dy * dy) < TILE * 8;
           attempts++;
         }
@@ -334,11 +303,9 @@
           x: pos.x, y: pos.y,
           dir: Math.floor(Math.random() * 4),
           speed: ENEMY_SPEED_BASE + level * 0.15 + Math.random() * 0.3,
-          moveTimer: 0,
-          slowed: 0
+          moveTimer: 0, slowed: 0
         });
       }
-
       smokes = [];
       fuel = FUEL_MAX;
       smokeCount = SMOKE_MAX;
@@ -346,8 +313,6 @@
       roundBonus = 0;
       bonusTimer = 0;
       showingBonus = false;
-
-      // Initialize camera
       cameraX = player.x + CAR_SIZE / 2 - W / 2;
       cameraY = player.y + CAR_SIZE / 2 - H / 2;
       cameraX = Math.max(0, Math.min(MAZE_W - W, cameraX));
@@ -368,7 +333,6 @@
     }
 
     function roundComplete() {
-      // Bonus for completing all flags
       roundBonus = 1000 * level;
       score += roundBonus;
       scoreEl.textContent = score;
@@ -379,241 +343,144 @@
       bonusTimer = 120;
     }
 
-    // --- Update ---
     function update() {
       frameCount++;
-
-      // Handle bonus display between rounds
       if (showingBonus) {
         bonusTimer--;
         if (bonusTimer <= 0) showingBonus = false;
         return;
       }
-
-      // Player input
       let wantDir = -1;
       if (keys['ArrowUp']) wantDir = 0;
       else if (keys['ArrowRight']) wantDir = 1;
       else if (keys['ArrowDown']) wantDir = 2;
       else if (keys['ArrowLeft']) wantDir = 3;
 
-      // Try to move player in desired direction
       player.moving = false;
       if (wantDir >= 0) {
         const nx = player.x + DX[wantDir] * CAR_SPEED;
         const ny = player.y + DY[wantDir] * CAR_SPEED;
         if (isPassable(nx, ny, CAR_SIZE)) {
-          player.x = nx;
-          player.y = ny;
-          player.dir = wantDir;
-          player.moving = true;
+          player.x = nx; player.y = ny;
+          player.dir = wantDir; player.moving = true;
         } else {
-          // Try continuing in current direction if desired is blocked
           const cx = player.x + DX[player.dir] * CAR_SPEED;
           const cy = player.y + DY[player.dir] * CAR_SPEED;
           if (isPassable(cx, cy, CAR_SIZE)) {
-            player.x = cx;
-            player.y = cy;
-            player.moving = true;
+            player.x = cx; player.y = cy; player.moving = true;
           }
         }
       }
 
-      // Fuel drain
-      if (player.moving) {
-        fuel -= FUEL_DRAIN;
-      } else {
-        fuel -= FUEL_DRAIN * 0.2; // idle drain
-      }
-      if (fuel <= 0) {
-        fuel = 0;
-        gameOver();
-        return;
-      }
+      if (player.moving) fuel -= FUEL_DRAIN;
+      else fuel -= FUEL_DRAIN * 0.2;
+      if (fuel <= 0) { fuel = 0; gameOver(); return; }
 
-      // Check flag collection
-      const pcx = player.x + CAR_SIZE / 2;
-      const pcy = player.y + CAR_SIZE / 2;
+      const pcx = player.x + CAR_SIZE / 2, pcy = player.y + CAR_SIZE / 2;
       for (const flag of flags) {
         if (flag.collected) continue;
-        const dx = pcx - (flag.x + FLAG_SIZE / 2);
-        const dy = pcy - (flag.y + FLAG_SIZE / 2);
+        const dx = pcx - (flag.x + FLAG_SIZE / 2), dy = pcy - (flag.y + FLAG_SIZE / 2);
         if (Math.abs(dx) < (CAR_SIZE + FLAG_SIZE) / 2 && Math.abs(dy) < (CAR_SIZE + FLAG_SIZE) / 2) {
           flag.collected = true;
           flagsLeft--;
-          // Special flag: first flag worth less, gets more valuable
           const flagValue = 100 + (flags.length - flagsLeft) * 50;
           score += flagValue;
           scoreEl.textContent = score;
           if (score > best) { best = score; bestEl.textContent = best; }
-
-          if (flagsLeft <= 0) {
-            roundComplete();
-            return;
-          }
+          if (flagsLeft <= 0) { roundComplete(); return; }
         }
       }
 
-      // Update smokes
       for (let i = smokes.length - 1; i >= 0; i--) {
         smokes[i].timer--;
-        if (smokes[i].timer <= 0) {
-          smokes.splice(i, 1);
-        }
+        if (smokes[i].timer <= 0) smokes.splice(i, 1);
       }
 
-      // Update enemies
       for (const enemy of enemies) {
-        // Check if slowed by smoke
         let speedMult = 1;
-        if (enemy.slowed > 0) {
-          enemy.slowed--;
-          speedMult = SMOKE_SLOW_FACTOR;
-        }
-
-        // Check for smoke collision
+        if (enemy.slowed > 0) { enemy.slowed--; speedMult = SMOKE_SLOW_FACTOR; }
         for (const smoke of smokes) {
-          const sdx = (enemy.x + CAR_SIZE / 2) - smoke.x;
-          const sdy = (enemy.y + CAR_SIZE / 2) - smoke.y;
+          const sdx = (enemy.x + CAR_SIZE / 2) - smoke.x, sdy = (enemy.y + CAR_SIZE / 2) - smoke.y;
           if (Math.sqrt(sdx * sdx + sdy * sdy) < SMOKE_RADIUS + CAR_SIZE / 2) {
-            enemy.slowed = 30; // slowed for 30 frames
-            speedMult = SMOKE_SLOW_FACTOR;
+            enemy.slowed = 30; speedMult = SMOKE_SLOW_FACTOR;
           }
         }
-
-        // Pathfind toward player (recalculate every ~30 frames or when stuck)
         enemy.moveTimer++;
         if (enemy.moveTimer >= 20 + Math.floor(Math.random() * 15)) {
           enemy.moveTimer = 0;
           const newDir = bfsDirection(enemy.x, enemy.y, player.x, player.y);
           if (newDir >= 0) enemy.dir = newDir;
         }
-
-        // Move enemy
         const espeed = enemy.speed * speedMult;
-        const enx = enemy.x + DX[enemy.dir] * espeed;
-        const eny = enemy.y + DY[enemy.dir] * espeed;
+        const enx = enemy.x + DX[enemy.dir] * espeed, eny = enemy.y + DY[enemy.dir] * espeed;
         if (isPassable(enx, eny, CAR_SIZE)) {
-          enemy.x = enx;
-          enemy.y = eny;
+          enemy.x = enx; enemy.y = eny;
         } else {
-          // Try alternative directions
-          enemy.moveTimer = 999; // force recalc next frame
+          enemy.moveTimer = 999;
           const dirs = [0, 1, 2, 3];
           for (let i = dirs.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
           }
           for (const d of dirs) {
-            const ax = enemy.x + DX[d] * espeed;
-            const ay = enemy.y + DY[d] * espeed;
+            const ax = enemy.x + DX[d] * espeed, ay = enemy.y + DY[d] * espeed;
             if (isPassable(ax, ay, CAR_SIZE)) {
-              enemy.x = ax;
-              enemy.y = ay;
-              enemy.dir = d;
-              break;
+              enemy.x = ax; enemy.y = ay; enemy.dir = d; break;
             }
           }
         }
-
-        // Check collision with player
-        const edx = (enemy.x + CAR_SIZE / 2) - pcx;
-        const edy = (enemy.y + CAR_SIZE / 2) - pcy;
-        if (Math.abs(edx) < CAR_SIZE * 0.8 && Math.abs(edy) < CAR_SIZE * 0.8) {
-          gameOver();
-          return;
-        }
+        const edx = (enemy.x + CAR_SIZE / 2) - pcx, edy = (enemy.y + CAR_SIZE / 2) - pcy;
+        if (Math.abs(edx) < CAR_SIZE * 0.8 && Math.abs(edy) < CAR_SIZE * 0.8) { gameOver(); return; }
       }
 
-      // Update camera
       cameraX = player.x + CAR_SIZE / 2 - W / 2;
       cameraY = player.y + CAR_SIZE / 2 - H / 2;
       cameraX = Math.max(0, Math.min(MAZE_W - W, cameraX));
       cameraY = Math.max(0, Math.min(MAZE_H - H, cameraY));
-
-      // Update gameData for ML
-      window.gameData = {
-        playerX: player.x, playerY: player.y, playerDir: player.dir,
-        fuel: fuel, flagsLeft: flagsLeft, level: level,
-        enemies: enemies.map(e => ({ x: e.x, y: e.y }))
-      };
     }
 
-    // --- Draw ---
     function draw() {
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
-
-      if (gameState === 'waiting') {
-        drawMazePreview();
-        return;
-      }
-
+      if (gameState === 'waiting') { drawMazePreview(); return; }
       ctx.save();
       ctx.translate(-cameraX, -cameraY);
-
-      drawMaze();
-      drawFlags();
-      drawSmokes();
-      drawEnemies();
-      drawPlayer();
-
+      drawMaze(); drawFlags(); drawSmokes(); drawEnemies(); drawPlayer();
       ctx.restore();
-
-      // HUD
-      drawFuelGauge();
-      drawSmokeCounter();
-      drawRadar();
-      drawLevelIndicator();
-
-      if (showingBonus) {
-        drawBonusText();
-      }
+      drawFuelGauge(); drawSmokeCounter(); drawRadar(); drawLevelIndicator();
+      if (showingBonus) drawBonusText();
     }
 
     function drawMazePreview() {
-      // Draw a small portion of maze as preview
       const scale = 2;
       ctx.save();
       ctx.translate(W / 2 - MAZE_COLS * scale / 2, H / 2 - MAZE_ROWS * scale / 2);
       for (let r = 0; r < MAZE_ROWS; r++) {
         for (let c = 0; c < MAZE_COLS; c++) {
-          if (maze[r][c] === 0) {
-            ctx.fillStyle = '#16213e';
-            ctx.fillRect(c * scale, r * scale, scale, scale);
-          } else {
-            ctx.fillStyle = '#0f3460';
-            ctx.fillRect(c * scale, r * scale, scale, scale);
-          }
+          ctx.fillStyle = maze[r][c] === 0 ? '#16213e' : '#0f3460';
+          ctx.fillRect(c * scale, r * scale, scale, scale);
         }
       }
       ctx.restore();
     }
 
     function drawMaze() {
-      // Only draw visible tiles for performance
       const startCol = Math.max(0, Math.floor(cameraX / TILE));
       const endCol = Math.min(MAZE_COLS, Math.ceil((cameraX + W) / TILE) + 1);
       const startRow = Math.max(0, Math.floor(cameraY / TILE));
       const endRow = Math.min(MAZE_ROWS, Math.ceil((cameraY + H) / TILE) + 1);
-
       for (let r = startRow; r < endRow; r++) {
         for (let c = startCol; c < endCol; c++) {
-          const x = c * TILE;
-          const y = r * TILE;
+          const x = c * TILE, y = r * TILE;
           if (maze[r][c] === 0) {
-            // Wall
             ctx.fillStyle = '#16213e';
             ctx.fillRect(x, y, TILE, TILE);
-            // Wall accent border
             ctx.fillStyle = '#0f3460';
             ctx.fillRect(x, y, TILE, 1);
             ctx.fillRect(x, y, 1, TILE);
           } else {
-            // Path
             ctx.fillStyle = '#0d1b2a';
             ctx.fillRect(x, y, TILE, TILE);
-            // Subtle grid
             ctx.fillStyle = '#111d30';
             ctx.fillRect(x, y, TILE, 1);
             ctx.fillRect(x, y, 1, TILE);
@@ -623,100 +490,52 @@
     }
 
     function drawPlayer() {
-      const x = player.x;
-      const y = player.y;
-      const cx = x + CAR_SIZE / 2;
-      const cy = y + CAR_SIZE / 2;
-
-      // Glow
-      ctx.shadowColor = '#4fd';
-      ctx.shadowBlur = 14;
-
-      // Car body
+      const cx = player.x + CAR_SIZE / 2, cy = player.y + CAR_SIZE / 2;
+      ctx.shadowColor = '#4fd'; ctx.shadowBlur = 14;
       ctx.fillStyle = '#4fd';
-      ctx.save();
-      ctx.translate(cx, cy);
-      // Rotate based on direction
-      ctx.rotate(player.dir * Math.PI / 2);
-
-      // Car shape (pointing up)
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(player.dir * Math.PI / 2);
       ctx.beginPath();
-      ctx.moveTo(0, -CAR_SIZE / 2);        // front
+      ctx.moveTo(0, -CAR_SIZE / 2);
       ctx.lineTo(CAR_SIZE / 3, CAR_SIZE / 3);
       ctx.lineTo(-CAR_SIZE / 3, CAR_SIZE / 3);
-      ctx.closePath();
-      ctx.fill();
-
-      // Body rectangle
+      ctx.closePath(); ctx.fill();
       ctx.fillRect(-CAR_SIZE / 3, -CAR_SIZE / 4, CAR_SIZE * 2 / 3, CAR_SIZE / 2);
-
       ctx.restore();
-
-      // Exhaust puff when moving
       if (player.moving && frameCount % 4 < 2) {
-        const ex = cx - DX[player.dir] * CAR_SIZE * 0.6;
-        const ey = cy - DY[player.dir] * CAR_SIZE * 0.6;
-        ctx.fillStyle = 'rgba(150, 150, 150, 0.5)';
-        ctx.shadowBlur = 0;
-        ctx.beginPath();
-        ctx.arc(ex, ey, 3, 0, Math.PI * 2);
-        ctx.fill();
+        const ex = cx - DX[player.dir] * CAR_SIZE * 0.6, ey = cy - DY[player.dir] * CAR_SIZE * 0.6;
+        ctx.fillStyle = 'rgba(150, 150, 150, 0.5)'; ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();
       }
-
       ctx.shadowBlur = 0;
     }
 
     function drawEnemies() {
       for (const enemy of enemies) {
-        const cx = enemy.x + CAR_SIZE / 2;
-        const cy = enemy.y + CAR_SIZE / 2;
-
-        ctx.shadowColor = '#f44';
-        ctx.shadowBlur = 10;
+        const cx = enemy.x + CAR_SIZE / 2, cy = enemy.y + CAR_SIZE / 2;
+        ctx.shadowColor = '#f44'; ctx.shadowBlur = 10;
         ctx.fillStyle = enemy.slowed > 0 ? '#a44' : '#f44';
-
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(enemy.dir * Math.PI / 2);
-
-        // Enemy car shape
+        ctx.save(); ctx.translate(cx, cy); ctx.rotate(enemy.dir * Math.PI / 2);
         ctx.beginPath();
         ctx.moveTo(0, -CAR_SIZE / 2);
         ctx.lineTo(CAR_SIZE / 3, CAR_SIZE / 3);
         ctx.lineTo(-CAR_SIZE / 3, CAR_SIZE / 3);
-        ctx.closePath();
-        ctx.fill();
+        ctx.closePath(); ctx.fill();
         ctx.fillRect(-CAR_SIZE / 3, -CAR_SIZE / 4, CAR_SIZE * 2 / 3, CAR_SIZE / 2);
-
-        ctx.restore();
-        ctx.shadowBlur = 0;
+        ctx.restore(); ctx.shadowBlur = 0;
       }
     }
 
     function drawFlags() {
       for (const flag of flags) {
         if (flag.collected) continue;
-        const fx = flag.x + FLAG_SIZE / 2;
-        const fy = flag.y + FLAG_SIZE / 2;
-
-        // Flag pole
-        ctx.strokeStyle = '#aaa';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(fx, fy + FLAG_SIZE / 2);
-        ctx.lineTo(fx, fy - FLAG_SIZE / 2);
-        ctx.stroke();
-
-        // Flag triangle
-        ctx.shadowColor = '#ff0';
-        ctx.shadowBlur = 8;
-        ctx.fillStyle = '#ff0';
+        const fx = flag.x + FLAG_SIZE / 2, fy = flag.y + FLAG_SIZE / 2;
+        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(fx, fy + FLAG_SIZE / 2); ctx.lineTo(fx, fy - FLAG_SIZE / 2); ctx.stroke();
+        ctx.shadowColor = '#ff0'; ctx.shadowBlur = 8; ctx.fillStyle = '#ff0';
         ctx.beginPath();
         ctx.moveTo(fx, fy - FLAG_SIZE / 2);
         ctx.lineTo(fx + FLAG_SIZE * 0.7, fy - FLAG_SIZE / 4);
-        ctx.lineTo(fx, fy);
-        ctx.closePath();
-        ctx.fill();
+        ctx.lineTo(fx, fy); ctx.closePath(); ctx.fill();
         ctx.shadowBlur = 0;
       }
     }
@@ -726,84 +545,41 @@
         const alpha = Math.min(0.6, smoke.timer / SMOKE_DURATION);
         const r = SMOKE_RADIUS * (1 + (1 - smoke.timer / SMOKE_DURATION) * 0.5);
         ctx.fillStyle = `rgba(180, 180, 180, ${alpha})`;
-        ctx.beginPath();
-        ctx.arc(smoke.x, smoke.y, r, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Inner lighter circle
+        ctx.beginPath(); ctx.arc(smoke.x, smoke.y, r, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = `rgba(220, 220, 220, ${alpha * 0.5})`;
-        ctx.beginPath();
-        ctx.arc(smoke.x, smoke.y, r * 0.5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(smoke.x, smoke.y, r * 0.5, 0, Math.PI * 2); ctx.fill();
       }
     }
 
     function drawFuelGauge() {
-      const barW = 120;
-      const barH = 10;
-      const x = 10;
-      const y = H - 24;
+      const barW = 120, barH = 10, x = 10, y = H - 24;
       const fuelPct = fuel / FUEL_MAX;
-
-      // Label
-      ctx.fillStyle = '#aaa';
-      ctx.font = '10px Courier New';
-      ctx.fillText('FUEL', x, y - 3);
-
-      // Background
-      ctx.fillStyle = '#16213e';
-      ctx.fillRect(x, y, barW, barH);
-
-      // Fill
+      ctx.fillStyle = '#aaa'; ctx.font = '10px Courier New'; ctx.fillText('FUEL', x, y - 3);
+      ctx.fillStyle = '#16213e'; ctx.fillRect(x, y, barW, barH);
       const fuelColor = fuelPct > 0.3 ? '#4fd' : (fuelPct > 0.15 ? '#f80' : '#f44');
-      ctx.shadowColor = fuelColor;
-      ctx.shadowBlur = 6;
-      ctx.fillStyle = fuelColor;
-      ctx.fillRect(x, y, barW * fuelPct, barH);
+      ctx.shadowColor = fuelColor; ctx.shadowBlur = 6;
+      ctx.fillStyle = fuelColor; ctx.fillRect(x, y, barW * fuelPct, barH);
       ctx.shadowBlur = 0;
-
-      // Border
-      ctx.strokeStyle = '#0f3460';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, y, barW, barH);
+      ctx.strokeStyle = '#0f3460'; ctx.lineWidth = 1; ctx.strokeRect(x, y, barW, barH);
     }
 
     function drawSmokeCounter() {
-      const x = 140;
-      const y = H - 24;
-
-      ctx.fillStyle = '#aaa';
-      ctx.font = '10px Courier New';
-      ctx.fillText('SMOKE', x, y - 3);
-
-      // Draw smoke pips
+      const x = 140, y = H - 24;
+      ctx.fillStyle = '#aaa'; ctx.font = '10px Courier New'; ctx.fillText('SMOKE', x, y - 3);
       for (let i = 0; i < SMOKE_MAX; i++) {
         ctx.fillStyle = i < smokeCount ? 'rgba(180,180,180,0.8)' : '#16213e';
-        ctx.beginPath();
-        ctx.arc(x + 6 + i * 12, y + 5, 4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#0f3460';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        ctx.beginPath(); ctx.arc(x + 6 + i * 12, y + 5, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#0f3460'; ctx.lineWidth = 1; ctx.stroke();
       }
     }
 
     function drawRadar() {
-      const rx = W - RADAR_SIZE - RADAR_MARGIN;
-      const ry = RADAR_MARGIN;
-
-      // Background
+      const rx = W - RADAR_SIZE - RADAR_MARGIN, ry = RADAR_MARGIN;
       ctx.fillStyle = 'rgba(13, 27, 42, 0.9)';
       ctx.fillRect(rx, ry, RADAR_SIZE, RADAR_SIZE);
-      ctx.strokeStyle = '#0f3460';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#0f3460'; ctx.lineWidth = 1;
       ctx.strokeRect(rx, ry, RADAR_SIZE, RADAR_SIZE);
-
-      // Scale factors
-      const sx = RADAR_SIZE / MAZE_W;
-      const sy = RADAR_SIZE / MAZE_H;
-
-      // Draw maze outline (very small)
+      const sx = RADAR_SIZE / MAZE_W, sy = RADAR_SIZE / MAZE_H;
       ctx.fillStyle = '#1a2a3e';
       for (let r = 0; r < MAZE_ROWS; r += 2) {
         for (let c = 0; c < MAZE_COLS; c += 2) {
@@ -813,73 +589,43 @@
           }
         }
       }
-
-      // Draw flags
       for (const flag of flags) {
         if (flag.collected) continue;
-        const fx = rx + (flag.x + FLAG_SIZE / 2) * sx;
-        const fy = ry + (flag.y + FLAG_SIZE / 2) * sy;
-        ctx.fillStyle = '#ff0';
-        ctx.fillRect(fx - 1, fy - 1, 3, 3);
+        const fx = rx + (flag.x + FLAG_SIZE / 2) * sx, fy = ry + (flag.y + FLAG_SIZE / 2) * sy;
+        ctx.fillStyle = '#ff0'; ctx.fillRect(fx - 1, fy - 1, 3, 3);
       }
-
-      // Draw enemies
       for (const enemy of enemies) {
-        const ex = rx + (enemy.x + CAR_SIZE / 2) * sx;
-        const ey = ry + (enemy.y + CAR_SIZE / 2) * sy;
-        ctx.fillStyle = '#f44';
-        ctx.fillRect(ex - 1, ey - 1, 3, 3);
+        const ex = rx + (enemy.x + CAR_SIZE / 2) * sx, ey = ry + (enemy.y + CAR_SIZE / 2) * sy;
+        ctx.fillStyle = '#f44'; ctx.fillRect(ex - 1, ey - 1, 3, 3);
       }
-
-      // Draw player (blinking)
       if (frameCount % 20 < 15) {
-        const px = rx + (player.x + CAR_SIZE / 2) * sx;
-        const py = ry + (player.y + CAR_SIZE / 2) * sy;
-        ctx.fillStyle = '#4fd';
-        ctx.shadowColor = '#4fd';
-        ctx.shadowBlur = 4;
-        ctx.fillRect(px - 2, py - 2, 4, 4);
-        ctx.shadowBlur = 0;
+        const px = rx + (player.x + CAR_SIZE / 2) * sx, py = ry + (player.y + CAR_SIZE / 2) * sy;
+        ctx.fillStyle = '#4fd'; ctx.shadowColor = '#4fd'; ctx.shadowBlur = 4;
+        ctx.fillRect(px - 2, py - 2, 4, 4); ctx.shadowBlur = 0;
       }
-
-      // Radar label
-      ctx.fillStyle = '#aaa';
-      ctx.font = '9px Courier New';
-      ctx.fillText('RADAR', rx + 2, ry + RADAR_SIZE + 10);
+      ctx.fillStyle = '#aaa'; ctx.font = '9px Courier New'; ctx.fillText('RADAR', rx + 2, ry + RADAR_SIZE + 10);
     }
 
     function drawLevelIndicator() {
-      ctx.fillStyle = '#4fd';
-      ctx.font = '12px Courier New';
-      ctx.fillText(`LVL ${level}`, 10, 20);
-      ctx.fillStyle = '#aaa';
-      ctx.fillText(`Flags: ${flagsLeft}/${flags.length}`, 10, 36);
+      ctx.fillStyle = '#4fd'; ctx.font = '12px Courier New'; ctx.fillText(`LVL ${level}`, 10, 20);
+      ctx.fillStyle = '#aaa'; ctx.fillText(`Flags: ${flagsLeft}/${flags.length}`, 10, 36);
     }
 
     function drawBonusText() {
-      ctx.fillStyle = '#4fd';
-      ctx.shadowColor = '#4fd';
-      ctx.shadowBlur = 20;
-      ctx.font = 'bold 28px Courier New';
-      ctx.textAlign = 'center';
+      ctx.fillStyle = '#4fd'; ctx.shadowColor = '#4fd'; ctx.shadowBlur = 20;
+      ctx.font = 'bold 28px Courier New'; ctx.textAlign = 'center';
       ctx.fillText(`ROUND ${level - 1} CLEAR!`, W / 2, H / 2 - 20);
-      ctx.font = '18px Courier New';
-      ctx.fillStyle = '#ff0';
-      ctx.shadowColor = '#ff0';
+      ctx.font = '18px Courier New'; ctx.fillStyle = '#ff0'; ctx.shadowColor = '#ff0';
       ctx.fillText(`BONUS +${roundBonus}`, W / 2, H / 2 + 15);
-      ctx.textAlign = 'left';
-      ctx.shadowBlur = 0;
+      ctx.textAlign = 'left'; ctx.shadowBlur = 0;
     }
 
-    // --- Game loop ---
     function loop() {
       if (gameState !== 'playing') return;
-      update();
-      draw();
+      update(); draw();
       requestAnimationFrame(loop);
     }
 
-    // --- Drop smoke ---
     function dropSmoke() {
       if (smokeCount <= 0 || fuel < FUEL_SMOKE_COST) return;
       smokeCount--;
@@ -889,36 +635,31 @@
       smokes.push({ x: sx, y: sy, timer: SMOKE_DURATION });
     }
 
-    // --- Input ---
     document.addEventListener('keydown', (e) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
-        e.preventDefault();
-      }
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
       keys[e.key] = true;
-
-      if (gameState === 'waiting') {
-        start();
-        return;
-      }
-
-      if (gameState === 'over') {
-        init();
-        return;
-      }
-
-      if (gameState === 'playing') {
-        if (e.key === ' ') {
-          dropSmoke();
-        }
-      }
+      if (gameState === 'waiting') { start(); return; }
+      if (gameState === 'over') { init(); return; }
+      if (gameState === 'playing' && e.key === ' ') dropSmoke();
     });
 
-    document.addEventListener('keyup', (e) => {
-      keys[e.key] = false;
-    });
+    document.addEventListener('keyup', (e) => { keys[e.key] = false; });
 
     init();
   </script>
-  <script src="../recorder.js?v=3"></script>
+  <script>
+    const kpMap = {
+      ArrowUp: 'kp-up',
+      ArrowDown: 'kp-down',
+      ArrowLeft: 'kp-left',
+      ArrowRight: 'kp-right'
+    };
+    document.addEventListener('keydown', (e) => {
+      if (kpMap[e.key]) document.getElementById(kpMap[e.key]).classList.add('active');
+    });
+    document.addEventListener('keyup', (e) => {
+      if (kpMap[e.key]) document.getElementById(kpMap[e.key]).classList.remove('active');
+    });
+  </script>
 </body>
 </html>

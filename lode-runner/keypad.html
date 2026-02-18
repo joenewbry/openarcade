@@ -54,6 +54,25 @@
     }
     .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
     .overlay p { font-size: 1rem; color: #aaa; }
+    .game-row { display: flex; gap: 20px; align-items: flex-start; }
+    .keypad { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 20px; }
+    .keypad-row { display: flex; gap: 4px; }
+    .kp-key {
+      width: 44px; height: 44px;
+      background: #16213e;
+      border: 2px solid #0f3460;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; color: #555;
+      transition: background 0.06s, border-color 0.06s, color 0.06s, box-shadow 0.06s;
+    }
+    .kp-key.active {
+      background: rgba(238, 170, 68, 0.15);
+      border-color: #ea4;
+      color: #ea4;
+      box-shadow: 0 0 12px rgba(238, 170, 68, 0.4);
+    }
+    .kp-spacer { width: 44px; height: 44px; }
   </style>
 </head>
 <body>
@@ -65,11 +84,25 @@
     <div>Score: <span id="score">0</span></div>
     <div>Best: <span id="best">0</span></div>
   </div>
-  <div style="position: relative; display: inline-block;">
-    <canvas id="game" width="500" height="400"></canvas>
-    <div class="overlay" id="overlay" style="width:500px;height:400px;">
-      <h2 id="overlayTitle">LODE RUNNER</h2>
-      <p id="overlayText">Press SPACE to start</p>
+  <div class="game-row">
+    <div style="position: relative; display: inline-block;">
+      <canvas id="game" width="500" height="400"></canvas>
+      <div class="overlay" id="overlay" style="width:500px;height:400px;">
+        <h2 id="overlayTitle">LODE RUNNER</h2>
+        <p id="overlayText">Press SPACE to start</p>
+      </div>
+    </div>
+    <div class="keypad">
+      <div class="keypad-row">
+        <div class="kp-spacer"></div>
+        <div class="kp-key" id="kp-up">&uarr;</div>
+        <div class="kp-spacer"></div>
+      </div>
+      <div class="keypad-row">
+        <div class="kp-key" id="kp-left">&larr;</div>
+        <div class="kp-key" id="kp-down">&darr;</div>
+        <div class="kp-key" id="kp-right">&rarr;</div>
+      </div>
     </div>
   </div>
 
@@ -100,11 +133,9 @@
     const HOLE_DIG_TIME = 300;
     const GUARD_TRAPPED_TIME = 3000;
 
-    // Build level strings programmatically to guarantee 25 chars
     function L(s) { return (s + '.........................').slice(0, 25); }
 
     const LEVELS = [
-      // Level 1: 1 guard, 7 gold
       [
         L('.........................'),
         L('.........................'),
@@ -123,7 +154,6 @@
         L('.....H...........H.....'),
         L('SSSSSSSSSSSSSSSSSSSSSSSSS')
       ],
-      // Level 2: 2 guards, 8 gold
       [
         L('.........................'),
         L('.........................'),
@@ -142,7 +172,6 @@
         L('..H..........H.......H.'),
         L('SSSSSSSSSSSSSSSSSSSSSSSSS')
       ],
-      // Level 3: 2 guards, 9 gold
       [
         L('.........................'),
         L('..G..........G..........'),
@@ -161,7 +190,6 @@
         L('..........H......H.....'),
         L('SSSSSSSSSSSSSSSSSSSSSSSSS')
       ],
-      // Level 4: 3 guards, 9 gold
       [
         L('.........................'),
         L('.G..G...G...G....G......'),
@@ -180,7 +208,6 @@
         L('..H...H.....H...H......'),
         L('SSSSSSSSSSSSSSSSSSSSSSSSS')
       ],
-      // Level 5: 4 guards, 15 gold
       [
         L('.........................'),
         L('.G.G.G.G.G..G.G.G.G.G..'),
@@ -244,7 +271,6 @@
     }
 
     function isSolid(tile) { return tile === BRICK || tile === SOLID; }
-
     function isLadder(tile) { return tile === LADDER || tile === ESCAPE_LADDER; }
 
     function hasSupport(px, py) {
@@ -260,11 +286,6 @@
       return false;
     }
 
-    function tileAt(px, py) {
-      return getTile(Math.round(py / TH), Math.round(px / TW));
-    }
-
-    // ---- PLAYER ----
     function updatePlayer(dt) {
       if (player.dead) return;
       if (player.digTimer > 0) { player.digTimer -= dt * 1000; return; }
@@ -276,7 +297,6 @@
       const onBar = curTile === BAR;
       const support = hasSupport(player.x, player.y);
 
-      // Gravity
       if (!support && !onLad && !onBar) {
         player.falling = true;
         player.y += PLAYER_SPEED * 1.5 * dt;
@@ -325,7 +345,6 @@
       player.x = Math.max(0, Math.min((COLS - 1) * TW, player.x));
       player.y = Math.max(0, Math.min((ROWS - 1) * TH, player.y));
 
-      // Collect gold
       const gr = Math.round(player.y / TH);
       const gc = Math.round(player.x / TW);
       if (getTile(gr, gc) === GOLD) {
@@ -337,10 +356,8 @@
         if (goldCount >= totalGold) showEscapeLadder();
       }
 
-      // Level complete
       if (goldCount >= totalGold && gr <= 0) { levelComplete(); return; }
 
-      // Dig
       if (keys['z'] || keys['Z']) { keys['z'] = keys['Z'] = false; digHole(pc - 1, pr + 1); }
       if (keys['x'] || keys['X']) { keys['x'] = keys['X'] = false; digHole(pc + 1, pr + 1); }
     }
@@ -356,7 +373,6 @@
     function showEscapeLadder() {
       if (escapeLadderShown) return;
       escapeLadderShown = true;
-      // Find a ladder column near the top
       let col = 12;
       for (let c = 0; c < COLS; c++) {
         if (isLadder(getTile(2, c)) || isLadder(getTile(3, c))) { col = c; break; }
@@ -384,7 +400,6 @@
       parseLevel(level);
     }
 
-    // ---- GUARDS ----
     function updateGuards(dt) {
       for (const g of guards) {
         if (g.trapped > 0) {
@@ -487,7 +502,6 @@
         g.x = Math.max(0, Math.min((COLS - 1) * TW, g.x));
         g.y = Math.max(0, Math.min((ROWS - 1) * TH, g.y));
 
-        // Guard picks up gold
         const ggr = Math.round(g.y / TH), ggc = Math.round(g.x / TW);
         if (!g.hasGold && getTile(ggr, ggc) === GOLD) { grid[ggr][ggc] = EMPTY; g.hasGold = true; }
       }
@@ -542,7 +556,6 @@
       }
     }
 
-    // ---- DRAWING ----
     function draw() {
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
@@ -599,7 +612,6 @@
         }
       }
 
-      // Flashing holes about to refill
       for (const h of holes) {
         if (h.timer < 1000 && Math.floor(h.timer / 150) % 2 === 0) {
           ctx.fillStyle = 'rgba(107, 66, 38, 0.5)';
@@ -607,7 +619,6 @@
         }
       }
 
-      // Guards
       for (const g of guards) {
         drawChar(g.x, g.y, '#f44', g.dir, g.trapped > 0);
         if (g.hasGold) {
@@ -619,10 +630,8 @@
         }
       }
 
-      // Player
       if (!player.dead) drawChar(player.x, player.y, '#4cf', player.dir, false);
 
-      // HUD
       ctx.fillStyle = '#888';
       ctx.font = '10px Courier New';
       ctx.textAlign = 'left';
@@ -673,17 +682,11 @@
       ctx.shadowBlur = 0;
     }
 
-    // ---- LOOP ----
     function update(dt) {
       updatePlayer(dt);
       updateGuards(dt);
       updateHoles(dt);
       checkCollisions();
-      window.gameData = {
-        playerX: player.x, playerY: player.y, playerDead: player.dead,
-        guards: guards.map(g => ({ x: g.x, y: g.y, trapped: g.trapped > 0 })),
-        goldRemaining: totalGold - goldCount, level: level, lives: lives
-      };
     }
 
     function loop(ts) {
@@ -730,6 +733,19 @@
 
     init();
   </script>
-  <script src="../recorder.js?v=3"></script>
+  <script>
+    const kpMap = {
+      ArrowUp: 'kp-up',
+      ArrowDown: 'kp-down',
+      ArrowLeft: 'kp-left',
+      ArrowRight: 'kp-right'
+    };
+    document.addEventListener('keydown', (e) => {
+      if (kpMap[e.key]) document.getElementById(kpMap[e.key]).classList.add('active');
+    });
+    document.addEventListener('keyup', (e) => {
+      if (kpMap[e.key]) document.getElementById(kpMap[e.key]).classList.remove('active');
+    });
+  </script>
 </body>
 </html>

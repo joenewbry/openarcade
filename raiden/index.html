@@ -104,7 +104,7 @@
 
     // ── Game state variables ──────────────────────────────────
     let player, bullets, enemies, enemyBullets, particles, powerups, medals;
-    let keys, tick, lives, bombs, weaponType, weaponLevel;
+    let keys = {}, tick, lives, bombs, weaponType, weaponLevel;
     let stage, stageTimer, bossActive, boss;
     let scrollY, groundObjects;
     let bombFlash, invincibleTimer, fireTimer;
@@ -124,6 +124,14 @@
     function init() {
       score = 0;
       scoreEl.textContent = '0';
+      player = { x: W / 2 - PLAYER_W / 2, y: H - 80 };
+      bullets = []; enemies = []; enemyBullets = [];
+      particles = []; powerups = []; medals = [];
+      groundObjects = []; boss = null; bossActive = false;
+      scrollY = 0; bombFlash = 0; invincibleTimer = 0;
+      screenShake = 0; shakeTimer = 0; tick = 0;
+      lives = MAX_LIVES; bombs = MAX_BOMBS;
+      weaponType = WEAPON.VULCAN; weaponLevel = 1;
       gameState = 'waiting';
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'RAIDEN';
@@ -489,7 +497,8 @@
           spawnExplosion(boss.x + boss.w / 2, boss.y + boss.h / 2, '#fd0', 25);
           boss = null;
           bossActive = false;
-          stageTimer = STAGE_DURATION; // progress to next stage
+          stage++;
+          stageTimer = 0;
         }
       }
 

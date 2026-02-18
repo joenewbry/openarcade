@@ -86,13 +86,12 @@
     const overlayText = document.getElementById('overlayText');
 
     // --- Grid Constants ---
-    // Bubbles arranged in a hex grid. Even rows (0,2,4...) have COLS bubbles,
-    // odd rows have COLS-1 bubbles shifted right by half a diameter.
     const BUBBLE_R = 15;
     const BUBBLE_D = BUBBLE_R * 2;
-    const COLS = 12;
-    const ROW_H = BUBBLE_D * 0.866; // sqrt(3)/2 * diameter for hex packing
-    const GRID_LEFT = (W - COLS * BUBBLE_D) / 2 + BUBBLE_R; // x of first bubble center in even row
+    const COLS = 12;          // columns in a non-offset row
+    const COLS_ODD = COLS - 1; // columns in an offset (shifted) row
+    const ROW_H = BUBBLE_D * 0.866; // vertical spacing for hex packing
+    const GRID_LEFT = (W - COLS * BUBBLE_D) / 2 + BUBBLE_R;
     const GRID_TOP = BUBBLE_R + 8;
     const LAUNCHER_X = W / 2;
     const LAUNCHER_Y = H - 44;
@@ -100,55 +99,160 @@
     const MIN_ANGLE = Math.PI * 0.06;
     const MAX_ANGLE = Math.PI * 0.94;
     const AIM_SPEED = 0.028;
-    const DANGER_Y = LAUNCHER_Y - BUBBLE_D * 3; // bubbles past this = game over
-    const PUSH_FRAMES_START = 1000;
-    const PUSH_FRAMES_MIN = 350;
+    const DANGER_Y = LAUNCHER_Y - BUBBLE_D * 3;
+    const PUSH_FRAMES_START = 1100;
+    const PUSH_FRAMES_MIN = 400;
 
-    // Bubble colors - 6 distinct neon colors
     const COLORS = ['#f44', '#4f4', '#44f', '#ff0', '#f0f', '#f80'];
 
-    // --- Game variables ---
+    // --- Game variables (recorder contract) ---
     let gameState = 'waiting';
     let score = 0;
     let best = 0;
-    let level, grid, aimAngle, currentColor, nextColor;
-    let flyingBubble, popAnim, fallAnim;
+
+    // Game state
+    let level;
+    // Each row in `rows` is { shifted: bool, cells: [colorIdx|null, ...] }
+    // shifted=false means COLS cells (flush left), shifted=true means COLS_ODD cells (offset right by BUBBLE_R)
+    let rows;
+    let aimAngle, currentColor, nextColor;
+    let flyingBubble, popAnims, fallAnims;
     let pushTimer, pushFrames, canShoot;
     let keys = {};
 
-    // Grid uses absolute row parity: even absolute rows have COLS columns,
-    // odd absolute rows have COLS-1 columns. When we push rows, we track
-    // an absolute row offset so parity stays consistent.
-    let absRowOffset = 0; // incremented each time a row is pushed
+    // --- Grid helpers ---
+    function rowCols(r) { return rows[r].shifted ? COLS_ODD : COLS; }
 
-    function rowIsOdd(r) {
-      return (r + absRowOffset) % 2 === 1;
+    function cellX(r, c) {
+      return GRID_LEFT + c * BUBBLE_D + (rows[r].shifted ? BUBBLE_R : 0);
     }
 
-    function colsInRow(r) {
-      return rowIsOdd(r) ? COLS - 1 : COLS;
-    }
-
-    function bubbleX(r, c) {
-      const shift = rowIsOdd(r) ? BUBBLE_R : 0;
-      return GRID_LEFT + c * BUBBLE_D + shift;
-    }
-
-    function bubbleY(r) {
+    function cellY(r) {
       return GRID_TOP + r * ROW_H;
     }
 
+    function hexNeighbors(r, c) {
+      const out = [];
+      const shifted = rows[r].shifted;
+      // Same row left/right
+      if (c > 0) out.push([r, c - 1]);
+      if (c < rowCols(r) - 1) out.push([r, c + 1]);
+      // Rows above (r-1) and below (r+1)
+      for (const dr of [-1, 1]) {
+        const nr = r + dr;
+        if (nr < 0 || nr >= rows.length) continue;
+        const nShifted = rows[nr].shifted;
+        const nCols = rows[nr].shifted ? COLS_ODD : COLS;
+        if (shifted && !nShifted) {
+          // Current shifted, neighbor not shifted: neighbors at c and c+1
+          if (c >= 0 && c < nCols) out.push([nr, c]);
+          if (c + 1 >= 0 && c + 1 < nCols) out.push([nr, c + 1]);
+        } else if (!shifted && nShifted) {
+          // Current not shifted, neighbor shifted: neighbors at c-1 and c
+          if (c - 1 >= 0 && c - 1 < nCols) out.push([nr, c - 1]);
+          if (c >= 0 && c < nCols) out.push([nr, c]);
+        } else {
+          // Same shift state (shouldn't happen in a proper hex grid, but handle it)
+          if (c > 0 && c - 1 < nCols) out.push([nr, c - 1]);
+          if (c < nCols) out.push([nr, c]);
+        }
+      }
+      return out;
+    }
+
+    // BFS to find same-color cluster
+    function floodColor(startR, startC, color) {
+      const visited = new Set();
+      const k = (r, c) => r * 100 + c;
+      visited.add(k(startR, startC));
+      const queue = [[startR, startC]];
+      const result = [[startR, startC]];
+      while (queue.length) {
+        const [cr, cc] = queue.shift();
+        for (const [nr, nc] of hexNeighbors(cr, cc)) {
+          const key = k(nr, nc);
+          if (visited.has(key)) continue;
+          if (nr < 0 || nr >= rows.length) continue;
+          if (nc < 0 || nc >= rows[nr].cells.length) continue;
+          if (rows[nr].cells[nc] !== color) continue;
+          visited.add(key);
+          queue.push([nr, nc]);
+          result.push([nr, nc]);
+        }
+      }
+      return result;
+    }
+
+    // BFS from ceiling to find connected bubbles, return list of NOT connected
+    function findFloating() {
+      const connected = new Set();
+      const queue = [];
+      const k = (r, c) => r * 100 + c;
+      if (rows.length > 0) {
+        for (let c = 0; c < rows[0].cells.length; c++) {
+          if (rows[0].cells[c] !== null) {
+            connected.add(k(0, c));
+            queue.push([0, c]);
+          }
+        }
+      }
+      while (queue.length) {
+        const [cr, cc] = queue.shift();
+        for (const [nr, nc] of hexNeighbors(cr, cc)) {
+          const key = k(nr, nc);
+          if (connected.has(key)) continue;
+          if (nr < 0 || nr >= rows.length) continue;
+          if (nc < 0 || nc >= rows[nr].cells.length) continue;
+          if (rows[nr].cells[nc] === null) continue;
+          connected.add(key);
+          queue.push([nr, nc]);
+        }
+      }
+      const floating = [];
+      for (let r = 0; r < rows.length; r++) {
+        for (let c = 0; c < rows[r].cells.length; c++) {
+          if (rows[r].cells[c] !== null && !connected.has(k(r, c))) {
+            floating.push([r, c]);
+          }
+        }
+      }
+      return floating;
+    }
+
+    function gridEmpty() {
+      for (let r = 0; r < rows.length; r++)
+        for (let c = 0; c < rows[r].cells.length; c++)
+          if (rows[r].cells[c] !== null) return false;
+      return true;
+    }
+
+    function trimRows() {
+      while (rows.length > 0 && rows[rows.length - 1].cells.every(v => v === null)) rows.pop();
+    }
+
+    function checkGameOver() {
+      for (let r = 0; r < rows.length; r++) {
+        for (let c = 0; c < rows[r].cells.length; c++) {
+          if (rows[r].cells[c] !== null && cellY(r) + BUBBLE_R >= DANGER_Y) {
+            gameOver();
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    // --- Init / levels ---
     function init() {
       score = 0;
       level = 1;
       scoreEl.textContent = '0';
       levelEl.textContent = '1';
-      absRowOffset = 0;
-      grid = [];
+      rows = [];
       aimAngle = Math.PI / 2;
       flyingBubble = null;
-      popAnim = [];
-      fallAnim = [];
+      popAnims = [];
+      fallAnims = [];
       pushTimer = 0;
       pushFrames = PUSH_FRAMES_START;
       canShoot = true;
@@ -163,28 +267,25 @@
     }
 
     function buildLevel() {
-      grid = [];
-      absRowOffset = 0;
-      const rows = 3 + Math.min(level, 5); // 4 to 8 rows
-      const numColors = Math.min(2 + level, COLORS.length); // 3 to 6 colors
-      for (let r = 0; r < rows; r++) {
-        const cols = colsInRow(r);
-        const row = [];
-        for (let c = 0; c < cols; c++) {
-          row.push(Math.floor(Math.random() * numColors));
+      rows = [];
+      const numRows = 3 + Math.min(level, 5);
+      const numColors = Math.min(2 + level, COLORS.length);
+      for (let r = 0; r < numRows; r++) {
+        const shifted = r % 2 === 1;
+        const nc = shifted ? COLS_ODD : COLS;
+        const cells = [];
+        for (let c = 0; c < nc; c++) {
+          cells.push(Math.floor(Math.random() * numColors));
         }
-        grid.push(row);
+        rows.push({ shifted, cells });
       }
     }
 
     function pickColor() {
-      // Only offer colors that exist on the grid
       const onGrid = new Set();
-      for (let r = 0; r < grid.length; r++) {
-        for (let c = 0; c < grid[r].length; c++) {
-          if (grid[r][c] !== null) onGrid.add(grid[r][c]);
-        }
-      }
+      for (let r = 0; r < rows.length; r++)
+        for (let c = 0; c < rows[r].cells.length; c++)
+          if (rows[r].cells[c] !== null) onGrid.add(rows[r].cells[c]);
       if (onGrid.size === 0) return Math.floor(Math.random() * Math.min(2 + level, COLORS.length));
       const arr = [...onGrid];
       return arr[Math.floor(Math.random() * arr.length)];
@@ -208,14 +309,13 @@
       level++;
       levelEl.textContent = level;
       pushFrames = Math.max(PUSH_FRAMES_MIN, PUSH_FRAMES_START - (level - 1) * 80);
-      // Bonus
       score += level * 100;
       scoreEl.textContent = score;
       if (score > best) { best = score; bestEl.textContent = best; }
       buildLevel();
       flyingBubble = null;
-      popAnim = [];
-      fallAnim = [];
+      popAnims = [];
+      fallAnims = [];
       pushTimer = 0;
       canShoot = true;
       currentColor = pickColor();
@@ -237,18 +337,27 @@
       nextColor = pickColor();
     }
 
-    // --- Snap flying bubble to nearest empty grid cell ---
+    // Snap position to nearest empty cell in the grid
     function snapToGrid(bx, by) {
       let bestR = 0, bestC = 0, bestD = Infinity;
-      // Check existing rows + 1 extra below
-      const maxR = Math.max(grid.length + 1, 1);
+      const maxR = Math.max(rows.length + 1, 1);
       for (let r = 0; r < maxR; r++) {
-        const cols = colsInRow(r);
-        for (let c = 0; c < cols; c++) {
-          // Only snap to empty cells
-          if (r < grid.length && grid[r] && c < grid[r].length && grid[r][c] !== null) continue;
-          const px = bubbleX(r, c);
-          const py = bubbleY(r);
+        // For rows beyond the grid, infer shift from alternating pattern
+        let shifted, nc;
+        if (r < rows.length) {
+          shifted = rows[r].shifted;
+          nc = rows[r].cells.length;
+        } else {
+          // Next row alternates from the last row's shift
+          shifted = rows.length > 0 ? !rows[rows.length - 1].shifted : false;
+          if (r > rows.length) shifted = !shifted; // alternate further
+          nc = shifted ? COLS_ODD : COLS;
+        }
+        for (let c = 0; c < nc; c++) {
+          // Only empty cells
+          if (r < rows.length && c < rows[r].cells.length && rows[r].cells[c] !== null) continue;
+          const px = GRID_LEFT + c * BUBBLE_D + (shifted ? BUBBLE_R : 0);
+          const py = GRID_TOP + r * ROW_H;
           const dx = bx - px, dy = by - py;
           const d = dx * dx + dy * dy;
           if (d < bestD) { bestD = d; bestR = r; bestC = c; }
@@ -257,160 +366,54 @@
       return { row: bestR, col: bestC };
     }
 
-    // --- Hex neighbors ---
-    function neighbors(r, c) {
-      const result = [];
-      const odd = rowIsOdd(r);
-      // Left/right in same row
-      if (c > 0) result.push([r, c - 1]);
-      if (c < colsInRow(r) - 1) result.push([r, c + 1]);
-      // Above and below
-      for (const dr of [-1, 1]) {
-        const nr = r + dr;
-        if (nr < 0 || nr >= grid.length) continue;
-        const nc = colsInRow(nr);
-        if (odd) {
-          // Odd row: neighbors at c, c+1 in even rows
-          if (c >= 0 && c < nc) result.push([nr, c]);
-          if (c + 1 >= 0 && c + 1 < nc) result.push([nr, c + 1]);
-        } else {
-          // Even row: neighbors at c-1, c in odd rows
-          if (c - 1 >= 0 && c - 1 < nc) result.push([nr, c - 1]);
-          if (c >= 0 && c < nc) result.push([nr, c]);
-        }
-      }
-      return result;
-    }
-
-    // --- BFS: find connected same-color cluster ---
-    function floodColor(r, c, color) {
-      const visited = new Set();
-      const queue = [[r, c]];
-      const k = (r, c) => r * 100 + c;
-      visited.add(k(r, c));
-      const cells = [[r, c]];
-      while (queue.length) {
-        const [cr, cc] = queue.shift();
-        for (const [nr, nc] of neighbors(cr, cc)) {
-          const key = k(nr, nc);
-          if (visited.has(key)) continue;
-          if (nr < 0 || nr >= grid.length) continue;
-          if (nc < 0 || nc >= grid[nr].length) continue;
-          if (grid[nr][nc] !== color) continue;
-          visited.add(key);
-          queue.push([nr, nc]);
-          cells.push([nr, nc]);
-        }
-      }
-      return cells;
-    }
-
-    // --- BFS: find all bubbles connected to ceiling ---
-    function findFloating() {
-      const connected = new Set();
-      const queue = [];
-      const k = (r, c) => r * 100 + c;
-      // Seed from row 0
-      if (grid.length > 0) {
-        for (let c = 0; c < grid[0].length; c++) {
-          if (grid[0][c] !== null) {
-            connected.add(k(0, c));
-            queue.push([0, c]);
-          }
-        }
-      }
-      while (queue.length) {
-        const [cr, cc] = queue.shift();
-        for (const [nr, nc] of neighbors(cr, cc)) {
-          const key = k(nr, nc);
-          if (connected.has(key)) continue;
-          if (nr < 0 || nr >= grid.length) continue;
-          if (nc < 0 || nc >= grid[nr].length) continue;
-          if (grid[nr][nc] === null) continue;
-          connected.add(key);
-          queue.push([nr, nc]);
-        }
-      }
-      // Collect non-connected
-      const floating = [];
-      for (let r = 0; r < grid.length; r++) {
-        for (let c = 0; c < grid[r].length; c++) {
-          if (grid[r][c] !== null && !connected.has(k(r, c))) {
-            floating.push([r, c]);
-          }
-        }
-      }
-      return floating;
-    }
-
-    function gridEmpty() {
-      for (let r = 0; r < grid.length; r++)
-        for (let c = 0; c < grid[r].length; c++)
-          if (grid[r][c] !== null) return false;
-      return true;
-    }
-
-    function trimGrid() {
-      while (grid.length > 0 && grid[grid.length - 1].every(v => v === null)) grid.pop();
-    }
-
-    function checkGameOver() {
-      for (let r = 0; r < grid.length; r++) {
-        for (let c = 0; c < grid[r].length; c++) {
-          if (grid[r][c] !== null && bubbleY(r) + BUBBLE_R >= DANGER_Y) {
-            gameOver();
-            return true;
-          }
-        }
-      }
-      return false;
-    }
-
-    // --- Place a bubble and resolve matches ---
+    // Place bubble and resolve matches/drops
     function placeBubble(bx, by, color) {
       const { row, col } = snapToGrid(bx, by);
 
-      // Extend grid if necessary
-      while (grid.length <= row) {
-        const nc = colsInRow(grid.length);
-        grid.push(new Array(nc).fill(null));
+      // Extend grid rows if needed
+      while (rows.length <= row) {
+        const prevShifted = rows.length > 0 ? rows[rows.length - 1].shifted : true;
+        const shifted = !prevShifted;
+        const nc = shifted ? COLS_ODD : COLS;
+        rows.push({ shifted, cells: new Array(nc).fill(null) });
       }
 
-      if (col < 0 || col >= grid[row].length) { canShoot = true; return; }
-      if (grid[row][col] !== null) {
-        // Occupied -- try adjacent empty cells as fallback
-        const adj = neighbors(row, col).filter(([nr, nc]) => {
-          if (nr < 0) return false;
-          while (grid.length <= nr) {
-            grid.push(new Array(colsInRow(grid.length)).fill(null));
-          }
-          return nc >= 0 && nc < grid[nr].length && grid[nr][nc] === null;
-        });
-        if (adj.length === 0) { canShoot = true; return; }
-        // Pick closest
-        let bestA = adj[0], bestAD = Infinity;
+      if (col < 0 || col >= rows[row].cells.length) { canShoot = true; return; }
+
+      // If target cell is occupied, find nearest empty neighbor
+      if (rows[row].cells[col] !== null) {
+        const adj = hexNeighbors(row, col);
+        let bestAdj = null, bestAD = Infinity;
         for (const [ar, ac] of adj) {
-          const dx = bx - bubbleX(ar, ac), dy = by - bubbleY(ar);
+          // Extend if needed
+          while (rows.length <= ar) {
+            const ps = rows.length > 0 ? rows[rows.length - 1].shifted : true;
+            const s = !ps;
+            rows.push({ shifted: s, cells: new Array(s ? COLS_ODD : COLS).fill(null) });
+          }
+          if (ac < 0 || ac >= rows[ar].cells.length) continue;
+          if (rows[ar].cells[ac] !== null) continue;
+          const dx = bx - cellX(ar, ac), dy = by - cellY(ar);
           const d = dx * dx + dy * dy;
-          if (d < bestAD) { bestAD = d; bestA = [ar, ac]; }
+          if (d < bestAD) { bestAD = d; bestAdj = [ar, ac]; }
         }
-        return placeBubbleAt(bestA[0], bestA[1], color);
+        if (!bestAdj) { canShoot = true; return; }
+        return placeBubbleAt(bestAdj[0], bestAdj[1], color);
       }
 
       placeBubbleAt(row, col, color);
     }
 
-    function placeBubbleAt(row, col, color) {
-      grid[row][col] = color;
+    function placeBubbleAt(r, c, color) {
+      rows[r].cells[c] = color;
 
       // Find same-color cluster
-      const cluster = floodColor(row, col, color);
+      const cluster = floodColor(r, c, color);
       if (cluster.length >= 3) {
-        // Pop matched bubbles
+        // Pop them
         for (const [mr, mc] of cluster) {
-          const px = bubbleX(mr, mc), py = bubbleY(mr);
-          popAnim.push({ x: px, y: py, color: COLORS[grid[mr][mc]], t: 0 });
-          grid[mr][mc] = null;
+          popAnims.push({ x: cellX(mr, mc), y: cellY(mr), color: COLORS[rows[mr].cells[mc]], t: 0 });
+          rows[mr].cells[mc] = null;
         }
         score += cluster.length * 10;
         scoreEl.textContent = score;
@@ -420,63 +423,47 @@
         const floaters = findFloating();
         if (floaters.length > 0) {
           for (const [fr, fc] of floaters) {
-            const px = bubbleX(fr, fc), py = bubbleY(fr);
-            fallAnim.push({ x: px, y: py, vy: 0, color: COLORS[grid[fr][fc]], t: 0 });
-            grid[fr][fc] = null;
+            fallAnims.push({ x: cellX(fr, fc), y: cellY(fr), vy: 0, color: COLORS[rows[fr].cells[fc]], t: 0 });
+            rows[fr].cells[fc] = null;
           }
           score += floaters.length * 20;
           scoreEl.textContent = score;
           if (score > best) { best = score; bestEl.textContent = best; }
         }
 
-        trimGrid();
+        trimRows();
 
-        // Check level cleared
         if (gridEmpty()) {
           setTimeout(() => { if (gameState === 'playing') advanceLevel(); }, 400);
         }
       }
 
       if (gameState === 'playing' && !checkGameOver()) {
-        pushTimer = 0; // reset push timer on successful shot
+        pushTimer = 0;
       }
 
       canShoot = true;
     }
 
-    // --- Push a new row from the top ---
+    // Push a new row from the top
     function pushRow() {
-      absRowOffset++;
-      const nc = colsInRow(0); // new row 0 after offset change
+      // New row at top has opposite shift from current row 0
+      const shifted = rows.length > 0 ? !rows[0].shifted : false;
+      const nc = shifted ? COLS_ODD : COLS;
       const numColors = Math.min(2 + level, COLORS.length);
-      const newRow = [];
-      for (let i = 0; i < nc; i++) newRow.push(Math.floor(Math.random() * numColors));
-      grid.unshift(newRow);
-
-      // Adjust existing rows: after incrementing absRowOffset, their parity flipped.
-      // Rows that were even are now odd (and vice versa), so their column count changed.
-      // We pad or trim ONLY null values at the end.
-      for (let r = 1; r < grid.length; r++) {
-        const expected = colsInRow(r);
-        while (grid[r].length < expected) grid[r].push(null);
-        // Trim excess nulls from the end only
-        while (grid[r].length > expected) {
-          const last = grid[r][grid[r].length - 1];
-          if (last === null) { grid[r].pop(); }
-          else break;
-        }
-      }
-
+      const cells = [];
+      for (let i = 0; i < nc; i++) cells.push(Math.floor(Math.random() * numColors));
+      rows.unshift({ shifted, cells });
+      // No need to adjust other rows -- their shift values are stored, not derived
       checkGameOver();
     }
 
     // --- Update ---
     function update() {
-      // Aiming
       if (keys['ArrowLeft']) aimAngle = Math.min(MAX_ANGLE, aimAngle + AIM_SPEED);
       if (keys['ArrowRight']) aimAngle = Math.max(MIN_ANGLE, aimAngle - AIM_SPEED);
 
-      // Flying bubble
+      // Flying bubble physics
       if (flyingBubble) {
         flyingBubble.x += flyingBubble.vx;
         flyingBubble.y += flyingBubble.vy;
@@ -498,12 +485,12 @@
           return;
         }
 
-        // Collision with grid bubbles
+        // Hit grid bubbles
         let hit = false;
-        for (let r = 0; r < grid.length && !hit; r++) {
-          for (let c = 0; c < grid[r].length && !hit; c++) {
-            if (grid[r][c] === null) continue;
-            const gx = bubbleX(r, c), gy = bubbleY(r);
+        for (let r = 0; r < rows.length && !hit; r++) {
+          for (let c = 0; c < rows[r].cells.length && !hit; c++) {
+            if (rows[r].cells[c] === null) continue;
+            const gx = cellX(r, c), gy = cellY(r);
             const dx = flyingBubble.x - gx, dy = flyingBubble.y - gy;
             if (dx * dx + dy * dy < BUBBLE_D * BUBBLE_D * 0.82) {
               placeBubble(flyingBubble.x, flyingBubble.y, flyingBubble.color);
@@ -514,20 +501,22 @@
         }
       }
 
-      // Animations
-      for (let i = popAnim.length - 1; i >= 0; i--) {
-        popAnim[i].t++;
-        if (popAnim[i].t > 16) popAnim.splice(i, 1);
-      }
-      for (let i = fallAnim.length - 1; i >= 0; i--) {
-        fallAnim[i].vy += 0.5;
-        fallAnim[i].y += fallAnim[i].vy;
-        fallAnim[i].t++;
-        if (fallAnim[i].y > H + 40) fallAnim.splice(i, 1);
+      // Pop animations
+      for (let i = popAnims.length - 1; i >= 0; i--) {
+        popAnims[i].t++;
+        if (popAnims[i].t > 16) popAnims.splice(i, 1);
       }
 
-      // Push timer (only ticks when idle)
-      if (!flyingBubble && canShoot && popAnim.length === 0 && fallAnim.length === 0 && !gridEmpty()) {
+      // Fall animations
+      for (let i = fallAnims.length - 1; i >= 0; i--) {
+        fallAnims[i].vy += 0.5;
+        fallAnims[i].y += fallAnims[i].vy;
+        fallAnims[i].t++;
+        if (fallAnims[i].y > H + 40) fallAnims.splice(i, 1);
+      }
+
+      // Push timer
+      if (!flyingBubble && canShoot && popAnims.length === 0 && fallAnims.length === 0 && !gridEmpty()) {
         pushTimer++;
         if (pushTimer >= pushFrames) {
           pushTimer = 0;
@@ -537,8 +526,8 @@
     }
 
     // --- Drawing ---
-    function drawBubbleAt(x, y, colorIdx, alpha) {
-      const col = typeof colorIdx === 'string' ? colorIdx : COLORS[colorIdx];
+    function drawBubble(x, y, colorVal, alpha) {
+      const col = typeof colorVal === 'number' ? COLORS[colorVal] : colorVal;
       ctx.save();
       if (alpha !== undefined) ctx.globalAlpha = alpha;
       ctx.beginPath();
@@ -557,15 +546,14 @@
     }
 
     function draw() {
-      // Background
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
 
-      // Play area
+      // Play area background
       ctx.fillStyle = '#12122a';
       ctx.fillRect(0, 0, W, DANGER_Y);
 
-      // Ceiling line
+      // Ceiling
       ctx.strokeStyle = '#0f3460';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -573,8 +561,7 @@
       ctx.lineTo(W, GRID_TOP - BUBBLE_R - 2);
       ctx.stroke();
 
-      // Side walls (subtle)
-      ctx.strokeStyle = '#0f3460';
+      // Side walls
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0.5, GRID_TOP - BUBBLE_R - 2);
@@ -594,15 +581,15 @@
       ctx.setLineDash([]);
 
       // Grid bubbles
-      for (let r = 0; r < grid.length; r++) {
-        for (let c = 0; c < grid[r].length; c++) {
-          if (grid[r][c] === null) continue;
-          drawBubbleAt(bubbleX(r, c), bubbleY(r), grid[r][c]);
+      for (let r = 0; r < rows.length; r++) {
+        for (let c = 0; c < rows[r].cells.length; c++) {
+          if (rows[r].cells[c] === null) continue;
+          drawBubble(cellX(r, c), cellY(r), rows[r].cells[c]);
         }
       }
 
       // Pop animations
-      for (const p of popAnim) {
+      for (const p of popAnims) {
         const prog = p.t / 16;
         const rad = BUBBLE_R * (1 + prog * 0.6);
         ctx.save();
@@ -615,7 +602,6 @@
         ctx.fill();
         ctx.shadowBlur = 0;
         ctx.restore();
-        // Sparkle particles
         for (let i = 0; i < 4; i++) {
           const a = (Math.PI * 2 / 4) * i + prog * 3;
           const d = rad + prog * 18;
@@ -630,20 +616,20 @@
       }
 
       // Fall animations
-      for (const f of fallAnim) {
-        drawBubbleAt(f.x, f.y, f.color, Math.max(0, 1 - f.t / 30));
+      for (const f of fallAnims) {
+        drawBubble(f.x, f.y, f.color, Math.max(0, 1 - f.t / 30));
       }
 
       // Flying bubble
       if (flyingBubble) {
-        drawBubbleAt(flyingBubble.x, flyingBubble.y, flyingBubble.color);
+        drawBubble(flyingBubble.x, flyingBubble.y, flyingBubble.color);
       }
 
       // Launcher area
       ctx.fillStyle = '#16213e';
       ctx.fillRect(0, DANGER_Y, W, H - DANGER_Y);
 
-      // Launcher base circle
+      // Launcher base
       ctx.fillStyle = '#0f3460';
       ctx.beginPath();
       ctx.arc(LAUNCHER_X, LAUNCHER_Y, 22, 0, Math.PI * 2);
@@ -652,12 +638,12 @@
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Aim guide (dotted line with bounce preview)
+      // Aim guide with bounce preview
       drawAimGuide();
 
-      // Current bubble on launcher
+      // Current bubble
       if (currentColor !== undefined && !flyingBubble) {
-        drawBubbleAt(LAUNCHER_X, LAUNCHER_Y - BUBBLE_R - 6, currentColor);
+        drawBubble(LAUNCHER_X, LAUNCHER_Y - BUBBLE_R - 6, currentColor);
       }
 
       // Next bubble
@@ -666,7 +652,7 @@
         ctx.font = '10px Courier New';
         ctx.textAlign = 'center';
         ctx.fillText('NEXT', LAUNCHER_X + 58, LAUNCHER_Y - 18);
-        drawBubbleAt(LAUNCHER_X + 58, LAUNCHER_Y - 2, nextColor, 0.65);
+        drawBubble(LAUNCHER_X + 58, LAUNCHER_Y - 2, nextColor, 0.65);
       }
 
       // Push timer bar
@@ -685,33 +671,28 @@
     }
 
     function drawAimGuide() {
-      // Simulate the trajectory for a dotted aim guide with wall bounces
-      const steps = 60;
       let sx = LAUNCHER_X, sy = LAUNCHER_Y - BUBBLE_R - 6;
       let svx = Math.cos(aimAngle) * SHOOT_SPEED;
       let svy = -Math.sin(aimAngle) * SHOOT_SPEED;
 
       ctx.save();
-      ctx.fillStyle = 'rgba(136, 255, 221, 0.4)';
-      for (let i = 0; i < steps; i++) {
+      ctx.fillStyle = 'rgba(136, 255, 221, 0.35)';
+      for (let i = 0; i < 55; i++) {
         sx += svx;
         sy += svy;
-        // Bounce off walls
         if (sx - BUBBLE_R < 0) { sx = BUBBLE_R; svx = -svx; }
         if (sx + BUBBLE_R > W) { sx = W - BUBBLE_R; svx = -svx; }
-        // Stop at ceiling
         if (sy - BUBBLE_R <= GRID_TOP) break;
-        // Stop if we hit a grid bubble
+        // Stop at grid bubble
         let hitGrid = false;
-        for (let r = 0; r < grid.length && !hitGrid; r++) {
-          for (let c = 0; c < grid[r].length && !hitGrid; c++) {
-            if (grid[r][c] === null) continue;
-            const dx = sx - bubbleX(r, c), dy = sy - bubbleY(r);
+        for (let r = 0; r < rows.length && !hitGrid; r++) {
+          for (let c = 0; c < rows[r].cells.length && !hitGrid; c++) {
+            if (rows[r].cells[c] === null) continue;
+            const dx = sx - cellX(r, c), dy = sy - cellY(r);
             if (dx * dx + dy * dy < BUBBLE_D * BUBBLE_D * 0.82) hitGrid = true;
           }
         }
         if (hitGrid) break;
-        // Draw dot every 3 steps
         if (i % 3 === 0) {
           ctx.beginPath();
           ctx.arc(sx, sy, 2, 0, Math.PI * 2);
@@ -720,8 +701,8 @@
       }
       ctx.restore();
 
-      // Arrow tip at end of first segment
-      const tipDist = 50;
+      // Arrow tip
+      const tipDist = 48;
       const tx = LAUNCHER_X + Math.cos(aimAngle) * tipDist;
       const ty = LAUNCHER_Y - Math.sin(aimAngle) * tipDist;
       ctx.save();

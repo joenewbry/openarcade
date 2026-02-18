@@ -117,138 +117,141 @@
     let modeIndex = 0, modeFrames = 0;
     let animFrame = 0;
 
-    // Maze definitions: each row must be exactly 28 chars
+    // 4 maze layouts, 31 rows x 28 cols each (validated)
     // W=wall .=dot o=power -=ghost_door G=ghost_house E=empty T=tunnel
-    // Ghost house center region (rows 9-19) is shared across all mazes
-    // Pac-Man starts at row 23, col 14
-
-    function buildMaze(topHalf, bottomHalf) {
-      // The ghost house region (rows 9-19) is always the same
-      const ghostRegion = [
-        'WWWWWW.WWWWWEWWEWWWWW.WWWWWW', // row 9
-        'EEEEWW.WWWWWEWWEWWWWW.WWEEEE', // row 10
-        'EEEEWW.EEEEEEEEEEEEE.WWEEEE', // row 11
-        'EEEEWW.WWEW------WEWW.WWEEEE', // row 12
-        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW', // row 13
-        'TTEEEE.EEEWGGGGGGWEEE.EEEETT', // row 14
-        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW', // row 15
-        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE', // row 16
-        'EEEEWW.EEEEEEEEEEEEE.WWEEEE', // row 17
-        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE', // row 18
-        'WWWWWW.WWEWWWWWWWWEWW.WWWWWW', // row 19
-      ];
-      return [...topHalf, ...ghostRegion, ...bottomHalf];
-    }
-
     const MAZES = [
-      // Maze 1 - Classic
-      buildMaze(
-        [
-          'WWWWWWWWWWWWWWWWWWWWWWWWWWWW', // 0
-          'W............WW............W', // 1
-          'W.WWWW.WWWWW.WW.WWWWW.WWWWW', // 2
-          'WoWWWW.WWWWW.WW.WWWWW.WWWWo', // 3
-          'W.WWWW.WWWWW.WW.WWWWW.WWWWW', // 4
-          'W..........................W', // 5
-          'W.WWWW.WW.WWWWWWWW.WW.WWWWW', // 6
-          'W.WWWW.WW.WWWWWWWW.WW.WWWWW', // 7
-          'W......WW....WW....WW......W', // 8
-        ],
-        [
-          'W............WW............W', // 20
-          'W.WWWW.WWWWW.WW.WWWWW.WWWWW', // 21
-          'W.WWWW.WWWWW.WW.WWWWW.WWWWW', // 22
-          'Wo..WW................WW..oW', // 23
-          'WWW.WW.WW.WWWWWWWW.WW.WW.WWW', // 24
-          'WWW.WW.WW.WWWWWWWW.WW.WW.WWW', // 25
-          'W......WW....WW....WW......W', // 26
-          'W.WWWWWWWWWW.WW.WWWWWWWWWW.W', // 27
-          'W.WWWWWWWWWW.WW.WWWWWWWWWW.W', // 28
-          'W..........................W', // 29
-          'WWWWWWWWWWWWWWWWWWWWWWWWWWWW', // 30
-        ]
-      ),
-      // Maze 2 - Open corridors
-      buildMaze(
-        [
-          'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-          'W..........................W',
-          'W.WWWW.WW.WWWWWWWW.WW.WWWWW',
-          'WoWWWW.WW.WWWWWWWW.WW.WWWWo',
-          'W.WWWW.WW....WW....WW.WWWWW',
-          'W......WWWWW.WW.WWWWW......W',
-          'W.WWWW.WWWWW.WW.WWWWW.WWWWW',
-          'W.WWWW.......WW.......WWWWW',
-          'W......WW....WW....WW......W',
-        ],
-        [
-          'W............WW............W',
-          'W.WWWW.WWWWW.WW.WWWWW.WWWWW',
-          'Wo.WWW.WWWWW.WW.WWWWW.WWWoW',
-          'WW.....WW..........WW.....WW',
-          'WW.WWW.WW.WWWWWWWW.WW.WWW.WW',
-          'WW.WWW....WWWWWWWW....WWW.WW',
-          'W......WW....WW....WW......W',
-          'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
-          'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
-          'W..........................W',
-          'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-        ]
-      ),
-      // Maze 3 - Diamond center
-      buildMaze(
-        [
-          'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-          'W............WW............W',
-          'W.WWWW.WWWWW.WW.WWWWW.WWWWW',
-          'WoWWWW.WWWWW.WW.WWWWW.WWWWo',
-          'W......WWWWW.WW.WWWWW......W',
-          'W.WWWW.......WW.......WWWWW',
-          'W.WWWW.WW.WWWWWWWW.WW.WWWWW',
-          'W......WW.WWWWWWWW.WW......W',
-          'WWWWWW.WW....WW....WW.WWWWWW',
-        ],
-        [
-          'W..........................W',
-          'W.WW.WWWWW.WWWWWW.WWWWW.WWW',
-          'W.WW.WWWWW.WWWWWW.WWWWW.WWW',
-          'W.WW.......WW.........WW..W',
-          'Wo...WWWWW.WW.WWWWW...WWWoW',
-          'W.WW.WWWWW....WWWWW.WW.WWWW',
-          'W.WW......WWWWWW......WW..W',
-          'W.WWWWWWW.WWWWWW.WWWWWWW..W',
-          'W.........WWWWWW.........WWW',
-          'W..........................W',
-          'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-        ]
-      ),
-      // Maze 4 - Wide passages
-      buildMaze(
-        [
-          'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-          'Wo.........WW..........WW.oW',
-          'W.WWWW.WWW.WW.WWWW.WW.WW.WW',
-          'W.WWWW.WWW.WW.WWWW.WW....WW',
-          'W......WWW....WWWW.WWWWW..W',
-          'W.WWWW.........WW.........W',
-          'WW.WW.WWWW.WWWWWW.WWWW.WWW',
-          'WW.WW.WWWW.WWWWWW.WWWW.WWW',
-          'W......WWWW..WW...WWWW....W',
-        ],
-        [
-          'W............WW............W',
-          'W.WWWW.WWWWW.WW.WWWWW.WWWWW',
-          'Wo..WW.WWWWW.WW.WWWWW.WW.oW',
-          'WWW.WW.WW.WWWWWWWW.WW.WW.WW',
-          'WWW....WW.WWWWWWWW.WW....WWW',
-          'W.WWWWWWW....WW....WWWWWWW.W',
-          'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
-          'W............WW............W',
-          'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
-          'W..........................W',
-          'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-        ]
-      ),
+      [
+        'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+        'W............WW............W',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'WoWWWW.WWWWW.WW.WWWWW.WWWWoW',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'W..........................W',
+        'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
+        'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
+        'W......WW....WW....WW......W',
+        'WWWWWW.WWWWWEWWEWWWWW.WWWWWW',
+        'EEEEWW.WWWWWEWWEWWWWW.WWEEEE',
+        'EEEEWW.EEEEEEEEEEEEEE.WWEEEE',
+        'EEEEWW.WWEW------WEWW.WWEEEE',
+        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW',
+        'TTEEEE.EEEWGGGGGGWEEE.EEEETT',
+        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW',
+        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE',
+        'EEEEWW.EEEEEEEEEEEEEE.WWEEEE',
+        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE',
+        'WWWWWW.WWEWWWWWWWWEWW.WWWWWW',
+        'W............WW............W',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'Wo..WW................WW..oW',
+        'WWW.WW.WW.WWWWWWWW.WW.WW.WWW',
+        'WWW.WW.WW.WWWWWWWW.WW.WW.WWW',
+        'W......WW....WW....WW......W',
+        'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+        'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+        'W..........................W',
+        'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+      ],
+      [
+        'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+        'W..........................W',
+        'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
+        'WoWWWW.WW.WWWWWWWW.WW.WWWWoW',
+        'W.WWWW.WW....WW....WW.WWWW.W',
+        'W......WWWWW.WW.WWWWW......W',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'W.WWWW.......WW.......WWWW.W',
+        'W......WW....WW....WW......W',
+        'WWWWWW.WWWWWEWWEWWWWW.WWWWWW',
+        'EEEEWW.WWWWWEWWEWWWWW.WWEEEE',
+        'EEEEWW.EEEEEEEEEEEEEE.WWEEEE',
+        'EEEEWW.WWEW------WEWW.WWEEEE',
+        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW',
+        'TTEEEE.EEEWGGGGGGWEEE.EEEETT',
+        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW',
+        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE',
+        'EEEEWW.EEEEEEEEEEEEEE.WWEEEE',
+        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE',
+        'WWWWWW.WWEWWWWWWWWEWW.WWWWWW',
+        'W............WW............W',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'Wo.WWW.WWWWW.WW.WWWWW.WWW.oW',
+        'WW.....WW..........WW.....WW',
+        'WW.WWW.WW.WWWWWWWW.WW.WWW.WW',
+        'WW.WWW....WWWWWWWW....WWW.WW',
+        'W......WW....WW....WW......W',
+        'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+        'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+        'W..........................W',
+        'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+      ],
+      [
+        'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+        'W............WW............W',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'WoWWWW.WWWWW.WW.WWWWW.WWWWoW',
+        'W......WWWWW.WW.WWWWW......W',
+        'W.WWWW.......WW.......WWWW.W',
+        'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
+        'W......WW.WWWWWWWW.WW......W',
+        'WWWWWW.WW....WW....WW.WWWWWW',
+        'WWWWWW.WWWWWEWWEWWWWW.WWWWWW',
+        'EEEEWW.WWWWWEWWEWWWWW.WWEEEE',
+        'EEEEWW.EEEEEEEEEEEEEE.WWEEEE',
+        'EEEEWW.WWEW------WEWW.WWEEEE',
+        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW',
+        'TTEEEE.EEEWGGGGGGWEEE.EEEETT',
+        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW',
+        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE',
+        'EEEEWW.EEEEEEEEEEEEEE.WWEEEE',
+        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE',
+        'WWWWWW.WWEWWWWWWWWEWW.WWWWWW',
+        'W..........................W',
+        'W.WW.WWWWW.WWWWWW.WWWWW.WW.W',
+        'W.WW.WWWWW.WWWWWW.WWWWW.WW.W',
+        'Wo.........WW..........WW.oW',
+        'W.WW.WWWWW......WWWWW.WW.WWW',
+        'W.WW.WWWWW.WWWW.WWWWW.WW..WW',
+        'W......WW....WW....WW......W',
+        'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+        'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+        'W..........................W',
+        'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+      ],
+      [
+        'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+        'W..........................W',
+        'W.WW.WWWWW.WWWW.WWWWW.WW..WW',
+        'WoWW.WWWWW.WWWW.WWWWW.WW.oWW',
+        'W.WW.......WWWW.......WW..WW',
+        'W....WWWWW.WWWW.WWWWW....WWW',
+        'W.WW.WWWWW......WWWWW.WW.WWW',
+        'W.WW.......WWWW.......WW..WW',
+        'W......WW..WWWW..WW.......WW',
+        'WWWWWW.WWWWWEWWEWWWWW.WWWWWW',
+        'EEEEWW.WWWWWEWWEWWWWW.WWEEEE',
+        'EEEEWW.EEEEEEEEEEEEEE.WWEEEE',
+        'EEEEWW.WWEW------WEWW.WWEEEE',
+        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW',
+        'TTEEEE.EEEWGGGGGGWEEE.EEEETT',
+        'WWWWWW.WWEWGGGGGGWEWW.WWWWWW',
+        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE',
+        'EEEEWW.EEEEEEEEEEEEEE.WWEEEE',
+        'EEEEWW.WWEWWWWWWWWEWW.WWEEEE',
+        'WWWWWW.WWEWWWWWWWWEWW.WWWWWW',
+        'W............WW............W',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+        'Wo..WW................WW..oW',
+        'WWW.WW.WW.WWWWWWWW.WW.WW.WWW',
+        'WWW.WW.WW.WWWWWWWW.WW.WW.WWW',
+        'W......WW....WW....WW......W',
+        'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+        'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+        'W..........................W',
+        'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+      ],
     ];
 
     let grid;
