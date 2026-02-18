@@ -313,3 +313,33 @@ body {
 
 .card-slotracer h2 { color: #a6f; }
 .card-slotracer:hover { border-color: #a6f; box-shadow: 0 8px 30px rgba(170, 102, 255, 0.15); }
+
+.card-pacman h2 { color: #fd0; }
+.card-pacman:hover { border-color: #fd0; box-shadow: 0 8px 30px rgba(255, 221, 0, 0.15); }
+
+.card-frogger h2 { color: #4e8; }
+.card-frogger:hover { border-color: #4e8; box-shadow: 0 8px 30px rgba(68, 238, 136, 0.15); }
+
+.card-bomberman h2 { color: #f90; }
+.card-bomberman:hover { border-color: #f90; box-shadow: 0 8px 30px rgba(255, 153, 0, 0.15); }
+
+.card-digdug h2 { color: #4af; }
+.card-digdug:hover { border-color: #4af; box-shadow: 0 8px 30px rgba(68, 170, 255, 0.15); }
+
+.card-qbert h2 { color: #e64; }
+.card-qbert:hover { border-color: #e64; box-shadow: 0 8px 30px rgba(238, 102, 68, 0.15); }
+
+.card-loderunner h2 { color: #ea4; }
+.card-loderunner:hover { border-color: #ea4; box-shadow: 0 8px 30px rgba(238, 170, 68, 0.15); }
+
+.card-boulderdash h2 { color: #8cf; }
+.card-boulderdash:hover { border-color: #8cf; box-shadow: 0 8px 30px rgba(136, 204, 255, 0.15); }
+
+.card-amidar h2 { color: #f4d; }
+.card-amidar:hover { border-color: #f4d; box-shadow: 0 8px 30px rgba(255, 68, 221, 0.15); }
+
+.card-rallyx h2 { color: #4fd; }
+.card-rallyx:hover { border-color: #4fd; box-shadow: 0 8px 30px rgba(68, 255, 221, 0.15); }
+
+.card-mrdo h2 { color: #fa4; }
+.card-mrdo:hover { border-color: #fa4; box-shadow: 0 8px 30px rgba(255, 170, 68, 0.15); }

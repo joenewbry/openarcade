@@ -186,6 +186,56 @@
         <p class="description">Race your car around the slot track! Hold to accelerate, release to slow down. Go too fast on curves and you'll fly off!</p>
         <p class="controls"><span>Controls:</span> Hold Space or click to accelerate</p>
       </a>
+      <a href="pac-man/index.html" class="game-card card-pacman" data-game="pac-man">
+        <div class="card-header"><h2>Pac-Man</h2><span class="plays-badge" data-game="pac-man"></span></div>
+        <p class="description">Navigate the maze, eat all the dots, and avoid the ghosts! Grab a power pellet to turn the tables and eat the ghosts.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move</p>
+      </a>
+      <a href="frogger/index.html" class="game-card card-frogger" data-game="frogger">
+        <div class="card-header"><h2>Frogger</h2><span class="plays-badge" data-game="frogger"></span></div>
+        <p class="description">Help the frog cross busy roads and a dangerous river! Dodge cars, hop on logs, and reach the lily pads safely.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to hop</p>
+      </a>
+      <a href="bomberman/index.html" class="game-card card-bomberman" data-game="bomberman">
+        <div class="card-header"><h2>Bomberman</h2><span class="plays-badge" data-game="bomberman"></span></div>
+        <p class="description">Plant bombs to destroy blocks and enemies! Navigate the maze, trap your foes with explosions. Don't blow yourself up!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Space to place bomb</p>
+      </a>
+      <a href="dig-dug/index.html" class="game-card card-digdug" data-game="dig-dug">
+        <div class="card-header"><h2>Dig Dug</h2><span class="plays-badge" data-game="dig-dug"></span></div>
+        <p class="description">Dig through the earth and defeat underground monsters! Pump them up until they pop or drop rocks on them.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move/dig, Space to pump</p>
+      </a>
+      <a href="qbert/index.html" class="game-card card-qbert" data-game="qbert">
+        <div class="card-header"><h2>Q*bert</h2><span class="plays-badge" data-game="qbert"></span></div>
+        <p class="description">Hop around the pyramid and change every cube's color! Avoid enemies that chase you. Complete each level to advance!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to hop diagonally</p>
+      </a>
+      <a href="lode-runner/index.html" class="game-card card-loderunner" data-game="lode-runner">
+        <div class="card-header"><h2>Lode Runner</h2><span class="plays-badge" data-game="lode-runner"></span></div>
+        <p class="description">Collect all the gold while escaping the guards! Dig holes to trap enemies and climb ladders to escape.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Z/X to dig left/right</p>
+      </a>
+      <a href="boulder-dash/index.html" class="game-card card-boulderdash" data-game="boulder-dash">
+        <div class="card-header"><h2>Boulder Dash</h2><span class="plays-badge" data-game="boulder-dash"></span></div>
+        <p class="description">Dig through caves to collect diamonds! Watch out — boulders obey gravity and will crush you if you're not careful.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move and dig</p>
+      </a>
+      <a href="amidar/index.html" class="game-card card-amidar" data-game="amidar">
+        <div class="card-header"><h2>Amidar</h2><span class="plays-badge" data-game="amidar"></span></div>
+        <p class="description">Trace all the edges of the grid to fill in sections! Avoid the patrolling enemies. Fill the entire grid to advance.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move along edges</p>
+      </a>
+      <a href="rally-x/index.html" class="game-card card-rallyx" data-game="rally-x">
+        <div class="card-header"><h2>Rally-X</h2><span class="plays-badge" data-game="rally-x"></span></div>
+        <p class="description">Race through a scrolling maze to collect all the flags! Enemy cars chase you — drop smoke screens to slow them down.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to steer, Space for smoke</p>
+      </a>
+      <a href="mr-do/index.html" class="game-card card-mrdo" data-game="mr-do">
+        <div class="card-header"><h2>Mr. Do!</h2><span class="plays-badge" data-game="mr-do"></span></div>
+        <p class="description">Dig through the garden, collect cherries, and defeat monsters! Throw your power ball or drop apples on their heads!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Space to throw</p>
+      </a>
     </div>
   </div>
   <script>
@@ -238,7 +288,7 @@
           /* Per-game play counts */
           var perGame = d.per_game || {};
           var totalSessions = d.total_sessions || 0;
-          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban','columns','nibbler','crossy-road','kaboom','air-hockey','simon','duck-hunt','tanks','whack-a-mole','slot-racer'];
+          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban','columns','nibbler','crossy-road','kaboom','air-hockey','simon','duck-hunt','tanks','whack-a-mole','slot-racer','pac-man','frogger','bomberman','dig-dug','qbert','lode-runner','boulder-dash','amidar','rally-x','mr-do'];
           games.forEach(function (g) {
             var badge = document.querySelector('.plays-badge[data-game="' + g + '"]');
             if (!badge) return;
