@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tapper</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #da4; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(221, 170, 68, 0.5); }
+    h1 { color: #da4; font-size: 2rem; text-shadow: 0 0 15px rgba(221, 170, 68, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #da4; }
+    canvas {
+      border: 2px solid #da4;
+      box-shadow: 0 0 20px rgba(221, 170, 68, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #da4;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>TAPPER</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Lives: <span id="lives">3</span></div>
+    <div>Level: <span id="level">1</span></div>
+    <div>Best: <span id="best">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:500px;">
+      <h2 id="overlayTitle">TAPPER</h2>
+      <p id="overlayText">Press SPACE to start</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const livesEl = document.getElementById('lives');
+    const levelEl = document.getElementById('level');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    // Theme
+    const THEME = '#da4';
+    const THEME_DIM = '#a82';
+
+    // Layout: 4 bars
+    const NUM_BARS = 4;
+    const BAR_TOP = 60;
+    const BAR_SPACING = 110;
+    const BAR_HEIGHT = 12;
+    const BAR_LEFT = 70;       // bartender end (left side)
+    const BAR_RIGHT = 560;     // customer entry end (right side)
+    const BAR_LENGTH = BAR_RIGHT - BAR_LEFT;
+
+    // Bartender (player)
+    const PLAYER_W = 28;
+    const PLAYER_H = 50;
+
+    // Customers
+    const CUST_W = 24;
+    const CUST_H = 44;
+
+    // Drinks (mugs)
+    const DRINK_W = 14;
+    const DRINK_H = 16;
+
+    // Taps (at the left end of each bar)
+    const TAP_W = 20;
+    const TAP_H = 30;
+
+    // Game state
+    let gameState = 'waiting';
+    let score = 0;
+    let best = 0;
+    let lives, level;
+    let currentBar;      // 0-3
+    let customers;       // array of customer objects
+    let drinks;          // array of drink objects
+    let emptyMugs;       // mugs sliding back toward player
+    let tips;            // tips left on the bar
+    let spawnTimer;
+    let spawnInterval;
+    let frameCount;
+    let levelCustomersTotal;
+    let levelCustomersSpawned;
+    let levelCustomersServed;
+    let serveAnimation;  // animation timer for bartender serve motion
+    let customerSpeedBase;
+    let drinkSpeed;
+    let flashTimer;      // flash effect on losing life
+    let levelFlash;      // level transition display timer
+
+    // Bar colors for each lane (neon palette)
+    const BAR_COLORS = ['#f44', '#f80', '#0f0', '#48f'];
+    const CUST_COLORS = ['#f08', '#0ff', '#8f0', '#fa0', '#a4f', '#0af'];
+
+    function barY(index) {
+      return BAR_TOP + index * BAR_SPACING;
+    }
+
+    function init() {
+      score = 0;
+      lives = 3;
+      level = 1;
+      currentBar = 1;
+      customers = [];
+      drinks = [];
+      emptyMugs = [];
+      tips = [];
+      spawnTimer = 0;
+      frameCount = 0;
+      serveAnimation = 0;
+      flashTimer = 0;
+      levelFlash = 0;
+
+      scoreEl.textContent = '0';
+      livesEl.textContent = '3';
+      levelEl.textContent = '1';
+
+      setupLevel();
+
+      gameState = 'waiting';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'TAPPER';
+      overlayText.textContent = 'UP/DOWN to move, SPACE to serve';
+      draw();
+    }
+
+    function setupLevel() {
+      customers = [];
+      drinks = [];
+      emptyMugs = [];
+      tips = [];
+      spawnTimer = 0;
+
+      // Difficulty scaling
+      const diff = Math.min(level - 1, 12);
+      customerSpeedBase = 0.4 + diff * 0.08;
+      drinkSpeed = 4.5 + diff * 0.3;
+      spawnInterval = Math.max(30, 90 - diff * 5);
+      levelCustomersTotal = 8 + level * 4;
+      levelCustomersSpawned = 0;
+      levelCustomersServed = 0;
+    }
+
+    function start() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      requestAnimationFrame(loop);
+    }
+
+    function loop() {
+      if (gameState !== 'playing') return;
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function spawnCustomer() {
+      if (levelCustomersSpawned >= levelCustomersTotal) return;
+
+      // Pick a random bar, prefer bars with fewer customers
+      const barCounts = [0, 0, 0, 0];
+      customers.forEach(c => { if (c.state === 'walking') barCounts[c.bar]++; });
+
+      // Weighted random: bars with fewer customers are more likely
+      const weights = barCounts.map(c => Math.max(1, 5 - c));
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      let r = Math.random() * totalWeight;
+      let bar = 0;
+      for (let i = 0; i < NUM_BARS; i++) {
+        r -= weights[i];
+        if (r <= 0) { bar = i; break; }
+      }
+
+      const speed = customerSpeedBase * (0.8 + Math.random() * 0.4);
+      const drinksWanted = 1 + Math.floor(Math.random() * Math.min(3, level));
+      const colorIndex = Math.floor(Math.random() * CUST_COLORS.length);
+
+      customers.push({
+        bar: bar,
+        x: BAR_RIGHT + 10,
+        speed: speed,
+        state: 'walking',    // walking, drinking, sliding_back, leaving, done
+        drinksWanted: drinksWanted,
+        drinksHad: 0,
+        drinkTimer: 0,
+        color: CUST_COLORS[colorIndex]
+      });
+
+      levelCustomersSpawned++;
+    }
+
+    function serveDrink() {
+      if (serveAnimation > 0) return; // already serving
+
+      serveAnimation = 12;
+      drinks.push({
+        bar: currentBar,
+        x: BAR_LEFT + PLAYER_W + 5,
+        speed: drinkSpeed
+      });
+    }
+
+    function loseLife(reason) {
+      lives--;
+      livesEl.textContent = lives;
+      flashTimer = 30;
+
+      if (lives <= 0) {
+        gameOver();
+        return;
+      }
+
+      // Clean up the problematic elements but keep the game going
+      // Remove drinks that fell off
+      drinks = drinks.filter(d => d.x < BAR_RIGHT + 20);
+    }
+
+    function gameOver() {
+      gameState = 'over';
+      if (score > best) {
+        best = score;
+        bestEl.textContent = best;
+      }
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'GAME OVER';
+      overlayText.textContent = `Score: ${score} -- Press any key to restart`;
+    }
+
+    function update() {
+      frameCount++;
+
+      if (serveAnimation > 0) serveAnimation--;
+      if (flashTimer > 0) flashTimer--;
+
+      // Spawn customers
+      spawnTimer++;
+      if (spawnTimer >= spawnInterval && levelCustomersSpawned < levelCustomersTotal) {
+        spawnTimer = 0;
+        spawnCustomer();
+      }
+
+      // Update customers
+      for (let i = customers.length - 1; i >= 0; i--) {
+        const c = customers[i];
+        const by = barY(c.bar);
+
+        if (c.state === 'walking') {
+          c.x -= c.speed;
+
+          // Customer reached the bartender end -- life lost!
+          if (c.x <= BAR_LEFT + PLAYER_W) {
+            c.state = 'done';
+            loseLife('customer_reached');
+            customers.splice(i, 1);
+            continue;
+          }
+        }
+
+        if (c.state === 'drinking') {
+          c.drinkTimer++;
+          if (c.drinkTimer > 40) {
+            c.drinksHad++;
+            if (c.drinksHad >= c.drinksWanted) {
+              // Satisfied! Slide back and leave, push empty mug
+              c.state = 'sliding_back';
+              emptyMugs.push({
+                bar: c.bar,
+                x: c.x,
+                speed: 3.0
+              });
+            } else {
+              // Want more drinks -- push an empty mug back too
+              c.state = 'walking';
+              c.drinkTimer = 0;
+              emptyMugs.push({
+                bar: c.bar,
+                x: c.x,
+                speed: 2.5
+              });
+            }
+          }
+        }
+
+        if (c.state === 'sliding_back') {
+          c.x += 3.5;
+          if (c.x >= BAR_RIGHT + 20) {
+            // Leave a tip
+            const tipX = BAR_RIGHT - 20 - Math.random() * 80;
+            tips.push({
+              bar: c.bar,
+              x: tipX,
+              timer: 400  // disappears after a while
+            });
+
+            levelCustomersServed++;
+            score += 50;
+            scoreEl.textContent = score;
+            if (score > best) {
+              best = score;
+              bestEl.textContent = best;
+            }
+
+            customers.splice(i, 1);
+            continue;
+          }
+        }
+
+        if (c.state === 'leaving') {
+          c.x += 2;
+          if (c.x > BAR_RIGHT + 30) {
+            customers.splice(i, 1);
+            continue;
+          }
+        }
+      }
+
+      // Update drinks sliding down the bar
+      for (let i = drinks.length - 1; i >= 0; i--) {
+        const d = drinks[i];
+        d.x += d.speed;
+
+        // Check collision with customers on same bar
+        let hitCustomer = false;
+        for (let j = 0; j < customers.length; j++) {
+          const c = customers[j];
+          if (c.bar !== d.bar) continue;
+          if (c.state !== 'walking') continue;
+
+          if (d.x + DRINK_W >= c.x && d.x <= c.x + CUST_W) {
+            // Customer caught the drink!
+            c.state = 'drinking';
+            c.drinkTimer = 0;
+            hitCustomer = true;
+
+            score += 25;
+            scoreEl.textContent = score;
+            if (score > best) {
+              best = score;
+              bestEl.textContent = best;
+            }
+
+            // The mug slides back as an empty after the customer drinks
+            // For now, just remove the drink
+            drinks.splice(i, 1);
+            break;
+          }
+        }
+
+        if (hitCustomer) continue;
+
+        // Drink slid off the far end of the bar
+        if (d.x > BAR_RIGHT + 10) {
+          drinks.splice(i, 1);
+          loseLife('drink_off_end');
+          if (gameState !== 'playing') return;
+        }
+      }
+
+      // Update empty mugs sliding back toward bartender
+      for (let i = emptyMugs.length - 1; i >= 0; i--) {
+        const m = emptyMugs[i];
+        m.x -= m.speed;
+
+        // Reached the bartender end
+        if (m.x <= BAR_LEFT + PLAYER_W + 10) {
+          if (m.bar === currentBar) {
+            // Bartender catches the empty mug!
+            score += 5;
+            scoreEl.textContent = score;
+            if (score > best) {
+              best = score;
+              bestEl.textContent = best;
+            }
+            emptyMugs.splice(i, 1);
+          } else if (m.x <= BAR_LEFT - 10) {
+            // Mug fell off the bar -- lose a life!
+            emptyMugs.splice(i, 1);
+            loseLife('mug_off_bar');
+            if (gameState !== 'playing') return;
+          }
+        }
+      }
+
+      // Update tips -- they slide slowly toward the bartender end
+      for (let i = tips.length - 1; i >= 0; i--) {
+        const t = tips[i];
+        t.x -= 1.2;
+        t.timer--;
+
+        if (t.timer <= 0) {
+          tips.splice(i, 1);
+          continue;
+        }
+
+        // Collect tip if bartender is on that bar and tip is close
+        if (t.bar === currentBar && t.x <= BAR_LEFT + PLAYER_W + 20) {
+          score += 10;
+          scoreEl.textContent = score;
+          if (score > best) {
+            best = score;
+            bestEl.textContent = best;
+          }
+          tips.splice(i, 1);
+          continue;
+        }
+
+        // Tip fell off the bar if not collected (no penalty, just missed bonus)
+        if (t.x <= BAR_LEFT - 10) {
+          tips.splice(i, 1);
+        }
+      }
+
+      // Level flash timer
+      if (levelFlash > 0) levelFlash--;
+
+      // Check level complete
+      if (levelCustomersServed >= levelCustomersTotal &&
+          customers.length === 0 &&
+          drinks.length === 0 &&
+          emptyMugs.length === 0) {
+        level++;
+        levelEl.textContent = level;
+        levelFlash = 90;
+        // Bonus points for clearing the level
+        score += 100 * (level - 1);
+        scoreEl.textContent = score;
+        if (score > best) {
+          best = score;
+          bestEl.textContent = best;
+        }
+        setupLevel();
+      }
+
+      // Expose game data for ML
+      window.gameData = {
+        currentBar: currentBar,
+        playerX: BAR_LEFT,
+        customers: customers.map(c => ({ bar: c.bar, x: c.x, state: c.state })),
+        drinks: drinks.map(d => ({ bar: d.bar, x: d.x })),
+        lives: lives,
+        level: level
+      };
+    }
+
+    function draw() {
+      // Background
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Flash effect when losing a life
+      if (flashTimer > 0 && flashTimer % 4 < 2) {
+        ctx.fillStyle = 'rgba(255, 50, 50, 0.08)';
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // Draw bars
+      for (let i = 0; i < NUM_BARS; i++) {
+        const by = barY(i);
+        const barColor = BAR_COLORS[i];
+
+        // Bar counter surface
+        ctx.fillStyle = '#2a1a08';
+        ctx.fillRect(BAR_LEFT, by - 4, BAR_LENGTH, BAR_HEIGHT + 8);
+
+        // Bar top edge (shiny)
+        ctx.fillStyle = '#5a3a18';
+        ctx.fillRect(BAR_LEFT, by - 4, BAR_LENGTH, 3);
+
+        // Neon glow line on bar
+        ctx.strokeStyle = barColor;
+        ctx.shadowColor = barColor;
+        ctx.shadowBlur = 6;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(BAR_LEFT, by + BAR_HEIGHT + 4);
+        ctx.lineTo(BAR_RIGHT, by + BAR_HEIGHT + 4);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Tap at the left end
+        const tapX = BAR_LEFT - TAP_W - 5;
+        const tapY = by - TAP_H + 10;
+        ctx.fillStyle = '#888';
+        ctx.fillRect(tapX + 6, tapY, 8, TAP_H);
+        ctx.fillStyle = '#bbb';
+        ctx.fillRect(tapX + 2, tapY, 16, 6);
+        // Tap handle
+        ctx.fillStyle = THEME;
+        ctx.shadowColor = THEME;
+        ctx.shadowBlur = 4;
+        ctx.fillRect(tapX, tapY - 8, 20, 10);
+        ctx.shadowBlur = 0;
+
+        // Bar number label
+        ctx.fillStyle = '#555';
+        ctx.font = '10px Courier New';
+        ctx.fillText(`BAR ${i + 1}`, BAR_LEFT + 2, by + BAR_HEIGHT + 18);
+      }
+
+      // Draw tips
+      tips.forEach(t => {
+        const by = barY(t.bar);
+        const alpha = Math.min(1, t.timer / 60);
+        ctx.fillStyle = `rgba(0, 255, 100, ${alpha})`;
+        ctx.shadowColor = '#0f8';
+        ctx.shadowBlur = 6;
+        ctx.font = 'bold 12px Courier New';
+        ctx.fillText('$', t.x, by - 10);
+        ctx.shadowBlur = 0;
+      });
+
+      // Draw drinks
+      drinks.forEach(d => {
+        const by = barY(d.bar);
+        drawMug(d.x, by - DRINK_H - 2, true);
+      });
+
+      // Draw empty mugs
+      emptyMugs.forEach(m => {
+        const by = barY(m.bar);
+        drawMug(m.x, by - DRINK_H - 2, false);
+      });
+
+      // Draw customers
+      customers.forEach(c => {
+        const by = barY(c.bar);
+        drawCustomer(c, by);
+      });
+
+      // Draw bartender
+      drawBartender();
+
+      // HUD: bar indicator arrows
+      for (let i = 0; i < NUM_BARS; i++) {
+        const by = barY(i);
+        if (i === currentBar) {
+          ctx.fillStyle = THEME;
+          ctx.shadowColor = THEME;
+          ctx.shadowBlur = 8;
+          ctx.font = 'bold 16px Courier New';
+          ctx.fillText('\u25B6', 8, by + 8);
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.fillStyle = '#333';
+          ctx.font = '14px Courier New';
+          ctx.fillText('\u25B6', 10, by + 7);
+        }
+      }
+
+      // Level progress indicator
+      const progress = levelCustomersTotal > 0 ? levelCustomersServed / levelCustomersTotal : 0;
+      const progW = 120;
+      const progH = 6;
+      const progX = W - progW - 20;
+      const progY = H - 20;
+      ctx.fillStyle = '#16213e';
+      ctx.fillRect(progX, progY, progW, progH);
+      ctx.fillStyle = THEME;
+      ctx.shadowColor = THEME;
+      ctx.shadowBlur = 4;
+      ctx.fillRect(progX, progY, progW * progress, progH);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#666';
+      ctx.font = '10px Courier New';
+      ctx.fillText(`${levelCustomersServed}/${levelCustomersTotal}`, progX + progW + 5, progY + 6);
+
+      // Entry doors at right end of each bar
+      for (let i = 0; i < NUM_BARS; i++) {
+        const by = barY(i);
+        ctx.fillStyle = '#0f3460';
+        ctx.fillRect(BAR_RIGHT + 2, by - CUST_H - 5, 18, CUST_H + 10);
+        ctx.strokeStyle = '#1a4a80';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(BAR_RIGHT + 2, by - CUST_H - 5, 18, CUST_H + 10);
+        // Door knob
+        ctx.fillStyle = THEME_DIM;
+        ctx.beginPath();
+        ctx.arc(BAR_RIGHT + 7, by - CUST_H / 2, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Level flash overlay
+      if (levelFlash > 0) {
+        const alpha = Math.min(0.7, levelFlash / 90);
+        ctx.fillStyle = `rgba(26, 26, 46, ${alpha})`;
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = THEME;
+        ctx.shadowColor = THEME;
+        ctx.shadowBlur = 20;
+        ctx.font = 'bold 32px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(`LEVEL ${level}`, W / 2, H / 2);
+        ctx.font = '14px Courier New';
+        ctx.fillStyle = '#aaa';
+        ctx.shadowBlur = 0;
+        ctx.fillText(`+${100 * (level - 1)} bonus`, W / 2, H / 2 + 30);
+        ctx.textAlign = 'left';
+      }
+    }
+
+    function drawMug(x, y, full) {
+      // Mug body
+      ctx.fillStyle = full ? '#da4' : '#664';
+      ctx.shadowColor = full ? '#da4' : '#664';
+      ctx.shadowBlur = full ? 8 : 2;
+      ctx.fillRect(x, y, DRINK_W, DRINK_H);
+      // Handle
+      ctx.strokeStyle = full ? '#da4' : '#664';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x + DRINK_W + 2, y + DRINK_H / 2, 4, -Math.PI / 2, Math.PI / 2);
+      ctx.stroke();
+      // Foam on top if full
+      if (full) {
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(x - 1, y - 3, DRINK_W + 2, 4);
+      }
+      ctx.shadowBlur = 0;
+    }
+
+    function drawCustomer(c, by) {
+      const x = c.x;
+      const bodyTop = by - CUST_H - 2;
+
+      // Body
+      ctx.fillStyle = c.color;
+      ctx.shadowColor = c.color;
+      ctx.shadowBlur = 6;
+      ctx.fillRect(x + 4, bodyTop + 16, CUST_W - 8, CUST_H - 16);
+
+      // Head
+      ctx.beginPath();
+      ctx.arc(x + CUST_W / 2, bodyTop + 10, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes (face the bar / left)
+      ctx.fillStyle = '#1a1a2e';
+      ctx.shadowBlur = 0;
+      ctx.fillRect(x + 6, bodyTop + 8, 2, 3);
+      ctx.fillRect(x + 11, bodyTop + 8, 2, 3);
+
+      // State indicator
+      if (c.state === 'drinking') {
+        // Show a little mug near the customer
+        drawMug(x - 4, by - DRINK_H - 2, true);
+      }
+
+      if (c.state === 'walking' && c.drinksHad > 0) {
+        // Wants more - show indicator
+        ctx.fillStyle = '#f44';
+        ctx.shadowColor = '#f44';
+        ctx.shadowBlur = 4;
+        ctx.font = 'bold 10px Courier New';
+        ctx.fillText('!', x + CUST_W / 2 - 2, bodyTop - 2);
+        ctx.shadowBlur = 0;
+      }
+
+      // Multi-drink indicator dots
+      if (c.drinksWanted > 1) {
+        for (let d = 0; d < c.drinksWanted; d++) {
+          ctx.fillStyle = d < c.drinksHad ? '#0f0' : '#444';
+          ctx.beginPath();
+          ctx.arc(x + 4 + d * 7, bodyTop - 4, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.shadowBlur = 0;
+    }
+
+    function drawBartender() {
+      const by = barY(currentBar);
+      const bx = BAR_LEFT + 2;
+      const bodyTop = by - PLAYER_H - 2;
+
+      const serveOffset = serveAnimation > 6 ? 8 : (serveAnimation > 0 ? 4 : 0);
+
+      // Body
+      ctx.fillStyle = '#fff';
+      ctx.shadowColor = THEME;
+      ctx.shadowBlur = 10;
+      ctx.fillRect(bx + 4 + serveOffset, bodyTop + 18, PLAYER_W - 8, PLAYER_H - 18);
+
+      // Apron
+      ctx.fillStyle = THEME;
+      ctx.fillRect(bx + 6 + serveOffset, bodyTop + 28, PLAYER_W - 12, PLAYER_H - 28);
+
+      // Head
+      ctx.fillStyle = '#f8d8b0';
+      ctx.beginPath();
+      ctx.arc(bx + PLAYER_W / 2 + serveOffset, bodyTop + 12, 9, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Hat
+      ctx.fillStyle = THEME;
+      ctx.fillRect(bx + 2 + serveOffset, bodyTop + 2, PLAYER_W - 4, 6);
+
+      // Eyes (face right toward bar)
+      ctx.fillStyle = '#1a1a2e';
+      ctx.shadowBlur = 0;
+      ctx.fillRect(bx + PLAYER_W / 2 + 3 + serveOffset, bodyTop + 10, 2, 3);
+      ctx.fillRect(bx + PLAYER_W / 2 + 7 + serveOffset, bodyTop + 10, 2, 3);
+
+      // Arm reaching out when serving
+      if (serveAnimation > 0) {
+        ctx.strokeStyle = '#f8d8b0';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(bx + PLAYER_W + serveOffset, bodyTop + 24);
+        ctx.lineTo(bx + PLAYER_W + 12 + serveOffset, bodyTop + 20);
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 0;
+    }
+
+    // Keyboard handling
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      if (gameState === 'waiting') {
+        start();
+        return;
+      }
+
+      if (gameState === 'over') {
+        init();
+        return;
+      }
+
+      if (gameState === 'playing') {
+        if (e.key === 'ArrowUp') {
+          if (currentBar > 0) currentBar--;
+        }
+        if (e.key === 'ArrowDown') {
+          if (currentBar < NUM_BARS - 1) currentBar++;
+        }
+        if (e.key === ' ') {
+          serveDrink();
+        }
+      }
+    });
+
+    init();
+  </script>
+  <script src="../recorder.js?v=3"></script>
+</body>
+</html>

@@ -286,6 +286,56 @@
         <p class="description">Drive your lunar buggy across the moon! Jump craters, shoot UFOs, and dodge obstacles on your patrol route.</p>
         <p class="controls"><span>Controls:</span> Up to jump, Z forward fire, X upward fire</p>
       </a>
+      <a href="donkey-kong/index.html" class="game-card card-donkeykong" data-game="donkey-kong">
+        <div class="card-header"><h2>Donkey Kong</h2><span class="plays-badge" data-game="donkey-kong"></span></div>
+        <p class="description">Climb ladders and jump over barrels thrown by the gorilla to rescue the princess at the top!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move/climb, Space to jump</p>
+      </a>
+      <a href="bubble-bobble/index.html" class="game-card card-bubblebobble" data-game="bubble-bobble">
+        <div class="card-header"><h2>Bubble Bobble</h2><span class="plays-badge" data-game="bubble-bobble"></span></div>
+        <p class="description">Trap enemies in bubbles and pop them! Play as a cute dragon clearing each level of monsters.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Space to shoot bubbles</p>
+      </a>
+      <a href="ice-climber/index.html" class="game-card card-iceclimber" data-game="ice-climber">
+        <div class="card-header"><h2>Ice Climber</h2><span class="plays-badge" data-game="ice-climber"></span></div>
+        <p class="description">Break ice blocks above you and climb the mountain! Watch out for enemies that repair the blocks.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Space to jump/break</p>
+      </a>
+      <a href="elevator-action/index.html" class="game-card card-elevatoraction" data-game="elevator-action">
+        <div class="card-header"><h2>Elevator Action</h2><span class="plays-badge" data-game="elevator-action"></span></div>
+        <p class="description">Ride elevators through a building, collecting secret documents from red doors while fighting enemy agents!</p>
+        <p class="controls"><span>Controls:</span> Arrows to move/ride elevators, Space to shoot</p>
+      </a>
+      <a href="mappy/index.html" class="game-card card-mappy" data-game="mappy">
+        <div class="card-header"><h2>Mappy</h2><span class="plays-badge" data-game="mappy"></span></div>
+        <p class="description">Bounce on trampolines through a mansion to collect treasures! Avoid the cats and use doors to stun them.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, trampolines auto-bounce</p>
+      </a>
+      <a href="snow-bros/index.html" class="game-card card-snowbros" data-game="snow-bros">
+        <div class="card-header"><h2>Snow Bros</h2><span class="plays-badge" data-game="snow-bros"></span></div>
+        <p class="description">Throw snow at enemies to encase them, then kick the snowballs to bowl over other enemies in chain reactions!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move/jump, Space to throw/kick</p>
+      </a>
+      <a href="tapper/index.html" class="game-card card-tapper" data-game="tapper">
+        <div class="card-header"><h2>Tapper</h2><span class="plays-badge" data-game="tapper"></span></div>
+        <p class="description">Serve drinks to thirsty customers sliding down 4 bar counters! Don't let them reach the end!</p>
+        <p class="controls"><span>Controls:</span> Up/Down to switch bars, Space to serve</p>
+      </a>
+      <a href="joust/index.html" class="game-card card-joust" data-game="joust">
+        <div class="card-header"><h2>Joust</h2><span class="plays-badge" data-game="joust"></span></div>
+        <p class="description">Fly your ostrich-mounted knight and defeat enemies by landing on top of them! Flap to fly, collect the eggs!</p>
+        <p class="controls"><span>Controls:</span> Left/Right to move, Space to flap</p>
+      </a>
+      <a href="burger-time/index.html" class="game-card card-burgertime" data-game="burger-time">
+        <div class="card-header"><h2>BurgerTime</h2><span class="plays-badge" data-game="burger-time"></span></div>
+        <p class="description">Walk over burger ingredients to drop them and assemble burgers! Avoid food enemies or stun them with pepper.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move/climb, Space for pepper</p>
+      </a>
+      <a href="cookie-clicker/index.html" class="game-card card-cookieclicker" data-game="cookie-clicker">
+        <div class="card-header"><h2>Cookie Clicker</h2><span class="plays-badge" data-game="cookie-clicker"></span></div>
+        <p class="description">Click the cookie to earn cookies! Buy buildings for automatic production. Can you reach one million?</p>
+        <p class="controls"><span>Controls:</span> Click/Space for cookie, 1-6 to buy buildings</p>
+      </a>
     </div>
   </div>
   <script>
@@ -338,7 +388,7 @@
           /* Per-game play counts */
           var perGame = d.per_game || {};
           var totalSessions = d.total_sessions || 0;
-          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban','columns','nibbler','crossy-road','kaboom','air-hockey','simon','duck-hunt','tanks','whack-a-mole','slot-racer','pac-man','frogger','bomberman','dig-dug','qbert','lode-runner','boulder-dash','amidar','rally-x','mr-do','galaga','galaxian','centipede','missile-command','phoenix','1942','xevious','raiden','robotron','moon-patrol'];
+          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban','columns','nibbler','crossy-road','kaboom','air-hockey','simon','duck-hunt','tanks','whack-a-mole','slot-racer','pac-man','frogger','bomberman','dig-dug','qbert','lode-runner','boulder-dash','amidar','rally-x','mr-do','galaga','galaxian','centipede','missile-command','phoenix','1942','xevious','raiden','robotron','moon-patrol','donkey-kong','bubble-bobble','ice-climber','elevator-action','mappy','snow-bros','tapper','joust','burger-time','cookie-clicker'];
           games.forEach(function (g) {
             var badge = document.querySelector('.plays-badge[data-game="' + g + '"]');
             if (!badge) return;

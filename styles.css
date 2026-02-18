@@ -373,3 +373,33 @@ body {
 
 .card-moonpatrol h2 { color: #48e; }
 .card-moonpatrol:hover { border-color: #48e; box-shadow: 0 8px 30px rgba(68, 136, 238, 0.15); }
+
+.card-donkeykong h2 { color: #e82; }
+.card-donkeykong:hover { border-color: #e82; box-shadow: 0 8px 30px rgba(238, 136, 34, 0.15); }
+
+.card-bubblebobble h2 { color: #4ef; }
+.card-bubblebobble:hover { border-color: #4ef; box-shadow: 0 8px 30px rgba(68, 238, 255, 0.15); }
+
+.card-iceclimber h2 { color: #8af; }
+.card-iceclimber:hover { border-color: #8af; box-shadow: 0 8px 30px rgba(136, 170, 255, 0.15); }
+
+.card-elevatoraction h2 { color: #d6f; }
+.card-elevatoraction:hover { border-color: #d6f; box-shadow: 0 8px 30px rgba(221, 102, 255, 0.15); }
+
+.card-mappy h2 { color: #fe4; }
+.card-mappy:hover { border-color: #fe4; box-shadow: 0 8px 30px rgba(255, 238, 68, 0.15); }
+
+.card-snowbros h2 { color: #6fe; }
+.card-snowbros:hover { border-color: #6fe; box-shadow: 0 8px 30px rgba(102, 255, 238, 0.15); }
+
+.card-tapper h2 { color: #da4; }
+.card-tapper:hover { border-color: #da4; box-shadow: 0 8px 30px rgba(221, 170, 68, 0.15); }
+
+.card-joust h2 { color: #f86; }
+.card-joust:hover { border-color: #f86; box-shadow: 0 8px 30px rgba(255, 136, 102, 0.15); }
+
+.card-burgertime h2 { color: #e4a; }
+.card-burgertime:hover { border-color: #e4a; box-shadow: 0 8px 30px rgba(238, 68, 170, 0.15); }
+
+.card-cookieclicker h2 { color: #ed4; }
+.card-cookieclicker:hover { border-color: #ed4; box-shadow: 0 8px 30px rgba(238, 221, 68, 0.15); }

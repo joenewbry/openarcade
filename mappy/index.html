@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mappy</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 480px;
+    }
+    .back { color: #fe4; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 238, 68, 0.5); }
+    h1 { color: #fe4; font-size: 2rem; text-shadow: 0 0 15px rgba(255, 238, 68, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 480px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #fe4; }
+    canvas {
+      border: 2px solid #fe4;
+      box-shadow: 0 0 20px rgba(255, 238, 68, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #fe4;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>MAPPY</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Level: <span id="level">1</span></div>
+    <div>Lives: <span id="lives">3</span></div>
+    <div>Best: <span id="best">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="480" height="560"></canvas>
+    <div class="overlay" id="overlay" style="width:480px;height:560px;">
+      <h2 id="overlayTitle">MAPPY</h2>
+      <p id="overlayText">Press SPACE to start</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const levelEl = document.getElementById('level');
+    const livesEl = document.getElementById('lives');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    // --- CONSTANTS ---
+    const TILE = 32;
+    const COLS = 15;          // 480 / 32 = 15
+    const NUM_FLOORS = 6;     // 6 walkable floors
+    const FLOOR_GAP = 80;     // pixels between floors
+    const ROOF_Y = 40;        // top floor y
+    const FLOOR_THICKNESS = 4;
+    const TRAMPOLINE_WIDTH = 28;
+    const TRAMPOLINE_HEIGHT = 10;
+    const GRAVITY = 0.35;
+    const MAX_FALL = 7;
+    const PLAYER_SPEED = 2.5;
+    const CAT_SPEED_BASE = 1.2;
+    const DOOR_WIDTH = 6;
+    const DOOR_HEIGHT = 54;
+    const MICROWAVE_RANGE = 160;
+    const MICROWAVE_DURATION = 60;
+
+    // Floor Y positions (top to bottom)
+    function floorY(i) { return ROOF_Y + i * FLOOR_GAP; }
+
+    // --- GAME STATE ---
+    let gameState = 'waiting';
+    let score = 0;
+    let best = 0;
+    let lives, level;
+    let player, cats, items, doors, trampolines;
+    let keys = {};
+    let microwaveEffects;   // active microwave blasts
+    let frameCount;
+    let itemsTotal;
+    let levelTransition;    // countdown for level clear animation
+
+    // --- ITEM TYPES ---
+    const ITEM_TYPES = [
+      { name: 'TV',        color: '#0ff', points: 200, shape: 'tv' },
+      { name: 'Computer',  color: '#0f0', points: 300, shape: 'computer' },
+      { name: 'Painting',  color: '#f80', points: 500, shape: 'painting' },
+      { name: 'Radio',     color: '#f0f', points: 100, shape: 'radio' },
+      { name: 'Safe',      color: '#88f', points: 800, shape: 'safe' },
+    ];
+
+    // --- TRAMPOLINE POSITIONS (columns where trampolines exist) ---
+    const TRAMP_COLS = [1, 4, 7, 10, 13];
+
+    // --- INIT ---
+    function init() {
+      score = 0;
+      lives = 3;
+      level = 1;
+      scoreEl.textContent = '0';
+      livesEl.textContent = '3';
+      levelEl.textContent = '1';
+      gameState = 'waiting';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'MAPPY';
+      overlayText.textContent = 'Press SPACE to start';
+      setupLevel();
+      draw();
+    }
+
+    function setupLevel() {
+      frameCount = 0;
+      microwaveEffects = [];
+      levelTransition = 0;
+
+      // Player starts on the bottom floor, center
+      player = {
+        x: W / 2 - 8,
+        y: floorY(NUM_FLOORS - 1) - 16,
+        w: 16,
+        h: 16,
+        vx: 0,
+        vy: 0,
+        onFloor: true,
+        floorIndex: NUM_FLOORS - 1,
+        bounceCount: 0,     // consecutive bounces without landing on a floor
+        facingRight: true,
+        stunTimer: 0,
+        dead: false
+      };
+
+      // Trampolines between every pair of adjacent floors + below bottom floor
+      trampolines = [];
+      for (let col of TRAMP_COLS) {
+        for (let f = 0; f < NUM_FLOORS; f++) {
+          const tx = col * TILE + (TILE - TRAMPOLINE_WIDTH) / 2;
+          const ty = floorY(f) + FLOOR_GAP / 2 - TRAMPOLINE_HEIGHT / 2 + 12;
+          // Only add if trampoline fits on screen
+          if (ty + TRAMPOLINE_HEIGHT < H - 10) {
+            trampolines.push({
+              x: tx, y: ty,
+              w: TRAMPOLINE_WIDTH, h: TRAMPOLINE_HEIGHT,
+              aboveFloor: f, belowFloor: f + 1,
+              stretch: 0      // visual stretch animation
+            });
+          }
+        }
+      }
+
+      // Doors at specific positions on each floor
+      doors = [];
+      for (let f = 0; f < NUM_FLOORS; f++) {
+        // Place doors at columns 3, 7, 11
+        const doorCols = [3, 7, 11];
+        for (let dc of doorCols) {
+          doors.push({
+            x: dc * TILE,
+            y: floorY(f) - DOOR_HEIGHT,
+            w: DOOR_WIDTH,
+            h: DOOR_HEIGHT,
+            floor: f,
+            open: false,
+            openTimer: 0,
+            microwaving: false,
+            microTimer: 0
+          });
+        }
+      }
+
+      // Place items on floors (not bottom floor, not top) -- paired items
+      items = [];
+      const itemFloors = [];
+      for (let f = 0; f < NUM_FLOORS - 1; f++) {
+        itemFloors.push(f);
+      }
+
+      // Place paired items (same type on same floor, left and right side)
+      const numPairs = 3 + Math.min(level, 4);
+      let pairCount = 0;
+      for (let f of itemFloors) {
+        if (pairCount >= numPairs) break;
+        const type = ITEM_TYPES[pairCount % ITEM_TYPES.length];
+        // Left side
+        const lx = (2 + Math.floor(Math.random() * 3)) * TILE;
+        // Right side
+        const rx = (10 + Math.floor(Math.random() * 3)) * TILE;
+        items.push({
+          x: lx, y: floorY(f) - 20, w: 20, h: 20,
+          type: type, collected: false, floor: f, paired: pairCount
+        });
+        items.push({
+          x: rx, y: floorY(f) - 20, w: 20, h: 20,
+          type: type, collected: false, floor: f, paired: pairCount
+        });
+        pairCount++;
+      }
+      // If we still need more pairs, add to random floors
+      while (pairCount < numPairs) {
+        const f = itemFloors[Math.floor(Math.random() * itemFloors.length)];
+        const type = ITEM_TYPES[pairCount % ITEM_TYPES.length];
+        const lx = (1 + Math.floor(Math.random() * 5)) * TILE;
+        const rx = (9 + Math.floor(Math.random() * 5)) * TILE;
+        items.push({
+          x: lx, y: floorY(f) - 20, w: 20, h: 20,
+          type: type, collected: false, floor: f, paired: pairCount
+        });
+        items.push({
+          x: rx, y: floorY(f) - 20, w: 20, h: 20,
+          type: type, collected: false, floor: f, paired: pairCount
+        });
+        pairCount++;
+      }
+      itemsTotal = items.length;
+
+      // Cats (Meowkies)
+      cats = [];
+      const numCats = 2 + Math.min(level, 5);
+      for (let i = 0; i < numCats; i++) {
+        const f = i % (NUM_FLOORS - 1);  // distribute across floors
+        const isGoro = (i === 0 && level >= 3);
+        cats.push({
+          x: (i % 2 === 0) ? TILE * 2 : W - TILE * 3,
+          y: floorY(f) - 16,
+          w: 16,
+          h: 16,
+          vx: (Math.random() < 0.5 ? -1 : 1) * (CAT_SPEED_BASE + level * 0.15),
+          vy: 0,
+          onFloor: true,
+          floorIndex: f,
+          stunTimer: 0,
+          isGoro: isGoro,
+          bounceCount: 0,
+          chaseTimer: 0,
+          dirChangeTimer: Math.floor(Math.random() * 120) + 60
+        });
+      }
+
+      livesEl.textContent = lives;
+      levelEl.textContent = level;
+    }
+
+    function start() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      setupLevel();
+      loop();
+    }
+
+    function gameOver() {
+      gameState = 'over';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'GAME OVER';
+      overlayText.textContent = `Score: ${score} -- Press any key to restart`;
+      if (score > best) {
+        best = score;
+        bestEl.textContent = best;
+      }
+    }
+
+    function loop() {
+      if (gameState !== 'playing') return;
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // --- Collision helpers ---
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x &&
+             a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    // --- UPDATE ---
+    function update() {
+      frameCount++;
+
+      // Level transition
+      if (levelTransition > 0) {
+        levelTransition--;
+        if (levelTransition === 0) {
+          level++;
+          levelEl.textContent = level;
+          setupLevel();
+        }
+        return;
+      }
+
+      // Player stun
+      if (player.stunTimer > 0) {
+        player.stunTimer--;
+        if (player.stunTimer === 0 && player.dead) {
+          lives--;
+          livesEl.textContent = lives;
+          if (lives <= 0) {
+            gameOver();
+            return;
+          }
+          // Respawn
+          player.x = W / 2 - 8;
+          player.y = floorY(NUM_FLOORS - 1) - 16;
+          player.vx = 0;
+          player.vy = 0;
+          player.onFloor = true;
+          player.floorIndex = NUM_FLOORS - 1;
+          player.bounceCount = 0;
+          player.dead = false;
+        }
+        return;
+      }
+
+      updatePlayer();
+      updateCats();
+      updateMicrowaves();
+      checkItemCollection();
+      checkCatCollision();
+      checkLevelClear();
+      updateGameData();
+    }
+
+    function updatePlayer() {
+      // Horizontal movement
+      let moveDir = 0;
+      if (keys['ArrowLeft']) moveDir = -1;
+      if (keys['ArrowRight']) moveDir = 1;
+
+      if (player.onFloor) {
+        player.vx = moveDir * PLAYER_SPEED;
+        if (moveDir !== 0) player.facingRight = moveDir > 0;
+      } else {
+        // In air, allow slight horizontal control
+        player.vx = moveDir * PLAYER_SPEED * 0.8;
+        if (moveDir !== 0) player.facingRight = moveDir > 0;
+      }
+
+      // Apply gravity when not on floor
+      if (!player.onFloor) {
+        player.vy += GRAVITY;
+        if (player.vy > MAX_FALL) player.vy = MAX_FALL;
+      }
+
+      // Move horizontally
+      player.x += player.vx;
+
+      // Wall boundaries (wrap around like original Mappy)
+      if (player.x + player.w < 0) player.x = W;
+      if (player.x > W) player.x = -player.w;
+
+      // Move vertically
+      player.y += player.vy;
+
+      // Check trampoline collision (only when falling)
+      if (player.vy > 0 && !player.onFloor) {
+        for (let t of trampolines) {
+          if (player.x + player.w > t.x && player.x < t.x + t.w &&
+              player.y + player.h >= t.y && player.y + player.h <= t.y + t.h + 4) {
+            // Bounce!
+            player.bounceCount++;
+            t.stretch = 8;
+            // Bounce height depends on bounce count
+            if (player.bounceCount >= 4) {
+              // After 4 bounces, trampoline breaks and player falls
+              player.vy = 2;
+              player.bounceCount = 0;
+              // Stun the player (death)
+              player.dead = true;
+              player.stunTimer = 40;
+              return;
+            }
+            player.vy = -(6 + player.bounceCount * 0.8);
+            break;
+          }
+        }
+      }
+
+      // Check floor landing (only when falling, not at gap positions)
+      if (player.vy > 0) {
+        const pcx = player.x + player.w / 2;
+        for (let f = 0; f < NUM_FLOORS; f++) {
+          const fy = floorY(f);
+          if (player.y + player.h >= fy && player.y + player.h <= fy + 10 &&
+              !isOnTrampolineGap(pcx)) {
+            player.y = fy - player.h;
+            player.vy = 0;
+            player.onFloor = true;
+            player.floorIndex = f;
+            player.bounceCount = 0;
+            break;
+          }
+        }
+      }
+
+      // If player walks over a gap while on a floor, fall through
+      if (player.onFloor) {
+        const pcx = player.x + player.w / 2;
+        if (isOnTrampolineGap(pcx)) {
+          player.onFloor = false;
+          player.vy = 0.5;
+        }
+      }
+
+      // Bottom boundary -- if player falls below all floors, lose a life
+      if (player.y > H + 20) {
+        player.dead = true;
+        player.stunTimer = 40;
+      }
+
+      // Trampoline stretch decay
+      for (let t of trampolines) {
+        if (t.stretch > 0) t.stretch -= 0.5;
+      }
+    }
+
+    function isOnTrampolineGap(cx) {
+      // Trampoline gaps are at specific column positions
+      for (let col of TRAMP_COLS) {
+        const gapLeft = col * TILE + 4;
+        const gapRight = col * TILE + TILE - 4;
+        if (cx > gapLeft && cx < gapRight) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function updateCats() {
+      for (let cat of cats) {
+        if (cat.stunTimer > 0) {
+          cat.stunTimer--;
+          continue;
+        }
+
+        cat.dirChangeTimer--;
+
+        // Cat AI: chase player with some randomness
+        if (cat.onFloor) {
+          // Decide direction
+          if (cat.dirChangeTimer <= 0) {
+            cat.dirChangeTimer = Math.floor(Math.random() * 120) + 60;
+            // Bias toward player direction
+            if (Math.random() < 0.65) {
+              cat.vx = (player.x > cat.x ? 1 : -1) * (CAT_SPEED_BASE + level * 0.15);
+            } else {
+              cat.vx = (Math.random() < 0.5 ? 1 : -1) * (CAT_SPEED_BASE + level * 0.15);
+            }
+          }
+
+          // Goro is faster
+          if (cat.isGoro) {
+            cat.vx = (player.x > cat.x ? 1 : -1) * (CAT_SPEED_BASE + level * 0.15) * 1.4;
+          }
+
+          cat.x += cat.vx;
+
+          // Wall wrapping
+          if (cat.x + cat.w < 0) cat.x = W;
+          if (cat.x > W) cat.x = -cat.w;
+
+          // Randomly use trampolines to change floors
+          const catCenterX = cat.x + cat.w / 2;
+          if (Math.random() < 0.008 || (Math.abs(cat.floorIndex - player.floorIndex) > 0 && Math.random() < 0.02)) {
+            if (isOnTrampolineGap(catCenterX)) {
+              cat.onFloor = false;
+              cat.vy = player.y < cat.y ? -(5 + Math.random() * 2) : 1;
+            }
+          }
+        } else {
+          // Cat in air
+          cat.vy += GRAVITY;
+          if (cat.vy > MAX_FALL) cat.vy = MAX_FALL;
+          cat.y += cat.vy;
+          cat.x += cat.vx * 0.3;
+
+          // Trampoline bounce
+          if (cat.vy > 0) {
+            for (let t of trampolines) {
+              if (cat.x + cat.w > t.x && cat.x < t.x + t.w &&
+                  cat.y + cat.h >= t.y && cat.y + cat.h <= t.y + t.h + 4) {
+                cat.bounceCount++;
+                t.stretch = 6;
+                if (cat.bounceCount >= 3) {
+                  cat.vy = 2;
+                  cat.bounceCount = 0;
+                } else {
+                  cat.vy = -(5 + Math.random() * 2);
+                }
+                break;
+              }
+            }
+          }
+
+          // Floor landing (respect gaps)
+          if (cat.vy > 0) {
+            const ccx = cat.x + cat.w / 2;
+            for (let f = 0; f < NUM_FLOORS; f++) {
+              const fy = floorY(f);
+              if (cat.y + cat.h >= fy && cat.y + cat.h <= fy + 10 &&
+                  !isOnTrampolineGap(ccx)) {
+                cat.y = fy - cat.h;
+                cat.vy = 0;
+                cat.onFloor = true;
+                cat.floorIndex = f;
+                cat.bounceCount = 0;
+                break;
+              }
+            }
+          }
+
+          // Wrap
+          if (cat.x + cat.w < 0) cat.x = W;
+          if (cat.x > W) cat.x = -cat.w;
+        }
+
+        // Prevent cat falling below bottom floor
+        const bottomFloorY = floorY(NUM_FLOORS - 1);
+        if (cat.y + cat.h > bottomFloorY + 40) {
+          cat.y = floorY(0) - cat.h;
+          cat.onFloor = true;
+          cat.floorIndex = 0;
+          cat.vy = 0;
+        }
+      }
+    }
+
+    function updateMicrowaves() {
+      // Update door timers
+      for (let d of doors) {
+        if (d.openTimer > 0) {
+          d.openTimer--;
+          if (d.openTimer === 0) {
+            d.open = false;
+          }
+        }
+        if (d.microTimer > 0) {
+          d.microTimer--;
+          if (d.microTimer === 0) {
+            d.microwaving = false;
+          }
+        }
+      }
+
+      // Remove expired microwave effects
+      microwaveEffects = microwaveEffects.filter(m => m.timer > 0);
+      for (let m of microwaveEffects) {
+        m.timer--;
+        m.radius += 3;
+      }
+    }
+
+    function openDoor(door) {
+      if (door.open) {
+        // Already open -- close it (no microwave)
+        door.open = false;
+        door.openTimer = 0;
+        return;
+      }
+      door.open = true;
+      door.openTimer = 90; // auto-close after 90 frames
+
+      // Microwave blast! Push cats away from this door
+      door.microwaving = true;
+      door.microTimer = MICROWAVE_DURATION;
+
+      // Determine blast direction (which side player is on)
+      const blastDir = player.x < door.x ? 1 : -1;
+
+      microwaveEffects.push({
+        x: door.x + door.w / 2,
+        y: door.y + door.h / 2,
+        dir: blastDir,
+        timer: 30,
+        radius: 10,
+        floor: door.floor
+      });
+
+      // Stun cats on same floor within range
+      for (let cat of cats) {
+        if (cat.stunTimer > 0) continue;
+        if (Math.abs(cat.floorIndex - door.floor) > 0) continue;
+        const dist = Math.abs(cat.x + cat.w / 2 - (door.x + door.w / 2));
+        const sameDirection = (blastDir > 0 && cat.x > door.x) || (blastDir < 0 && cat.x < door.x);
+        if (dist < MICROWAVE_RANGE && sameDirection) {
+          cat.stunTimer = 120;
+          cat.vx = blastDir * 4;
+          cat.x += blastDir * 30;
+          // Score for stunning cats
+          score += 50;
+          scoreEl.textContent = score;
+          if (score > best) { best = score; bestEl.textContent = best; }
+        }
+      }
+    }
+
+    function checkItemCollection() {
+      for (let item of items) {
+        if (item.collected) continue;
+        if (rectsOverlap(player, item)) {
+          item.collected = true;
+          score += item.type.points;
+          scoreEl.textContent = score;
+          if (score > best) {
+            best = score;
+            bestEl.textContent = best;
+          }
+
+          // Check for paired bonus: both items with same pair ID collected
+          const pairItems = items.filter(it => it.paired === item.paired);
+          const allCollected = pairItems.every(it => it.collected);
+          if (allCollected && pairItems.length === 2) {
+            // Paired bonus
+            const bonus = item.type.points * 2;
+            score += bonus;
+            scoreEl.textContent = score;
+            if (score > best) { best = score; bestEl.textContent = best; }
+          }
+        }
+      }
+    }
+
+    function checkCatCollision() {
+      for (let cat of cats) {
+        if (cat.stunTimer > 0) continue;
+        if (player.stunTimer > 0 || player.dead) continue;
+        if (rectsOverlap(player, cat)) {
+          // Player hit by cat
+          player.dead = true;
+          player.stunTimer = 50;
+        }
+      }
+    }
+
+    function checkLevelClear() {
+      const remaining = items.filter(it => !it.collected).length;
+      if (remaining === 0 && levelTransition === 0) {
+        // Level complete!
+        levelTransition = 90;
+        score += 1000 + level * 200;
+        scoreEl.textContent = score;
+        if (score > best) { best = score; bestEl.textContent = best; }
+      }
+    }
+
+    // --- DRAWING ---
+    function draw() {
+      // Background
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Mansion background panels
+      drawMansionBg();
+
+      // Draw trampolines
+      drawTrampolines();
+
+      // Draw floors
+      drawFloors();
+
+      // Draw doors
+      drawDoors();
+
+      // Draw items
+      drawItems();
+
+      // Draw microwave effects
+      drawMicrowaves();
+
+      // Draw cats
+      drawCats();
+
+      // Draw player
+      drawPlayer();
+
+      // Level transition flash
+      if (levelTransition > 0) {
+        ctx.fillStyle = `rgba(255, 238, 68, ${levelTransition / 90 * 0.3})`;
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#fe4';
+        ctx.font = '24px Courier New';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#fe4';
+        ctx.shadowBlur = 15;
+        ctx.fillText('LEVEL CLEAR!', W / 2, H / 2);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left';
+      }
+
+      // HUD - items remaining
+      const remaining = items.filter(it => !it.collected).length;
+      ctx.fillStyle = '#888';
+      ctx.font = '11px Courier New';
+      ctx.textAlign = 'right';
+      ctx.fillText(`Items: ${remaining}/${itemsTotal}`, W - 8, H - 8);
+      ctx.textAlign = 'left';
+    }
+
+    function drawMansionBg() {
+      // Draw vertical mansion walls
+      ctx.fillStyle = '#16213e';
+      ctx.fillRect(0, ROOF_Y - 10, 8, H - ROOF_Y + 10);
+      ctx.fillRect(W - 8, ROOF_Y - 10, 8, H - ROOF_Y + 10);
+
+      // Roof
+      ctx.fillStyle = '#0f3460';
+      ctx.fillRect(0, ROOF_Y - 12, W, 4);
+
+      // Subtle wallpaper pattern
+      ctx.fillStyle = 'rgba(15, 52, 96, 0.15)';
+      for (let fy = 0; fy < NUM_FLOORS - 1; fy++) {
+        const top = floorY(fy) + 2;
+        const bottom = floorY(fy + 1) - 2;
+        for (let x = 16; x < W - 16; x += TILE) {
+          ctx.fillRect(x, top, 1, bottom - top);
+        }
+      }
+    }
+
+    function drawFloors() {
+      for (let f = 0; f < NUM_FLOORS; f++) {
+        const fy = floorY(f);
+
+        // Draw floor with gaps for trampolines
+        ctx.fillStyle = '#0f3460';
+        const gapPositions = [];
+        for (let col of TRAMP_COLS) {
+          gapPositions.push({ start: col * TILE + 2, end: col * TILE + TILE - 2 });
+        }
+
+        // Sort gaps
+        gapPositions.sort((a, b) => a.start - b.start);
+
+        let x = 0;
+        for (let gap of gapPositions) {
+          if (x < gap.start) {
+            ctx.fillRect(x, fy, gap.start - x, FLOOR_THICKNESS);
+            // Floor highlight
+            ctx.fillStyle = '#1a4a8e';
+            ctx.fillRect(x, fy, gap.start - x, 1);
+            ctx.fillStyle = '#0f3460';
+          }
+          x = gap.end;
+        }
+        if (x < W) {
+          ctx.fillRect(x, fy, W - x, FLOOR_THICKNESS);
+          ctx.fillStyle = '#1a4a8e';
+          ctx.fillRect(x, fy, W - x, 1);
+          ctx.fillStyle = '#0f3460';
+        }
+      }
+    }
+
+    function drawTrampolines() {
+      for (let t of trampolines) {
+        const stretch = Math.max(0, t.stretch);
+        const sy = t.y + stretch;
+        const sh = t.h - stretch + 2;
+
+        // Trampoline fabric
+        ctx.fillStyle = '#f44';
+        ctx.shadowColor = '#f44';
+        ctx.shadowBlur = 4;
+        ctx.fillRect(t.x, sy, t.w, Math.max(2, sh));
+        ctx.shadowBlur = 0;
+
+        // Trampoline legs
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(t.x + 3, sy + sh);
+        ctx.lineTo(t.x + 3, sy + sh + 6);
+        ctx.moveTo(t.x + t.w - 3, sy + sh);
+        ctx.lineTo(t.x + t.w - 3, sy + sh + 6);
+        ctx.stroke();
+      }
+    }
+
+    function drawDoors() {
+      for (let d of doors) {
+        if (d.open) {
+          // Open door
+          ctx.fillStyle = d.microwaving ? '#fe4' : '#2a5a3e';
+          ctx.fillRect(d.x - 12, d.y, 14, d.h);
+          // Door frame
+          ctx.strokeStyle = d.microwaving ? '#fe4' : '#4a8a5e';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(d.x - 12, d.y, 14, d.h);
+
+          // Microwave glow from open door
+          if (d.microwaving) {
+            ctx.fillStyle = 'rgba(255, 238, 68, 0.2)';
+            const blastDir = player.x < d.x ? 1 : -1;
+            ctx.fillRect(
+              blastDir > 0 ? d.x : d.x - MICROWAVE_RANGE,
+              d.y, MICROWAVE_RANGE, d.h
+            );
+          }
+        } else {
+          // Closed door
+          ctx.fillStyle = '#3a2a1a';
+          ctx.fillRect(d.x, d.y, d.w, d.h);
+          ctx.strokeStyle = '#5a4a2a';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(d.x, d.y, d.w, d.h);
+          // Door knob
+          ctx.fillStyle = '#fe4';
+          ctx.beginPath();
+          ctx.arc(d.x + d.w - 1, d.y + d.h * 0.6, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawItems() {
+      for (let item of items) {
+        if (item.collected) continue;
+        const { x, y, w, h, type } = item;
+
+        ctx.fillStyle = type.color;
+        ctx.shadowColor = type.color;
+        ctx.shadowBlur = 8;
+
+        switch (type.shape) {
+          case 'tv':
+            // TV shape
+            ctx.fillRect(x + 2, y + 2, w - 4, h - 6);
+            ctx.fillRect(x + 6, y + h - 5, 2, 4);
+            ctx.fillRect(x + w - 8, y + h - 5, 2, 4);
+            ctx.fillRect(x + 4, y + h - 2, w - 8, 2);
+            // Screen
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(x + 4, y + 4, w - 8, h - 10);
+            ctx.fillStyle = type.color;
+            // Antenna
+            ctx.fillRect(x + w / 2 - 1, y - 3, 2, 5);
+            break;
+          case 'computer':
+            // Monitor
+            ctx.fillRect(x + 3, y + 1, w - 6, h - 8);
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(x + 5, y + 3, w - 10, h - 12);
+            ctx.fillStyle = type.color;
+            // Stand
+            ctx.fillRect(x + w / 2 - 2, y + h - 7, 4, 3);
+            ctx.fillRect(x + 4, y + h - 4, w - 8, 2);
+            break;
+          case 'painting':
+            // Frame
+            ctx.strokeStyle = type.color;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+            // Canvas
+            ctx.fillStyle = '#2a1a3e';
+            ctx.fillRect(x + 3, y + 3, w - 6, h - 6);
+            // Art
+            ctx.fillStyle = type.color;
+            ctx.fillRect(x + 6, y + 6, 4, 4);
+            ctx.fillRect(x + 11, y + 8, 3, 6);
+            ctx.lineWidth = 1;
+            break;
+          case 'radio':
+            // Radio body
+            ctx.fillRect(x + 2, y + 4, w - 4, h - 6);
+            // Speakers
+            ctx.fillStyle = '#1a1a2e';
+            ctx.beginPath();
+            ctx.arc(x + 7, y + h / 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x + w - 7, y + h / 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = type.color;
+            // Antenna
+            ctx.fillRect(x + w - 5, y, 1, 5);
+            break;
+          case 'safe':
+            // Safe body
+            ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(x + 3, y + 3, w - 6, h - 6);
+            ctx.fillStyle = type.color;
+            // Dial
+            ctx.beginPath();
+            ctx.arc(x + w / 2, y + h / 2, 4, 0, Math.PI * 2);
+            ctx.stroke();
+            // Handle
+            ctx.fillRect(x + w / 2 + 3, y + h / 2 - 1, 4, 2);
+            break;
+        }
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawMicrowaves() {
+      for (let m of microwaveEffects) {
+        const alpha = m.timer / 30 * 0.4;
+        ctx.strokeStyle = `rgba(255, 238, 68, ${alpha})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        // Wave arcs
+        for (let i = 0; i < 3; i++) {
+          const r = m.radius + i * 12;
+          const startAngle = m.dir > 0 ? -Math.PI / 3 : Math.PI - Math.PI / 3;
+          const endAngle = m.dir > 0 ? Math.PI / 3 : Math.PI + Math.PI / 3;
+          ctx.beginPath();
+          ctx.arc(m.x, m.y, r, startAngle, endAngle);
+          ctx.stroke();
+        }
+        ctx.lineWidth = 1;
+      }
+    }
+
+    function drawPlayer() {
+      if (player.stunTimer > 0 && Math.floor(frameCount / 4) % 2 === 0) return; // Blink when stunned
+
+      const px = player.x, py = player.y;
+
+      ctx.save();
+      ctx.translate(px + player.w / 2, py + player.h / 2);
+      if (!player.facingRight) ctx.scale(-1, 1);
+
+      // Mappy body (police mouse - blue uniform)
+      ctx.fillStyle = '#4488ff';
+      ctx.shadowColor = '#4488ff';
+      ctx.shadowBlur = 6;
+      // Body
+      ctx.fillRect(-6, -2, 12, 12);
+
+      // Head
+      ctx.fillStyle = '#ffcc88';
+      ctx.beginPath();
+      ctx.arc(0, -5, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ears (mouse ears)
+      ctx.fillStyle = '#ffaa66';
+      ctx.beginPath();
+      ctx.arc(-5, -9, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(5, -9, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Police hat
+      ctx.fillStyle = '#2244aa';
+      ctx.fillRect(-5, -10, 10, 3);
+      ctx.fillStyle = '#fe4';
+      ctx.fillRect(-2, -10, 4, 2);
+
+      // Eyes
+      ctx.fillStyle = '#000';
+      ctx.fillRect(2, -6, 2, 2);
+
+      // Legs (animated)
+      ctx.fillStyle = '#4488ff';
+      const legAnim = player.onFloor && Math.abs(player.vx) > 0 ? Math.sin(frameCount * 0.3) * 3 : 0;
+      ctx.fillRect(-4, 10, 3, 5 + legAnim);
+      ctx.fillRect(2, 10, 3, 5 - legAnim);
+
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    function drawCats() {
+      for (let cat of cats) {
+        if (cat.stunTimer > 0 && Math.floor(frameCount / 3) % 2 === 0) continue; // Blink when stunned
+
+        const cx = cat.x, cy = cat.y;
+
+        ctx.save();
+        ctx.translate(cx + cat.w / 2, cy + cat.h / 2);
+
+        if (cat.isGoro) {
+          // Goro - boss cat (bigger, red)
+          ctx.fillStyle = '#ff4444';
+          ctx.shadowColor = '#ff4444';
+        } else {
+          // Meowky - regular cat (pink/orange)
+          ctx.fillStyle = '#ff88aa';
+          ctx.shadowColor = '#ff88aa';
+        }
+        ctx.shadowBlur = 5;
+
+        // Body
+        const size = cat.isGoro ? 1.3 : 1;
+        ctx.scale(size, size);
+        ctx.fillRect(-6, -2, 12, 10);
+
+        // Head
+        ctx.beginPath();
+        ctx.arc(0, -4, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ears (pointed cat ears)
+        ctx.beginPath();
+        ctx.moveTo(-5, -7);
+        ctx.lineTo(-3, -12);
+        ctx.lineTo(-1, -7);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(1, -7);
+        ctx.lineTo(3, -12);
+        ctx.lineTo(5, -7);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = '#ff0';
+        ctx.fillRect(-3, -5, 2, 2);
+        ctx.fillRect(1, -5, 2, 2);
+        // Pupils
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-2, -5, 1, 2);
+        ctx.fillRect(2, -5, 1, 2);
+
+        // Tail
+        ctx.strokeStyle = cat.isGoro ? '#ff4444' : '#ff88aa';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(6, 2);
+        ctx.quadraticCurveTo(10, -4 + Math.sin(frameCount * 0.1) * 3, 12, 0);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+
+        if (cat.stunTimer > 0) {
+          // Dizzy stars
+          ctx.fillStyle = '#fe4';
+          for (let s = 0; s < 3; s++) {
+            const angle = frameCount * 0.1 + s * Math.PI * 2 / 3;
+            const sx = Math.cos(angle) * 8;
+            const sy = Math.sin(angle) * 5 - 14;
+            ctx.fillRect(sx - 1, sy - 1, 3, 3);
+          }
+        }
+
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+    }
+
+    // --- INPUT ---
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+      keys[e.key] = true;
+
+      if (gameState === 'waiting') {
+        start();
+        return;
+      }
+
+      if (gameState === 'over') {
+        init();
+        return;
+      }
+
+      if (gameState === 'playing') {
+        // Space to open nearest door
+        if (e.key === ' ') {
+          openNearestDoor();
+        }
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+
+    function openNearestDoor() {
+      if (!player.onFloor) return;
+
+      let nearest = null;
+      let nearestDist = Infinity;
+
+      for (let d of doors) {
+        if (d.floor !== player.floorIndex) continue;
+        const dist = Math.abs((d.x + d.w / 2) - (player.x + player.w / 2));
+        if (dist < nearestDist && dist < TILE * 1.5) {
+          nearestDist = dist;
+          nearest = d;
+        }
+      }
+
+      if (nearest) {
+        openDoor(nearest);
+      }
+    }
+
+    // --- GAME DATA FOR ML ---
+    function updateGameData() {
+      window.gameData = {
+        playerX: player.x,
+        playerY: player.y,
+        playerFloor: player.floorIndex,
+        playerOnFloor: player.onFloor,
+        cats: cats.map(c => ({
+          x: c.x, y: c.y,
+          floor: c.floorIndex,
+          stunned: c.stunTimer > 0,
+          isGoro: c.isGoro
+        })),
+        itemsRemaining: items.filter(it => !it.collected).length,
+        itemsTotal: itemsTotal,
+        level: level,
+        lives: lives
+      };
+    }
+
+    // --- START ---
+    init();
+  </script>
+  <script src="../recorder.js?v=3"></script>
+</body>
+</html>
