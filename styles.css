@@ -29,7 +29,57 @@ body {
 .landing .subtitle {
   color: #888;
   font-size: 1rem;
-  margin-bottom: 50px;
+  margin-bottom: 20px;
+}
+
+/* ── Live stats (online + hours) ─────────────────────────── */
+.live-stats {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 24px;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.live-stats.visible {
+  opacity: 1;
+}
+
+.live-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #0f0;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(0, 255, 0, 0.6);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(0, 255, 0, 0.6); }
+  50% { opacity: 0.5; box-shadow: 0 0 12px rgba(0, 255, 0, 0.9); }
+}
+
+.live-value {
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: bold;
+}
+
+.live-label {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.live-sep {
+  color: #444;
+  font-size: 1.2rem;
 }
 
 .games-grid {
@@ -57,9 +107,25 @@ body {
   border-color: #0ff;
 }
 
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
 .game-card h2 {
   font-size: 1.5rem;
-  margin-bottom: 10px;
+  margin-bottom: 0;
+}
+
+.plays-badge {
+  font-size: 0.75rem;
+  color: #888;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
 }
 
 .game-card .description {
@@ -90,6 +156,96 @@ body {
 .card-flappy:hover { border-color: #ff0; box-shadow: 0 8px 30px rgba(255, 255, 0, 0.15); }
 .card-snake:hover { border-color: #0ff; box-shadow: 0 8px 30px rgba(0, 255, 255, 0.15); }
 
+/* ── Mission / stats bar ────────────────────────────────────── */
+.mission-bar {
+  max-width: 1200px;
+  width: 100%;
+  background: linear-gradient(135deg, rgba(0,255,136,0.08), rgba(0,255,255,0.06));
+  border: 1px solid rgba(0,255,136,0.25);
+  border-radius: 10px;
+  padding: 18px 28px;
+  margin-bottom: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.mission-bar.loaded {
+  opacity: 1;
+}
+
+.mission-content {
+  flex: 1;
+}
+
+.mission-text {
+  color: #ccc;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.dashboard-link {
+  color: #0f8;
+  font-size: 0.85rem;
+  text-decoration: none;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 12px rgba(0,255,136,0.3);
+  transition: color 0.2s;
+}
+
+.dashboard-link:hover {
+  color: #0fa;
+  text-decoration: underline;
+}
+
+.mission-stats {
+  display: flex;
+  gap: 28px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-value {
+  color: #0ff;
+  font-size: 1.3rem;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(0,255,255,0.4);
+}
+
+.stat-label {
+  color: #666;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+
+@media (max-width: 640px) {
+  .live-stats {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .mission-bar {
+    flex-direction: column;
+    text-align: center;
+  }
+  .mission-content {
+    text-align: center;
+  }
+  .mission-stats {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 .card-breakout h2 { color: #f80; }
 .card-pong h2 { color: #88f; }
 .card-asteroids h2 { color: #f44; }
@@ -97,3 +253,9 @@ body {
 .card-breakout:hover { border-color: #f80; box-shadow: 0 8px 30px rgba(255, 136, 0, 0.15); }
 .card-pong:hover { border-color: #88f; box-shadow: 0 8px 30px rgba(136, 136, 255, 0.15); }
 .card-asteroids:hover { border-color: #f44; box-shadow: 0 8px 30px rgba(255, 68, 68, 0.15); }
+
+.card-tron h2 { color: #0f8; }
+.card-tron:hover { border-color: #0f8; box-shadow: 0 8px 30px rgba(0, 255, 136, 0.15); }
+
+.card-2048 h2 { color: #f84; }
+.card-2048:hover { border-color: #f84; box-shadow: 0 8px 30px rgba(255, 136, 68, 0.15); }

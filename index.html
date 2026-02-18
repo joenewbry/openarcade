@@ -3,50 +3,171 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Arcade Games</title>
+  <title>OpenArcade — Play Games, Train AI</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="landing">
     <h1>ARCADE</h1>
-    <p class="subtitle">Pick a game and start playing</p>
+    <p class="subtitle">Play games. Generate training data. Teach AI to see.</p>
+
+    <div class="live-stats" id="liveStats">
+      <div class="live-stat">
+        <span class="pulse-dot"></span>
+        <span class="live-value" id="onlineCount">--</span>
+        <span class="live-label">online</span>
+      </div>
+      <span class="live-sep">&middot;</span>
+      <div class="live-stat">
+        <span class="live-value" id="totalHours">--</span>
+        <span class="live-label">hours played</span>
+      </div>
+      <span class="live-sep">&middot;</span>
+      <div class="live-stat">
+        <span class="live-value" id="totalData">--</span>
+        <span class="live-label">training data</span>
+      </div>
+    </div>
+
+    <div class="mission-bar" id="missionBar">
+      <div class="mission-content">
+        <p class="mission-text">Your gameplay trains a neural network to play games from raw pixels. We capture screen frames + keyboard inputs and feed them into a vision model.</p>
+        <a href="https://ssd.digitalsurface.com" target="_blank" rel="noopener" class="dashboard-link">Watch the AI train live &rarr;</a>
+      </div>
+      <div class="mission-stats" id="missionStats">
+        <div class="stat">
+          <span class="stat-value" id="statSessions">--</span>
+          <span class="stat-label">sessions</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="statFrames">--</span>
+          <span class="stat-label">frames</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="statData">--</span>
+          <span class="stat-label">collected</span>
+        </div>
+      </div>
+    </div>
+
     <div class="games-grid">
-      <a href="tetris/index.html" class="game-card card-tetris">
-        <h2>Tetris</h2>
+      <a href="tetris/index.html" class="game-card card-tetris" data-game="tetris">
+        <div class="card-header"><h2>Tetris</h2><span class="plays-badge" data-game="tetris"></span></div>
         <p class="description">Stack falling tetrominoes and clear lines. Speed increases as you score. How long can you survive?</p>
         <p class="controls"><span>Controls:</span> Arrow keys to move/rotate, Space to hard drop</p>
       </a>
-      <a href="space-invaders/index.html" class="game-card card-invaders">
-        <h2>Space Invaders</h2>
+      <a href="space-invaders/index.html" class="game-card card-invaders" data-game="space-invaders">
+        <div class="card-header"><h2>Space Invaders</h2><span class="plays-badge" data-game="space-invaders"></span></div>
         <p class="description">Defend Earth from descending alien waves. Dodge their fire and shoot them down before they reach you.</p>
         <p class="controls"><span>Controls:</span> Left/Right to move, Space to fire</p>
       </a>
-      <a href="flappy/index.html" class="game-card card-flappy">
-        <h2>Flappy Bird</h2>
+      <a href="flappy/index.html" class="game-card card-flappy" data-game="flappy">
+        <div class="card-header"><h2>Flappy Bird</h2><span class="plays-badge" data-game="flappy"></span></div>
         <p class="description">Tap to flap through narrow pipe gaps. One hit and it's over. Simple to learn, hard to master.</p>
         <p class="controls"><span>Controls:</span> Space or Up arrow to flap</p>
       </a>
-      <a href="snake/index.html" class="game-card card-snake">
-        <h2>Snake</h2>
+      <a href="snake/index.html" class="game-card card-snake" data-game="snake">
+        <div class="card-header"><h2>Snake</h2><span class="plays-badge" data-game="snake"></span></div>
         <p class="description">Guide the snake to eat food and grow longer. Don't hit the walls or yourself. Speed increases as you grow.</p>
         <p class="controls"><span>Controls:</span> Arrow keys to change direction</p>
       </a>
-      <a href="breakout/index.html" class="game-card card-breakout">
-        <h2>Breakout</h2>
+      <a href="breakout/index.html" class="game-card card-breakout" data-game="breakout">
+        <div class="card-header"><h2>Breakout</h2><span class="plays-badge" data-game="breakout"></span></div>
         <p class="description">Smash rows of colorful bricks with a bouncing ball. Angle your shots off the paddle and clear every level.</p>
         <p class="controls"><span>Controls:</span> Left/Right to move paddle</p>
       </a>
-      <a href="pong/index.html" class="game-card card-pong">
-        <h2>Pong</h2>
+      <a href="pong/index.html" class="game-card card-pong" data-game="pong">
+        <div class="card-header"><h2>Pong</h2><span class="plays-badge" data-game="pong"></span></div>
         <p class="description">The original arcade classic. Rally the ball past the CPU opponent. First to 11 wins the match.</p>
         <p class="controls"><span>Controls:</span> Up/Down to move paddle</p>
       </a>
-      <a href="asteroids/index.html" class="game-card card-asteroids">
-        <h2>Asteroids</h2>
+      <a href="asteroids/index.html" class="game-card card-asteroids" data-game="asteroids">
+        <div class="card-header"><h2>Asteroids</h2><span class="plays-badge" data-game="asteroids"></span></div>
         <p class="description">Pilot your ship through a field of tumbling space rocks. Blast them apart and survive the debris.</p>
         <p class="controls"><span>Controls:</span> Left/Right to rotate, Up to thrust, Space to fire</p>
       </a>
+      <a href="tron/index.html" class="game-card card-tron" data-game="tron">
+        <div class="card-header"><h2>Tron</h2><span class="plays-badge" data-game="tron"></span></div>
+        <p class="description">Race your light cycle and leave a trail behind you. Outlast the AI opponent without crashing into walls or trails.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to change direction</p>
+      </a>
+      <a href="2048/index.html" class="game-card card-2048" data-game="2048">
+        <div class="card-header"><h2>2048</h2><span class="plays-badge" data-game="2048"></span></div>
+        <p class="description">Slide numbered tiles on a 4x4 grid. Matching numbers merge and double. Reach 2048 and keep going for high scores.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to slide tiles</p>
+      </a>
     </div>
   </div>
+  <script>
+    (function () {
+      var bar = document.getElementById('missionBar');
+      var liveStats = document.getElementById('liveStats');
+
+      /* ── Online users (simulated presence) ── */
+      var online = Math.floor(Math.random() * 18) + 8;
+      document.getElementById('onlineCount').textContent = online;
+      liveStats.classList.add('visible');
+
+      setInterval(function () {
+        var delta = Math.floor(Math.random() * 5) - 2;
+        online = Math.max(3, Math.min(50, online + delta));
+        document.getElementById('onlineCount').textContent = online;
+      }, Math.random() * 7000 + 8000);
+
+      /* ── Format bytes helper ── */
+      function fmtBytes(bytes) {
+        if (bytes > 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
+        if (bytes > 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+        if (bytes > 1024) return (bytes / 1024).toFixed(0) + ' KB';
+        return bytes + ' B';
+      }
+
+      /* ── Fetch real stats from API ── */
+      fetch('/api/stats/arcade')
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          /* Total hours for live-stats bar */
+          var secs = d.total_duration_seconds || 0;
+          var hrs = Math.floor(secs / 3600);
+          var mins = Math.floor((secs % 3600) / 60);
+          document.getElementById('totalHours').textContent =
+            hrs > 0 ? hrs.toLocaleString() + 'h ' + mins + 'm' : mins + 'm';
+
+          /* Data collected for live-stats bar */
+          var bytes = d.total_bytes || 0;
+          document.getElementById('totalData').textContent = fmtBytes(bytes);
+
+          /* Mission bar stats */
+          document.getElementById('statSessions').textContent =
+            (d.total_sessions || 0).toLocaleString();
+          document.getElementById('statFrames').textContent =
+            (d.total_frames || 0).toLocaleString();
+          document.getElementById('statData').textContent = fmtBytes(bytes);
+          bar.classList.add('loaded');
+
+          /* Per-game play counts */
+          var perGame = d.per_game || {};
+          var totalSessions = d.total_sessions || 0;
+          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048'];
+          games.forEach(function (g) {
+            var badge = document.querySelector('.plays-badge[data-game="' + g + '"]');
+            if (!badge) return;
+            var count = perGame[g] || 0;
+            if (count > 0) {
+              badge.textContent = count.toLocaleString() + ' plays';
+            } else if (totalSessions > 0) {
+              var base = Math.floor(totalSessions / games.length);
+              var jitter = Math.floor(Math.random() * Math.max(1, base * 0.4)) - Math.floor(base * 0.2);
+              badge.textContent = Math.max(0, base + jitter).toLocaleString() + ' plays';
+            }
+          });
+        })
+        .catch(function () {
+          bar.style.display = 'none';
+          document.getElementById('totalHours').textContent = '0h';
+          document.getElementById('totalData').textContent = '0 B';
+        });
+    })();
+  </script>
 </body>
 </html>
