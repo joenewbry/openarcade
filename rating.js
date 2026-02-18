@@ -96,6 +96,13 @@
     document.head.appendChild(style);
     document.body.appendChild(container);
 
+    // Block ALL keyboard events from reaching the game while widget is visible
+    ['keydown', 'keyup', 'keypress'].forEach(function (evt) {
+      container.addEventListener(evt, function (e) {
+        e.stopPropagation();
+      });
+    });
+
     // Wire up stars
     var stars = container.querySelectorAll('.ar-star');
     stars.forEach(function (star) {
