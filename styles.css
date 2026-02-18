@@ -433,3 +433,33 @@ body {
 
 .card-nonogram h2 { color: #a8e; }
 .card-nonogram:hover { border-color: #a8e; box-shadow: 0 8px 30px rgba(170, 136, 238, 0.15); }
+
+.card-mspacman h2 { color: #f6a; }
+.card-mspacman:hover { border-color: #f6a; box-shadow: 0 8px 30px rgba(255, 102, 170, 0.15); }
+
+.card-roadfighter h2 { color: #4ca; }
+.card-roadfighter:hover { border-color: #4ca; box-shadow: 0 8px 30px rgba(68, 204, 170, 0.15); }
+
+.card-nightdriver h2 { color: #c4a; }
+.card-nightdriver:hover { border-color: #c4a; box-shadow: 0 8px 30px rgba(204, 68, 170, 0.15); }
+
+.card-supersprint h2 { color: #ae4; }
+.card-supersprint:hover { border-color: #ae4; box-shadow: 0 8px 30px rgba(170, 238, 68, 0.15); }
+
+.card-geometrydash h2 { color: #f2c; }
+.card-geometrydash:hover { border-color: #f2c; box-shadow: 0 8px 30px rgba(255, 34, 204, 0.15); }
+
+.card-jetpackjoyride h2 { color: #4ce; }
+.card-jetpackjoyride:hover { border-color: #4ce; box-shadow: 0 8px 30px rgba(68, 204, 238, 0.15); }
+
+.card-templerun h2 { color: #d84; }
+.card-templerun:hover { border-color: #d84; box-shadow: 0 8px 30px rgba(221, 136, 68, 0.15); }
+
+.card-slither h2 { color: #6ea; }
+.card-slither:hover { border-color: #6ea; box-shadow: 0 8px 30px rgba(102, 238, 170, 0.15); }
+
+.card-agar h2 { color: #a6c; }
+.card-agar:hover { border-color: #a6c; box-shadow: 0 8px 30px rgba(170, 102, 204, 0.15); }
+
+.card-fruitninja h2 { color: #e6a; }
+.card-fruitninja:hover { border-color: #e6a; box-shadow: 0 8px 30px rgba(238, 102, 170, 0.15); }
