@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boxing Ring</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 500px;
+    }
+    .back { color: #f42; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 68, 34, 0.5); }
+    h1 { color: #f42; font-size: 1.8rem; text-shadow: 0 0 15px rgba(255, 68, 34, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 500px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #f42; }
+    canvas {
+      border: 2px solid #f42;
+      box-shadow: 0 0 20px rgba(255, 68, 34, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #f42;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>BOXING RING</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Round: <span id="roundDisp">1</span>/3 | Time: <span id="timerDisp">60</span>s</div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="500" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:500px;height:500px;">
+      <h2 id="overlayTitle">BOXING RING</h2>
+      <p id="overlayText">Click to Fight<br><br>A=Jab D=Hook W=Uppercut<br>S=Block Q=Dodge Left E=Dodge Right</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 500, H = 500;
+    const scoreEl = document.getElementById('score');
+    const roundDisp = document.getElementById('roundDisp');
+    const timerDisp = document.getElementById('timerDisp');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState; // 'waiting', 'playing', 'over'
+    let score = 0;
+
+    // Theme
+    const THEME = '#f42';
+    const THEME_RGB = '255,68,34';
+    const BG = '#1a1a2e';
+    const BG2 = '#16213e';
+
+    // Fighter properties
+    const MAX_HP = 100;
+    const MAX_STAMINA = 100;
+    const STAMINA_REGEN = 12; // per second
+    const BLOCK_STAMINA_COST = 8; // per second while blocking
+    const STAGGER_DURATION = 0.6; // seconds
+
+    // Punch definitions: { name, damage, staminaCost, windupTime, recoveryTime, range }
+    const PUNCHES = {
+      jab:      { name: 'Jab',      damage: 8,  staminaCost: 10, windupTime: 0.15, recoveryTime: 0.2,  range: 'fast' },
+      hook:     { name: 'Hook',     damage: 15, staminaCost: 20, windupTime: 0.3,  recoveryTime: 0.35, range: 'medium' },
+      uppercut: { name: 'Uppercut', damage: 25, staminaCost: 30, windupTime: 0.5,  recoveryTime: 0.5,  range: 'slow' }
+    };
+
+    const DODGE_COOLDOWN = 1.2; // seconds
+    const DODGE_DURATION = 0.4; // seconds
+    const DODGE_INVULN = 0.35; // invulnerability window
+
+    const ROUND_TIME = 60; // seconds
+    const MAX_ROUNDS = 3;
+
+    // Game state variables
+    let player, ai, roundNum, roundTimer, roundPhase;
+    let hitFlashes = [];
+    let particles = [];
+    let combatLog = [];
+    let lastTime = 0;
+
+    // AI pattern tracking
+    let playerHistory = []; // last N actions by player
+    const HISTORY_SIZE = 20;
+
+    // Keys
+    const keys = {};
+
+    function createFighter(isAI) {
+      return {
+        hp: MAX_HP,
+        stamina: MAX_STAMINA,
+        x: isAI ? 330 : 170, // canvas position
+        baseX: isAI ? 330 : 170,
+        y: 300,
+        // Action state
+        action: 'idle', // idle, windup, punching, recovery, blocking, dodging, staggered
+        actionTimer: 0,
+        punchType: null,
+        // Dodge
+        dodgeDir: 0, // -1 left, 1 right
+        dodgeCooldown: 0,
+        dodgeOffset: 0,
+        // Visual
+        bodyAngle: 0,
+        leftGloveX: 0, leftGloveY: 0,
+        rightGloveX: 0, rightGloveY: 0,
+        punchProgress: 0,
+        hitFlash: 0,
+        // Stats per round
+        damageDealt: 0,
+        punchesLanded: 0,
+        punchesThrown: 0,
+        // AI specifics
+        isAI: isAI,
+        aiTimer: 0,
+        aiDecision: null,
+        // Facing
+        facing: isAI ? -1 : 1,
+        // Stagger
+        staggerTimer: 0,
+        // Win tracking
+        roundsWon: 0
+      };
+    }
+
+    function init() {
+      gameState = 'waiting';
+      score = 0;
+      scoreEl.textContent = '0';
+      roundNum = 1;
+      roundDisp.textContent = '1';
+      timerDisp.textContent = '60';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'BOXING RING';
+      overlayText.innerHTML = 'Click to Fight<br><br>A=Jab  D=Hook  W=Uppercut<br>S=Block  Q=Dodge Left  E=Dodge Right';
+      player = createFighter(false);
+      ai = createFighter(true);
+      roundPhase = 'ready';
+      playerHistory = [];
+      combatLog = [];
+      hitFlashes = [];
+      particles = [];
+    }
+
+    function startRound() {
+      player.hp = MAX_HP;
+      player.stamina = MAX_STAMINA;
+      player.action = 'idle';
+      player.actionTimer = 0;
+      player.dodgeCooldown = 0;
+      player.dodgeOffset = 0;
+      player.damageDealt = 0;
+      player.punchesLanded = 0;
+      player.punchesThrown = 0;
+
+      ai.hp = MAX_HP;
+      ai.stamina = MAX_STAMINA;
+      ai.action = 'idle';
+      ai.actionTimer = 0;
+      ai.dodgeCooldown = 0;
+      ai.dodgeOffset = 0;
+      ai.damageDealt = 0;
+      ai.punchesLanded = 0;
+      ai.punchesThrown = 0;
+      ai.aiTimer = 0.5 + Math.random() * 0.5;
+
+      roundTimer = ROUND_TIME;
+      roundPhase = 'fighting';
+      combatLog = [];
+      hitFlashes = [];
+      particles = [];
+    }
+
+    function endRound(reason) {
+      roundPhase = 'roundEnd';
+      let playerWon = false;
+      if (reason === 'ko_player') {
+        // AI knocked out player
+        ai.roundsWon++;
+        addLog('KO! You went down!');
+      } else if (reason === 'ko_ai') {
+        // Player knocked out AI
+        player.roundsWon++;
+        playerWon = true;
+        addLog('KO! Opponent is down!');
+        score += 500;
+      } else {
+        // Time up - compare HP
+        if (player.hp > ai.hp) {
+          player.roundsWon++;
+          playerWon = true;
+          addLog('Round to you by decision!');
+          score += 200;
+        } else if (ai.hp > player.hp) {
+          ai.roundsWon++;
+          addLog('Round to opponent by decision!');
+        } else {
+          addLog('Round drawn!');
+        }
+      }
+      score += player.damageDealt;
+      scoreEl.textContent = score;
+
+      // Check if match is over
+      if (roundNum >= MAX_ROUNDS || player.roundsWon >= 2 || ai.roundsWon >= 2) {
+        setTimeout(() => endMatch(), 2000);
+      } else {
+        roundNum++;
+        roundDisp.textContent = roundNum;
+        setTimeout(() => startRound(), 2000);
+      }
+    }
+
+    function endMatch() {
+      gameState = 'over';
+      overlay.style.display = 'flex';
+      if (player.roundsWon > ai.roundsWon) {
+        overlayTitle.textContent = 'VICTORY!';
+        score += 1000;
+        scoreEl.textContent = score;
+      } else if (ai.roundsWon > player.roundsWon) {
+        overlayTitle.textContent = 'DEFEATED';
+      } else {
+        overlayTitle.textContent = 'DRAW';
+      }
+      overlayText.innerHTML = `Final Score: ${score}<br>Rounds: ${player.roundsWon}-${ai.roundsWon}<br><br>Click to Play Again`;
+    }
+
+    function addLog(msg) {
+      combatLog.unshift({ msg, time: 2.0 });
+      if (combatLog.length > 5) combatLog.pop();
+    }
+
+    // --- Input handling ---
+    document.addEventListener('keydown', e => {
+      keys[e.key.toLowerCase()] = true;
+    });
+    document.addEventListener('keyup', e => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    overlay.parentElement.addEventListener('click', () => {
+      if (gameState === 'waiting') {
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        startRound();
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+      } else if (gameState === 'over') {
+        init();
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        startRound();
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+      }
+    });
+
+    // --- Player input processing ---
+    function processPlayerInput(dt) {
+      if (player.action !== 'idle') return;
+
+      if (keys['a']) {
+        attemptPunch(player, 'jab');
+        recordPlayerAction('jab');
+      } else if (keys['d']) {
+        attemptPunch(player, 'hook');
+        recordPlayerAction('hook');
+      } else if (keys['w']) {
+        attemptPunch(player, 'uppercut');
+        recordPlayerAction('uppercut');
+      } else if (keys['s']) {
+        startBlock(player);
+        recordPlayerAction('block');
+      } else if (keys['q']) {
+        attemptDodge(player, -1);
+        recordPlayerAction('dodge_left');
+      } else if (keys['e']) {
+        attemptDodge(player, 1);
+        recordPlayerAction('dodge_right');
+      }
+    }
+
+    // Stop blocking when key released
+    function checkBlockRelease() {
+      if (player.action === 'blocking' && !keys['s']) {
+        player.action = 'idle';
+        player.actionTimer = 0;
+      }
+    }
+
+    function recordPlayerAction(action) {
+      playerHistory.push(action);
+      if (playerHistory.length > HISTORY_SIZE) playerHistory.shift();
+    }
+
+    function attemptPunch(fighter, type) {
+      const punch = PUNCHES[type];
+      if (fighter.stamina < punch.staminaCost) return;
+      fighter.stamina -= punch.staminaCost;
+      fighter.action = 'windup';
+      fighter.punchType = type;
+      fighter.actionTimer = punch.windupTime;
+      fighter.punchProgress = 0;
+      if (!fighter.isAI) fighter.punchesThrown++;
+    }
+
+    function startBlock(fighter) {
+      fighter.action = 'blocking';
+      fighter.actionTimer = 0;
+    }
+
+    function attemptDodge(fighter, dir) {
+      if (fighter.dodgeCooldown > 0) return;
+      if (fighter.stamina < 15) return;
+      fighter.stamina -= 15;
+      fighter.action = 'dodging';
+      fighter.dodgeDir = dir;
+      fighter.actionTimer = DODGE_DURATION;
+      fighter.dodgeCooldown = DODGE_COOLDOWN;
+    }
+
+    // --- Combat resolution ---
+    function resolvePunch(attacker, defender) {
+      const punch = PUNCHES[attacker.punchType];
+
+      // Check if defender is dodging (invulnerable)
+      if (defender.action === 'dodging' && defender.actionTimer > (DODGE_DURATION - DODGE_INVULN)) {
+        addLog((attacker.isAI ? 'AI' : 'You') + ' missed! ' + (defender.isAI ? 'AI' : 'You') + ' dodged!');
+        spawnParticles(defender.x + defender.dodgeOffset, defender.y - 40, '#4af', 3);
+        return;
+      }
+
+      // Check if defender is blocking
+      if (defender.action === 'blocking' && defender.stamina > 0) {
+        const blockReduction = 0.7; // block reduces 70% damage
+        const dmg = Math.round(punch.damage * (1 - blockReduction));
+        const staminaDrain = punch.damage * 0.5;
+        defender.hp = Math.max(0, defender.hp - dmg);
+        defender.stamina = Math.max(0, defender.stamina - staminaDrain);
+        if (!attacker.isAI) {
+          attacker.damageDealt += dmg;
+          attacker.punchesLanded++;
+        }
+        defender.hitFlash = 0.15;
+        addLog((attacker.isAI ? 'AI' : 'You') + ': ' + punch.name + ' BLOCKED (-' + dmg + ')');
+        spawnParticles(defender.x, defender.y - 50, '#ff0', 4);
+        return;
+      }
+
+      // Check if defender is in windup (stagger!)
+      if (defender.action === 'windup') {
+        const staggerBonus = 1.3;
+        const dmg = Math.round(punch.damage * staggerBonus);
+        defender.hp = Math.max(0, defender.hp - dmg);
+        defender.action = 'staggered';
+        defender.actionTimer = STAGGER_DURATION;
+        defender.hitFlash = 0.3;
+        if (!attacker.isAI) {
+          attacker.damageDealt += dmg;
+          attacker.punchesLanded++;
+        }
+        addLog((attacker.isAI ? 'AI' : 'You') + ': ' + punch.name + ' COUNTER! (-' + dmg + ')');
+        spawnParticles(defender.x, defender.y - 60, '#f42', 8);
+        return;
+      }
+
+      // Normal hit
+      const dmg = punch.damage;
+      defender.hp = Math.max(0, defender.hp - dmg);
+      defender.hitFlash = 0.2;
+      if (!attacker.isAI) {
+        attacker.damageDealt += dmg;
+        attacker.punchesLanded++;
+      }
+      addLog((attacker.isAI ? 'AI' : 'You') + ': ' + punch.name + ' (-' + dmg + ')');
+      spawnParticles(defender.x + (attacker.facing * 15), defender.y - 50, '#f42', 5);
+    }
+
+    // --- AI Logic ---
+    function updateAI(dt) {
+      ai.aiTimer -= dt;
+      if (ai.aiTimer > 0) return;
+      if (ai.action !== 'idle' && ai.action !== 'blocking') return;
+
+      // Stop blocking randomly
+      if (ai.action === 'blocking') {
+        if (Math.random() < 0.3 || ai.stamina < 15) {
+          ai.action = 'idle';
+        }
+        ai.aiTimer = 0.1 + Math.random() * 0.2;
+        return;
+      }
+
+      // Pattern analysis: predict player's next action
+      let predicted = predictPlayerAction();
+
+      // Reactive behavior based on player state
+      if (player.action === 'windup') {
+        // Player is winding up - try to counter or dodge
+        let r = Math.random();
+        if (r < 0.35 && ai.stamina >= 10) {
+          // Quick jab to counter
+          attemptPunch(ai, 'jab');
+          ai.aiTimer = 0.1;
+          return;
+        } else if (r < 0.6 && ai.dodgeCooldown <= 0 && ai.stamina >= 15) {
+          attemptDodge(ai, Math.random() < 0.5 ? -1 : 1);
+          ai.aiTimer = 0.3;
+          return;
+        } else if (r < 0.85) {
+          startBlock(ai);
+          ai.aiTimer = 0.3 + Math.random() * 0.3;
+          return;
+        }
+      }
+
+      // Proactive AI decisions
+      let decision = Math.random();
+
+      // If player tends to block, use more uppercuts
+      if (predicted === 'block' && ai.stamina >= 30) {
+        if (decision < 0.4) {
+          attemptPunch(ai, 'uppercut');
+          ai.aiTimer = 0.2;
+          return;
+        }
+      }
+
+      // If player tends to jab, try to block then counter
+      if (predicted === 'jab' && decision < 0.4) {
+        startBlock(ai);
+        ai.aiTimer = 0.2 + Math.random() * 0.2;
+        return;
+      }
+
+      // If player tends to dodge, feint with jab then hook
+      if ((predicted === 'dodge_left' || predicted === 'dodge_right') && ai.stamina >= 20) {
+        if (decision < 0.35) {
+          attemptPunch(ai, 'hook');
+          ai.aiTimer = 0.15;
+          return;
+        }
+      }
+
+      // Standard AI behavior
+      if (ai.hp < 30) {
+        // Defensive when low HP
+        if (decision < 0.4) {
+          startBlock(ai);
+          ai.aiTimer = 0.4 + Math.random() * 0.5;
+        } else if (decision < 0.6 && ai.dodgeCooldown <= 0 && ai.stamina >= 15) {
+          attemptDodge(ai, Math.random() < 0.5 ? -1 : 1);
+          ai.aiTimer = 0.3;
+        } else if (decision < 0.8 && ai.stamina >= 10) {
+          attemptPunch(ai, 'jab');
+          ai.aiTimer = 0.3;
+        } else {
+          ai.aiTimer = 0.2 + Math.random() * 0.3;
+        }
+      } else if (ai.stamina > 50) {
+        // Aggressive when high stamina
+        if (decision < 0.3 && ai.stamina >= 10) {
+          attemptPunch(ai, 'jab');
+          ai.aiTimer = 0.2 + Math.random() * 0.3;
+        } else if (decision < 0.5 && ai.stamina >= 20) {
+          attemptPunch(ai, 'hook');
+          ai.aiTimer = 0.25 + Math.random() * 0.3;
+        } else if (decision < 0.6 && ai.stamina >= 30) {
+          attemptPunch(ai, 'uppercut');
+          ai.aiTimer = 0.3 + Math.random() * 0.4;
+        } else if (decision < 0.75) {
+          startBlock(ai);
+          ai.aiTimer = 0.3 + Math.random() * 0.3;
+        } else {
+          ai.aiTimer = 0.15 + Math.random() * 0.25;
+        }
+      } else {
+        // Balanced
+        if (decision < 0.25 && ai.stamina >= 10) {
+          attemptPunch(ai, 'jab');
+          ai.aiTimer = 0.25 + Math.random() * 0.35;
+        } else if (decision < 0.4 && ai.stamina >= 20) {
+          attemptPunch(ai, 'hook');
+          ai.aiTimer = 0.3 + Math.random() * 0.35;
+        } else if (decision < 0.5 && ai.stamina >= 30) {
+          attemptPunch(ai, 'uppercut');
+          ai.aiTimer = 0.35 + Math.random() * 0.4;
+        } else if (decision < 0.7) {
+          startBlock(ai);
+          ai.aiTimer = 0.3 + Math.random() * 0.4;
+        } else if (decision < 0.8 && ai.dodgeCooldown <= 0 && ai.stamina >= 15) {
+          attemptDodge(ai, Math.random() < 0.5 ? -1 : 1);
+          ai.aiTimer = 0.3;
+        } else {
+          ai.aiTimer = 0.2 + Math.random() * 0.3;
+        }
+      }
+    }
+
+    function predictPlayerAction() {
+      if (playerHistory.length < 3) return null;
+      // Count recent action frequencies
+      const recent = playerHistory.slice(-10);
+      const counts = {};
+      for (const a of recent) {
+        counts[a] = (counts[a] || 0) + 1;
+      }
+      // Find most common
+      let maxAction = null, maxCount = 0;
+      for (const [action, count] of Object.entries(counts)) {
+        if (count > maxCount) { maxCount = count; maxAction = action; }
+      }
+      // Also look for sequences (e.g., jab -> jab -> hook pattern)
+      if (playerHistory.length >= 3) {
+        const last2 = playerHistory.slice(-2).join(',');
+        let seqCounts = {};
+        for (let i = 2; i < playerHistory.length; i++) {
+          const prev2 = playerHistory.slice(i - 2, i).join(',');
+          if (prev2 === last2) {
+            const next = playerHistory[i];
+            seqCounts[next] = (seqCounts[next] || 0) + 1;
+          }
+        }
+        let seqMax = null, seqMaxCount = 0;
+        for (const [action, count] of Object.entries(seqCounts)) {
+          if (count > seqMaxCount) { seqMaxCount = count; seqMax = action; }
+        }
+        if (seqMax && seqMaxCount >= 2) return seqMax;
+      }
+      return maxAction;
+    }
+
+    // --- Particles ---
+    function spawnParticles(x, y, color, count) {
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * 200,
+          vy: (Math.random() - 0.5) * 200 - 50,
+          life: 0.4 + Math.random() * 0.3,
+          maxLife: 0.4 + Math.random() * 0.3,
+          color,
+          size: 2 + Math.random() * 3
+        });
+      }
+    }
+
+    // --- Update ---
+    function update(dt) {
+      if (gameState !== 'playing' || roundPhase !== 'fighting') return;
+
+      // Round timer
+      roundTimer -= dt;
+      timerDisp.textContent = Math.max(0, Math.ceil(roundTimer));
+      if (roundTimer <= 0) {
+        endRound('time');
+        return;
+      }
+
+      // Stamina regen
+      if (player.action !== 'blocking') {
+        player.stamina = Math.min(MAX_STAMINA, player.stamina + STAMINA_REGEN * dt);
+      } else {
+        player.stamina = Math.max(0, player.stamina - BLOCK_STAMINA_COST * dt);
+        if (player.stamina <= 0) {
+          player.action = 'idle';
+        }
+      }
+      if (ai.action !== 'blocking') {
+        ai.stamina = Math.min(MAX_STAMINA, ai.stamina + STAMINA_REGEN * dt);
+      } else {
+        ai.stamina = Math.max(0, ai.stamina - BLOCK_STAMINA_COST * dt);
+        if (ai.stamina <= 0) {
+          ai.action = 'idle';
+        }
+      }
+
+      // Dodge cooldowns
+      player.dodgeCooldown = Math.max(0, player.dodgeCooldown - dt);
+      ai.dodgeCooldown = Math.max(0, ai.dodgeCooldown - dt);
+
+      // Hit flash decay
+      player.hitFlash = Math.max(0, player.hitFlash - dt);
+      ai.hitFlash = Math.max(0, ai.hitFlash - dt);
+
+      // Process player input
+      processPlayerInput(dt);
+      checkBlockRelease();
+
+      // Process AI
+      updateAI(dt);
+
+      // Update fighter actions
+      updateFighterAction(player, ai, dt);
+      updateFighterAction(ai, player, dt);
+
+      // Check KO
+      if (player.hp <= 0) {
+        endRound('ko_player');
+        return;
+      }
+      if (ai.hp <= 0) {
+        endRound('ko_ai');
+        return;
+      }
+
+      // Update particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 300 * dt; // gravity
+        p.life -= dt;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+
+      // Update combat log timers
+      for (let i = combatLog.length - 1; i >= 0; i--) {
+        combatLog[i].time -= dt;
+        if (combatLog[i].time <= 0) combatLog.splice(i, 1);
+      }
+    }
+
+    function updateFighterAction(fighter, opponent, dt) {
+      if (fighter.action === 'windup') {
+        fighter.actionTimer -= dt;
+        const punch = PUNCHES[fighter.punchType];
+        fighter.punchProgress = 1 - (fighter.actionTimer / punch.windupTime);
+        if (fighter.actionTimer <= 0) {
+          // Punch connects
+          fighter.action = 'punching';
+          fighter.actionTimer = 0.08; // brief impact frame
+          fighter.punchProgress = 1;
+          resolvePunch(fighter, opponent);
+        }
+      } else if (fighter.action === 'punching') {
+        fighter.actionTimer -= dt;
+        if (fighter.actionTimer <= 0) {
+          fighter.action = 'recovery';
+          fighter.actionTimer = PUNCHES[fighter.punchType].recoveryTime;
+        }
+      } else if (fighter.action === 'recovery') {
+        fighter.actionTimer -= dt;
+        fighter.punchProgress = Math.max(0, fighter.actionTimer / PUNCHES[fighter.punchType].recoveryTime);
+        if (fighter.actionTimer <= 0) {
+          fighter.action = 'idle';
+          fighter.punchType = null;
+          fighter.punchProgress = 0;
+        }
+      } else if (fighter.action === 'dodging') {
+        fighter.actionTimer -= dt;
+        const t = 1 - (fighter.actionTimer / DODGE_DURATION);
+        // Smooth dodge: move out then back
+        if (t < 0.5) {
+          fighter.dodgeOffset = fighter.dodgeDir * 50 * (t * 2);
+        } else {
+          fighter.dodgeOffset = fighter.dodgeDir * 50 * (1 - (t - 0.5) * 2);
+        }
+        if (fighter.actionTimer <= 0) {
+          fighter.action = 'idle';
+          fighter.dodgeOffset = 0;
+        }
+      } else if (fighter.action === 'staggered') {
+        fighter.actionTimer -= dt;
+        if (fighter.actionTimer <= 0) {
+          fighter.action = 'idle';
+        }
+      }
+    }
+
+    // --- Drawing ---
+    function draw() {
+      // Background - boxing ring
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, H);
+
+      drawRing();
+      drawFighter(player, false);
+      drawFighter(ai, true);
+      drawHUD();
+      drawParticles();
+      drawCombatLog();
+      drawControls();
+    }
+
+    function drawRing() {
+      // Ring floor
+      ctx.fillStyle = '#1e1e3a';
+      ctx.beginPath();
+      ctx.moveTo(50, 380);
+      ctx.lineTo(450, 380);
+      ctx.lineTo(480, 450);
+      ctx.lineTo(20, 450);
+      ctx.closePath();
+      ctx.fill();
+
+      // Ring mat - perspective trapezoid
+      ctx.fillStyle = '#2a1a1a';
+      ctx.beginPath();
+      ctx.moveTo(70, 340);
+      ctx.lineTo(430, 340);
+      ctx.lineTo(460, 420);
+      ctx.lineTo(40, 420);
+      ctx.closePath();
+      ctx.fill();
+
+      // Ring mat center detail
+      ctx.strokeStyle = 'rgba(255,68,34,0.15)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(250, 375, 80, 25, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Ropes
+      for (let i = 0; i < 3; i++) {
+        const y = 200 + i * 50;
+        const sag = 3 + i * 2;
+        ctx.strokeStyle = `rgba(${THEME_RGB},${0.3 + i * 0.15})`;
+        ctx.lineWidth = 2.5 - i * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(40, y);
+        ctx.quadraticCurveTo(250, y + sag, 460, y);
+        ctx.stroke();
+      }
+
+      // Corner posts
+      const posts = [[40, 180, 440], [460, 180, 440]];
+      for (const [px, py1, py2] of posts) {
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(px, py1);
+        ctx.lineTo(px, py2);
+        ctx.stroke();
+        // Turnbuckle highlights
+        for (let i = 0; i < 3; i++) {
+          const ry = 200 + i * 50;
+          ctx.fillStyle = '#888';
+          ctx.fillRect(px - 3, ry - 3, 6, 6);
+        }
+      }
+    }
+
+    function drawFighter(fighter, isRight) {
+      const cx = fighter.x + fighter.dodgeOffset;
+      const cy = fighter.y;
+      const dir = fighter.facing; // 1 for player (facing right), -1 for AI (facing left)
+
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // Hit flash overlay
+      let flashAlpha = fighter.hitFlash > 0 ? fighter.hitFlash * 3 : 0;
+
+      // Body color
+      const bodyColor = isRight ? '#c44' : '#48a';
+      const gloveColor = isRight ? '#f42' : '#4af';
+      const shortsColor = isRight ? '#a22' : '#26a';
+
+      // Stagger wobble
+      let wobble = 0;
+      if (fighter.action === 'staggered') {
+        wobble = Math.sin(fighter.actionTimer * 20) * 8;
+      }
+
+      // Body (torso)
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath();
+      ctx.ellipse(wobble, -50, 22, 35, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Shorts
+      ctx.fillStyle = shortsColor;
+      ctx.fillRect(wobble - 18, -18, 36, 22);
+
+      // Head
+      ctx.fillStyle = isRight ? '#d88' : '#8ad';
+      ctx.beginPath();
+      ctx.arc(wobble, -95, 16, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(wobble + dir * 6, -98, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.arc(wobble + dir * 7, -98, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Headband
+      ctx.strokeStyle = gloveColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(wobble, -95, 16, -0.4, Math.PI + 0.4);
+      ctx.stroke();
+
+      // Arms and gloves
+      const armLen = 30;
+      let leftGX, leftGY, rightGX, rightGY;
+
+      if (fighter.action === 'blocking') {
+        // Both gloves up in guard
+        leftGX = wobble - 15 * dir;
+        leftGY = -70;
+        rightGX = wobble + 5 * dir;
+        rightGY = -75;
+      } else if (fighter.action === 'windup' || fighter.action === 'punching' || fighter.action === 'recovery') {
+        const progress = fighter.punchProgress;
+        if (fighter.punchType === 'jab') {
+          // Left jab - extends forward
+          const ext = fighter.action === 'punching' ? 1 : (fighter.action === 'windup' ? progress * 0.3 : progress);
+          leftGX = wobble + dir * (15 + ext * 50);
+          leftGY = -65 - ext * 5;
+          rightGX = wobble - dir * 10;
+          rightGY = -55;
+        } else if (fighter.punchType === 'hook') {
+          // Right hook - wide arc
+          const ext = fighter.action === 'punching' ? 1 : (fighter.action === 'windup' ? progress * 0.4 : progress);
+          const angle = -0.5 + ext * 1.5;
+          rightGX = wobble + dir * (10 + Math.cos(angle) * 45 * ext);
+          rightGY = -55 - Math.sin(angle) * 20 * ext;
+          leftGX = wobble - dir * 5;
+          leftGY = -60;
+        } else if (fighter.punchType === 'uppercut') {
+          // Uppercut - low then up
+          const ext = fighter.action === 'punching' ? 1 : (fighter.action === 'windup' ? progress : progress);
+          if (fighter.action === 'windup') {
+            rightGX = wobble + dir * 5;
+            rightGY = -30 + (1 - progress) * 10;
+          } else {
+            rightGX = wobble + dir * (15 + ext * 30);
+            rightGY = -30 - ext * 60;
+          }
+          leftGX = wobble - dir * 10;
+          leftGY = -55;
+        }
+      } else if (fighter.action === 'staggered') {
+        leftGX = wobble - 20;
+        leftGY = -40;
+        rightGX = wobble + 20;
+        rightGY = -45;
+      } else {
+        // Idle guard stance
+        leftGX = wobble + dir * 18;
+        leftGY = -65;
+        rightGX = wobble + dir * 12;
+        rightGY = -50;
+      }
+
+      // Draw arms (lines to gloves)
+      ctx.strokeStyle = bodyColor;
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      // Left arm
+      ctx.beginPath();
+      ctx.moveTo(wobble - 15, -55);
+      ctx.lineTo(leftGX, leftGY);
+      ctx.stroke();
+      // Right arm
+      ctx.beginPath();
+      ctx.moveTo(wobble + 15, -50);
+      ctx.lineTo(rightGX, rightGY);
+      ctx.stroke();
+
+      // Gloves
+      ctx.fillStyle = gloveColor;
+      ctx.beginPath();
+      ctx.arc(leftGX, leftGY, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(rightGX, rightGY, 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Glove shine
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath();
+      ctx.arc(leftGX - 2, leftGY - 3, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(rightGX - 2, rightGY - 3, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Legs
+      ctx.strokeStyle = isRight ? '#d88' : '#8ad';
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(wobble - 8, 4);
+      ctx.lineTo(wobble - 12, 45);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(wobble + 8, 4);
+      ctx.lineTo(wobble + 12, 45);
+      ctx.stroke();
+
+      // Shoes
+      ctx.fillStyle = '#333';
+      ctx.fillRect(wobble - 17, 40, 12, 8);
+      ctx.fillRect(wobble + 7, 40, 12, 8);
+
+      // Hit flash
+      if (flashAlpha > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${Math.min(flashAlpha, 0.6)})`;
+        ctx.beginPath();
+        ctx.ellipse(wobble, -50, 30, 55, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Dodge direction indicator
+      if (fighter.action === 'dodging') {
+        ctx.fillStyle = 'rgba(68,170,255,0.3)';
+        ctx.beginPath();
+        const trailX = -fighter.dodgeDir * 20;
+        ctx.arc(trailX, -50, 15, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+
+      // Name label
+      ctx.fillStyle = gloveColor;
+      ctx.font = 'bold 12px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(isRight ? 'AI' : 'YOU', cx, cy + 60);
+    }
+
+    function drawHUD() {
+      const barW = 180;
+      const barH = 14;
+      const barY = 20;
+
+      // Player HP
+      const pHpX = 20;
+      drawBar(pHpX, barY, barW, barH, player.hp / MAX_HP, '#4f4', '#400', 'HP');
+
+      // Player Stamina
+      drawBar(pHpX, barY + 20, barW, barH - 2, player.stamina / MAX_STAMINA, '#ff0', '#440', 'ST');
+
+      // AI HP
+      const aHpX = W - 20 - barW;
+      drawBar(aHpX, barY, barW, barH, ai.hp / MAX_HP, '#f44', '#400', 'HP');
+
+      // AI Stamina
+      drawBar(aHpX, barY + 20, barW, barH - 2, ai.stamina / MAX_STAMINA, '#fa0', '#440', 'ST');
+
+      // Player label
+      ctx.fillStyle = '#4af';
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('YOU', pHpX, barY - 5);
+
+      // AI label
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#f42';
+      ctx.fillText('AI', aHpX + barW, barY - 5);
+
+      // Round / Timer center display
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f42';
+      ctx.font = 'bold 16px Courier New';
+      ctx.fillText('R' + roundNum, W / 2, barY + 2);
+      ctx.font = '12px Courier New';
+      ctx.fillStyle = roundTimer <= 10 ? '#f42' : '#aaa';
+      const timeStr = Math.max(0, Math.ceil(roundTimer)) + 's';
+      ctx.fillText(timeStr, W / 2, barY + 18);
+
+      // Round wins
+      ctx.font = '10px Courier New';
+      ctx.fillStyle = '#4af';
+      ctx.textAlign = 'left';
+      ctx.fillText('Wins: ' + player.roundsWon, 20, barY + 50);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#f42';
+      ctx.fillText('Wins: ' + ai.roundsWon, W - 20, barY + 50);
+
+      // Dodge cooldown indicator
+      if (player.dodgeCooldown > 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText('Dodge: ' + player.dodgeCooldown.toFixed(1) + 's', 20, barY + 62);
+      } else {
+        ctx.fillStyle = 'rgba(68,255,68,0.5)';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText('Dodge: READY', 20, barY + 62);
+      }
+
+      // Action state
+      if (player.action !== 'idle') {
+        ctx.fillStyle = '#ff0';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'left';
+        let stateText = player.action.toUpperCase();
+        if (player.punchType) stateText = PUNCHES[player.punchType].name.toUpperCase() + ' (' + stateText + ')';
+        ctx.fillText(stateText, 20, barY + 74);
+      }
+    }
+
+    function drawBar(x, y, w, h, pct, color, bgColor, label) {
+      // Background
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(x, y, w, h);
+      // Fill
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w * Math.max(0, pct), h);
+      // Border
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, w, h);
+      // Label
+      ctx.fillStyle = '#fff';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, x + 3, y + h - 3);
+      // Percentage
+      ctx.textAlign = 'right';
+      ctx.fillText(Math.round(pct * 100), x + w - 3, y + h - 3);
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        const alpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawCombatLog() {
+      ctx.textAlign = 'center';
+      ctx.font = '11px Courier New';
+      for (let i = 0; i < combatLog.length; i++) {
+        const log = combatLog[i];
+        const alpha = Math.min(1, log.time);
+        ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+        if (log.msg.includes('COUNTER')) ctx.fillStyle = `rgba(255,68,34,${alpha})`;
+        else if (log.msg.includes('BLOCKED')) ctx.fillStyle = `rgba(255,255,0,${alpha})`;
+        else if (log.msg.includes('dodged')) ctx.fillStyle = `rgba(68,170,255,${alpha})`;
+        else if (log.msg.includes('KO')) ctx.fillStyle = `rgba(255,68,34,${alpha})`;
+        ctx.fillText(log.msg, W / 2, 170 + i * 16);
+      }
+    }
+
+    function drawControls() {
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('A:Jab  D:Hook  W:Uppercut  S:Block  Q/E:Dodge', W / 2, H - 8);
+    }
+
+    // --- Game Loop ---
+    function gameLoop(timestamp) {
+      const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+      lastTime = timestamp;
+
+      update(dt);
+      draw();
+
+      if (gameState === 'playing' || gameState === 'over') {
+        requestAnimationFrame(gameLoop);
+      }
+    }
+
+    init();
+    // Pre-draw the initial frame
+    draw();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>
