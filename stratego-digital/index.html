@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stratego Digital</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 500px;
+    }
+    .back { color: #d4a  ; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(221, 68, 170, 0.5); }
+    h1 { color: #d4a; font-size: 1.5rem; text-shadow: 0 0 15px rgba(221, 68, 170, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 500px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #d4a; }
+    canvas {
+      border: 2px solid #d4a;
+      box-shadow: 0 0 20px rgba(221, 68, 170, 0.2);
+      display: block;
+      cursor: pointer;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #d4a;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(221, 68, 170, 0.6); }
+    .overlay p { font-size: 1rem; color: #aaa; }
+    .info {
+      width: 500px;
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: #666;
+      text-align: center;
+    }
+    .info span { color: #d4a; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>STRATEGO DIGITAL</h1>
+  </div>
+  <div class="score-bar">
+    <div>Captures: <span id="score">0</span></div>
+    <div>Best: <span id="best">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="500" height="600"></canvas>
+    <div class="overlay" id="overlay" style="width:500px;height:600px;">
+      <h2 id="overlayTitle">STRATEGO DIGITAL</h2>
+      <p id="overlayText">Click to Start</p>
+    </div>
+  </div>
+  <div class="info" id="infoBar">Hidden-piece strategy &mdash; capture the enemy <span>Flag</span></div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 500, H = 600;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const infoBar = document.getElementById('infoBar');
+
+    // Theme color
+    const THEME = '#d4a';
+    const THEME_RGB = '221, 68, 170';
+
+    // Global state for recorder
+    let gameState = 'waiting';
+    let score = 0;
+    let bestScore = parseInt(localStorage.getItem('stratego-best') || '0');
+    bestEl.textContent = bestScore;
+
+    // Board constants
+    const COLS = 10, ROWS = 10;
+    const CELL = 48;
+    const BOARD_W = COLS * CELL; // 480
+    const BOARD_H = ROWS * CELL; // 480
+    const BOARD_X = (W - BOARD_W) / 2; // 10
+    const BOARD_Y = 60;
+    const PANEL_Y = BOARD_Y + BOARD_H + 8; // 548
+
+    // Lakes (2x2 blocks)
+    const LAKES = [];
+    for (let r = 4; r <= 5; r++) {
+      for (let c = 2; c <= 3; c++) LAKES.push({ r, c });
+      for (let c = 6; c <= 7; c++) LAKES.push({ r, c });
+    }
+    function isLake(r, c) {
+      return LAKES.some(l => l.r === r && l.c === c);
+    }
+
+    // Piece definitions: name, rank (lower = stronger), count
+    const PIECE_DEFS = [
+      { name: 'Marshal', rank: 1, count: 1, abbr: 'Ma' },
+      { name: 'General', rank: 2, count: 1, abbr: 'Ge' },
+      { name: 'Colonel', rank: 3, count: 2, abbr: 'Co' },
+      { name: 'Major', rank: 4, count: 3, abbr: 'Mj' },
+      { name: 'Captain', rank: 5, count: 4, abbr: 'Ca' },
+      { name: 'Lieutenant', rank: 6, count: 4, abbr: 'Lt' },
+      { name: 'Sergeant', rank: 7, count: 4, abbr: 'Sg' },
+      { name: 'Miner', rank: 8, count: 5, abbr: 'Mi' },
+      { name: 'Scout', rank: 9, count: 8, abbr: 'Sc' },
+      { name: 'Spy', rank: 10, count: 1, abbr: 'Sp' },
+      { name: 'Bomb', rank: 0, count: 6, abbr: 'Bo' },
+      { name: 'Flag', rank: 99, count: 1, abbr: 'Fl' },
+    ];
+
+    // Colors
+    const PLAYER_COLOR = '#4488ff';
+    const PLAYER_COLOR_DARK = '#224488';
+    const AI_COLOR = '#ff4444';
+    const AI_COLOR_DARK = '#882222';
+    const LAKE_COLOR = '#1a3a5e';
+    const BOARD_COLOR = '#16213e';
+    const GRID_COLOR = '#2a3a5e';
+    const HIGHLIGHT_COLOR = 'rgba(221, 68, 170, 0.4)';
+    const VALID_MOVE_COLOR = 'rgba(100, 255, 100, 0.3)';
+
+    // Game variables
+    let board = []; // board[r][c] = { owner: 0|1, rank, name, abbr, revealed } or null
+    let phase = 'setup'; // 'setup', 'play', 'aiTurn', 'animating', 'gameover'
+    let selectedPiece = null; // {r, c}
+    let validMoves = [];
+    let setupPieces = []; // pieces left to place during setup
+    let setupIndex = 0;
+    let turn = 0; // 0 = player, 1 = AI
+    let lastBattle = null; // { r, c, attacker, defender, result } for display
+    let battleTimer = 0;
+    let aiThinking = false;
+    let message = '';
+    let messageTimer = 0;
+    let aiCaptured = []; // pieces AI has lost
+    let playerCaptured = []; // pieces player has lost
+    let moveHistory = [];
+
+    // AI knowledge tracking
+    let aiKnowledge = []; // aiKnowledge[r][c] = { known: bool, rank: int } or null for AI's tracking of player pieces
+
+    function initBoard() {
+      board = [];
+      for (let r = 0; r < ROWS; r++) {
+        board[r] = [];
+        for (let c = 0; c < COLS; c++) {
+          board[r][c] = null;
+        }
+      }
+    }
+
+    function createPieceSet() {
+      let pieces = [];
+      for (const def of PIECE_DEFS) {
+        for (let i = 0; i < def.count; i++) {
+          pieces.push({ name: def.name, rank: def.rank, abbr: def.abbr });
+        }
+      }
+      return pieces;
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function placeAIPieces() {
+      const pieces = shuffle(createPieceSet());
+      // AI places on rows 0-3, with some strategy
+      // Put flag in back row surrounded by bombs
+      const flagIdx = pieces.findIndex(p => p.rank === 99);
+      const flag = pieces.splice(flagIdx, 1)[0];
+
+      // Find bomb indices
+      const bombIdxs = [];
+      for (let i = pieces.length - 1; i >= 0; i--) {
+        if (pieces[i].rank === 0 && bombIdxs.length < 3) {
+          bombIdxs.push(i);
+        }
+      }
+      const bombs = bombIdxs.map(i => pieces[i]);
+      // Remove bombs from array (reverse order to keep indices valid)
+      bombIdxs.sort((a, b) => b - a).forEach(i => pieces.splice(i, 1));
+
+      // Place flag randomly in back row (row 0)
+      const flagCol = Math.floor(Math.random() * 8) + 1; // not on edges
+      board[0][flagCol] = { owner: 1, ...flag, revealed: false };
+
+      // Place bombs adjacent to flag
+      const bombPositions = [];
+      const adjacents = [
+        { r: 0, c: flagCol - 1 }, { r: 0, c: flagCol + 1 }, { r: 1, c: flagCol }
+      ].filter(p => p.c >= 0 && p.c < COLS && !board[p.r][p.c]);
+      
+      for (let i = 0; i < Math.min(bombs.length, adjacents.length); i++) {
+        const pos = adjacents[i];
+        board[pos.r][pos.c] = { owner: 1, ...bombs[i], revealed: false };
+        bombPositions.push(pos);
+      }
+      // Place remaining bombs
+      const remainingBombs = bombs.slice(adjacents.length);
+      pieces.push(...remainingBombs);
+
+      // Place rest randomly in rows 0-3
+      shuffle(pieces);
+      let pi = 0;
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (!board[r][c] && pi < pieces.length) {
+            board[r][c] = { owner: 1, ...pieces[pi], revealed: false };
+            pi++;
+          }
+        }
+      }
+    }
+
+    function initAIKnowledge() {
+      aiKnowledge = [];
+      for (let r = 0; r < ROWS; r++) {
+        aiKnowledge[r] = [];
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c] && board[r][c].owner === 0) {
+            aiKnowledge[r][c] = { known: false, rank: -1 };
+          } else {
+            aiKnowledge[r][c] = null;
+          }
+        }
+      }
+    }
+
+    function getSetupPieces() {
+      // Return pieces for player to place, ordered for convenience
+      const pieces = [];
+      // Order: Flag, Bombs, then strongest to weakest
+      const order = [99, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+      for (const rank of order) {
+        const def = PIECE_DEFS.find(d => d.rank === rank);
+        for (let i = 0; i < def.count; i++) {
+          pieces.push({ name: def.name, rank: def.rank, abbr: def.abbr });
+        }
+      }
+      return pieces;
+    }
+
+    function startGame() {
+      initBoard();
+      placeAIPieces();
+      setupPieces = getSetupPieces();
+      setupIndex = 0;
+      phase = 'setup';
+      selectedPiece = null;
+      validMoves = [];
+      score = 0;
+      scoreEl.textContent = '0';
+      turn = 0;
+      lastBattle = null;
+      aiCaptured = [];
+      playerCaptured = [];
+      moveHistory = [];
+      message = 'Place your pieces (rows 7-10)';
+      messageTimer = 0;
+      overlay.style.display = 'none';
+      gameState = 'playing';
+    }
+
+    function autoPlacePlayerPieces() {
+      // Quick auto-place for player
+      const pieces = shuffle(createPieceSet());
+      let pi = 0;
+      // Place flag with bomb protection
+      const flagIdx = pieces.findIndex(p => p.rank === 99);
+      const flag = pieces.splice(flagIdx, 1)[0];
+      const flagCol = Math.floor(Math.random() * 8) + 1;
+      board[9][flagCol] = { owner: 0, ...flag, revealed: false };
+
+      const bombIdxs = [];
+      for (let i = pieces.length - 1; i >= 0; i--) {
+        if (pieces[i].rank === 0 && bombIdxs.length < 3) bombIdxs.push(i);
+      }
+      const bombs = bombIdxs.map(i => pieces[i]);
+      bombIdxs.sort((a, b) => b - a).forEach(i => pieces.splice(i, 1));
+      const adj = [
+        { r: 9, c: flagCol - 1 }, { r: 9, c: flagCol + 1 }, { r: 8, c: flagCol }
+      ].filter(p => p.c >= 0 && p.c < COLS && !board[p.r][p.c]);
+      for (let i = 0; i < Math.min(bombs.length, adj.length); i++) {
+        board[adj[i].r][adj[i].c] = { owner: 0, ...bombs[i], revealed: false };
+      }
+      pieces.push(...bombs.slice(adj.length));
+      shuffle(pieces);
+      pi = 0;
+      for (let r = 6; r < 10; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (!board[r][c] && pi < pieces.length) {
+            board[r][c] = { owner: 0, ...pieces[pi], revealed: false };
+            pi++;
+          }
+        }
+      }
+    }
+
+    function canMove(piece) {
+      return piece.rank !== 0 && piece.rank !== 99; // Bombs and Flags can't move
+    }
+
+    function getValidMoves(r, c) {
+      const piece = board[r][c];
+      if (!piece || !canMove(piece)) return [];
+      const moves = [];
+      const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+      if (piece.rank === 9) {
+        // Scout: can move multiple squares in a line
+        for (const [dr, dc] of dirs) {
+          for (let dist = 1; dist < 10; dist++) {
+            const nr = r + dr * dist;
+            const nc = c + dc * dist;
+            if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
+            if (isLake(nr, nc)) break;
+            if (board[nr][nc]) {
+              if (board[nr][nc].owner !== piece.owner) {
+                moves.push({ r: nr, c: nc, attack: true });
+              }
+              break; // Can't pass through pieces
+            }
+            moves.push({ r: nr, c: nc, attack: false });
+          }
+        }
+      } else {
+        // Normal piece: 1 square
+        for (const [dr, dc] of dirs) {
+          const nr = r + dr;
+          const nc = c + dc;
+          if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+          if (isLake(nr, nc)) continue;
+          if (board[nr][nc]) {
+            if (board[nr][nc].owner !== piece.owner) {
+              moves.push({ r: nr, c: nc, attack: true });
+            }
+          } else {
+            moves.push({ r: nr, c: nc, attack: false });
+          }
+        }
+      }
+      return moves;
+    }
+
+    function resolveBattle(attackerR, attackerC, defenderR, defenderC) {
+      const attacker = board[attackerR][attackerC];
+      const defender = board[defenderR][defenderC];
+
+      // Reveal both pieces
+      attacker.revealed = true;
+      defender.revealed = true;
+
+      let result;
+
+      // Special: Spy attacks Marshal
+      if (attacker.rank === 10 && defender.rank === 1) {
+        result = 'attacker';
+      }
+      // Special: Miner defuses Bomb
+      else if (attacker.rank === 8 && defender.rank === 0) {
+        result = 'attacker';
+      }
+      // Bomb kills anything else
+      else if (defender.rank === 0) {
+        result = 'defender';
+      }
+      // Flag is captured
+      else if (defender.rank === 99) {
+        result = 'attacker';
+      }
+      // Lower rank wins (stronger)
+      else if (attacker.rank < defender.rank) {
+        result = 'attacker';
+      } else if (attacker.rank > defender.rank) {
+        result = 'defender';
+      } else {
+        result = 'both'; // Same rank: both die
+      }
+
+      // Update AI knowledge
+      if (attacker.owner === 1) {
+        // AI attacked a player piece, now knows it
+        aiKnowledge[defenderR][defenderC] = { known: true, rank: defender.rank };
+      }
+      if (defender.owner === 1) {
+        // AI's piece was attacked, AI now knows the attacker
+        if (aiKnowledge[attackerR] && aiKnowledge[attackerR][attackerC]) {
+          aiKnowledge[attackerR][attackerC] = { known: true, rank: attacker.rank };
+        }
+      }
+
+      lastBattle = {
+        r: defenderR, c: defenderC,
+        attacker: { ...attacker },
+        defender: { ...defender },
+        result
+      };
+      battleTimer = 90;
+
+      if (result === 'attacker') {
+        if (defender.owner === 1) { aiCaptured.push(defender); score++; scoreEl.textContent = score; }
+        else { playerCaptured.push(defender); }
+        board[defenderR][defenderC] = attacker;
+        board[attackerR][attackerC] = null;
+        // Update AI knowledge position
+        updateKnowledgeAfterMove(attackerR, attackerC, defenderR, defenderC);
+        // Check flag capture
+        if (defender.rank === 99) {
+          endGame(attacker.owner === 0 ? 'win' : 'lose');
+        }
+      } else if (result === 'defender') {
+        if (attacker.owner === 1) { aiCaptured.push(attacker); }
+        else { playerCaptured.push(attacker); score++; scoreEl.textContent = score; }
+        board[attackerR][attackerC] = null;
+        // Update knowledge - attacker is gone
+        updateKnowledgeAfterRemoval(attackerR, attackerC);
+      } else {
+        // Both die
+        if (attacker.owner === 1) aiCaptured.push(attacker);
+        else playerCaptured.push(attacker);
+        if (defender.owner === 1) { aiCaptured.push(defender); score++; scoreEl.textContent = score; }
+        else { playerCaptured.push(defender); }
+        board[attackerR][attackerC] = null;
+        board[defenderR][defenderC] = null;
+        updateKnowledgeAfterRemoval(attackerR, attackerC);
+        updateKnowledgeAfterRemoval(defenderR, defenderC);
+      }
+
+      return result;
+    }
+
+    function updateKnowledgeAfterMove(fromR, fromC, toR, toC) {
+      // If player piece moved, update AI knowledge
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c] && board[r][c].owner === 0) {
+            if (!aiKnowledge[r]) aiKnowledge[r] = [];
+            if (!aiKnowledge[r][c]) aiKnowledge[r][c] = { known: false, rank: -1 };
+          } else {
+            if (aiKnowledge[r]) aiKnowledge[r][c] = null;
+          }
+        }
+      }
+    }
+
+    function updateKnowledgeAfterRemoval(r, c) {
+      if (aiKnowledge[r]) aiKnowledge[r][c] = null;
+    }
+
+    function movePiece(fromR, fromC, toR, toC) {
+      if (board[toR][toC] && board[toR][toC].owner !== board[fromR][fromC].owner) {
+        return resolveBattle(fromR, fromC, toR, toC);
+      }
+      // Simple move
+      board[toR][toC] = board[fromR][fromC];
+      board[fromR][fromC] = null;
+      
+      // Track that a piece moved (AI can deduce it's not bomb/flag)
+      if (board[toR][toC].owner === 0) {
+        // AI knows this piece can move, so not bomb or flag
+        updateKnowledgeAfterMove(fromR, fromC, toR, toC);
+        // Mark as movable in knowledge
+        if (aiKnowledge[toR] && aiKnowledge[toR][toC]) {
+          aiKnowledge[toR][toC].canMove = true;
+        }
+      }
+      
+      moveHistory.push({ from: { r: fromR, c: fromC }, to: { r: toR, c: toC } });
+      return null;
+    }
+
+    function endGame(result) {
+      phase = 'gameover';
+      gameState = 'over';
+      if (score > bestScore) {
+        bestScore = score;
+        localStorage.setItem('stratego-best', bestScore);
+        bestEl.textContent = bestScore;
+      }
+      // Reveal all pieces
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c]) board[r][c].revealed = true;
+        }
+      }
+      setTimeout(() => {
+        overlayTitle.textContent = result === 'win' ? 'VICTORY!' : 'DEFEAT';
+        overlayText.textContent = `Captures: ${score} | Click to play again`;
+        overlay.style.display = 'flex';
+      }, 1500);
+    }
+
+    // Check if a player has any moves left
+    function hasMovesLeft(owner) {
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c] && board[r][c].owner === owner && canMove(board[r][c])) {
+            if (getValidMoves(r, c).length > 0) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    // ============ AI ============
+
+    function getAIPieces() {
+      const pieces = [];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c] && board[r][c].owner === 1) {
+            pieces.push({ r, c, piece: board[r][c] });
+          }
+        }
+      }
+      return pieces;
+    }
+
+    function getPlayerPieces() {
+      const pieces = [];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c] && board[r][c].owner === 0) {
+            pieces.push({ r, c, piece: board[r][c] });
+          }
+        }
+      }
+      return pieces;
+    }
+
+    function getRemainingPlayerPieces() {
+      // What AI knows about remaining player pieces (unrevealed)
+      const allCounts = {};
+      for (const def of PIECE_DEFS) allCounts[def.rank] = def.count;
+      
+      // Subtract captured pieces
+      for (const p of playerCaptured) {
+        allCounts[p.rank]--;
+      }
+      // Subtract known revealed pieces still on board
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c] && board[r][c].owner === 0 && board[r][c].revealed) {
+            allCounts[board[r][c].rank]--;
+          }
+        }
+      }
+      return allCounts;
+    }
+
+    function estimatePieceStrength(r, c) {
+      const piece = board[r][c];
+      if (!piece || piece.owner !== 0) return 5;
+      
+      if (piece.revealed) return piece.rank;
+      
+      // AI probabilistic reasoning
+      const remaining = getRemainingPlayerPieces();
+      const k = aiKnowledge[r] && aiKnowledge[r][c];
+      
+      if (k && k.known) return k.rank;
+      
+      // If piece has moved, it's not a bomb or flag
+      const canMoveKnown = k && k.canMove;
+      
+      let totalWeight = 0;
+      let weightedRank = 0;
+      
+      for (const [rankStr, count] of Object.entries(remaining)) {
+        const rank = parseInt(rankStr);
+        if (count <= 0) continue;
+        if (canMoveKnown && (rank === 0 || rank === 99)) continue;
+        totalWeight += count;
+        weightedRank += rank * count;
+      }
+      
+      return totalWeight > 0 ? weightedRank / totalWeight : 5;
+    }
+
+    function aiShouldAttack(aiPiece, targetR, targetC) {
+      const target = board[targetR][targetC];
+      if (!target || target.owner !== 0) return 0;
+
+      if (target.revealed) {
+        // Known piece
+        if (target.rank === 99) return 1000; // Flag! Always attack
+        if (target.rank === 0) {
+          // Bomb - only attack with miner
+          return aiPiece.rank === 8 ? 50 : -100;
+        }
+        // Spy attacking marshal
+        if (aiPiece.rank === 10 && target.rank === 1) return 80;
+        if (aiPiece.rank < target.rank) return 30 + (target.rank - aiPiece.rank) * 5;
+        if (aiPiece.rank === target.rank) return -10;
+        return -30 - (aiPiece.rank - target.rank) * 10;
+      }
+
+      // Unknown piece - probabilistic
+      const estRank = estimatePieceStrength(targetR, targetC);
+      const k = aiKnowledge[targetR] && aiKnowledge[targetR][targetC];
+      const hasMoved = k && k.canMove;
+
+      // If it hasn't moved, might be bomb or flag
+      if (!hasMoved) {
+        const remaining = getRemainingPlayerPieces();
+        const bombsLeft = remaining[0] || 0;
+        const flagsLeft = remaining[99] || 0;
+        const totalUnknown = Object.values(remaining).reduce((a, b) => a + b, 0);
+        
+        // Higher chance it's valuable immobile piece
+        if (aiPiece.rank === 8) return 20; // Miners should explore unmoved pieces
+        if (bombsLeft > 0 && bombsLeft / totalUnknown > 0.3) return -15; // Too many bombs
+      }
+
+      // Risk assessment
+      if (aiPiece.rank <= 3) {
+        // Valuable piece, be cautious with unknowns
+        return -5;
+      }
+      if (aiPiece.rank >= 7) {
+        // Expendable piece, scout ahead
+        return 10;
+      }
+      return 5 - Math.abs(aiPiece.rank - estRank) * 2;
+    }
+
+    function aiMoveScore(aiR, aiC, move) {
+      const piece = board[aiR][aiC];
+      let score = 0;
+
+      if (move.attack) {
+        score += aiShouldAttack(piece, move.r, move.c);
+      } else {
+        // Movement heuristics
+        // Advance toward enemy
+        const advancement = aiR < move.r ? 2 : (aiR > move.r ? -1 : 0);
+        score += advancement;
+
+        // Move toward center columns
+        const centerDist = Math.abs(move.c - 4.5);
+        score += (5 - centerDist) * 0.5;
+
+        // Scouts are more valuable moving forward to reveal info
+        if (piece.rank === 9) score += advancement * 2;
+        
+        // Don't move flag protectors much
+        if (piece.rank === 0) score -= 100; // bombs don't move anyway
+        
+        // Marshal and general should advance but carefully
+        if (piece.rank <= 2) score += advancement;
+      }
+
+      // Small randomness for variety
+      score += Math.random() * 3;
+      return score;
+    }
+
+    function aiTakeTurn() {
+      const aiPcs = getAIPieces();
+      let bestMove = null;
+      let bestScore = -Infinity;
+
+      for (const { r, c, piece } of aiPcs) {
+        if (!canMove(piece)) continue;
+        const moves = getValidMoves(r, c);
+        for (const move of moves) {
+          const sc = aiMoveScore(r, c, move);
+          if (sc > bestScore) {
+            bestScore = sc;
+            bestMove = { fromR: r, fromC: c, toR: move.r, toC: move.c };
+          }
+        }
+      }
+
+      if (bestMove) {
+        const result = movePiece(bestMove.fromR, bestMove.fromC, bestMove.toR, bestMove.toC);
+        if (result && lastBattle) {
+          battleTimer = 90;
+        }
+      }
+
+      if (phase !== 'gameover') {
+        // Check if player has moves
+        if (!hasMovesLeft(0)) {
+          endGame('lose');
+        } else {
+          turn = 0;
+          phase = 'play';
+          message = 'Your turn - select a piece';
+        }
+      }
+    }
+
+    // ============ RENDERING ============
+
+    function drawBoard() {
+      // Background
+      ctx.fillStyle = '#0e0e1a';
+      ctx.fillRect(0, 0, W, H);
+
+      // Status bar at top
+      ctx.fillStyle = '#16213e';
+      ctx.fillRect(0, 0, W, BOARD_Y - 2);
+
+      // Phase/turn indicator
+      ctx.font = 'bold 14px "Courier New"';
+      ctx.textAlign = 'center';
+      if (phase === 'setup') {
+        const currentPiece = setupPieces[setupIndex];
+        ctx.fillStyle = THEME;
+        ctx.shadowColor = THEME;
+        ctx.shadowBlur = 8;
+        ctx.fillText(`SETUP: Place ${currentPiece.name} (${setupIndex + 1}/${setupPieces.length})`, W / 2, 20);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#888';
+        ctx.font = '11px "Courier New"';
+        ctx.fillText('Click rows 7-10 | Right-click to auto-place all', W / 2, 38);
+      } else if (phase === 'play') {
+        ctx.fillStyle = PLAYER_COLOR;
+        ctx.shadowColor = PLAYER_COLOR;
+        ctx.shadowBlur = 8;
+        ctx.fillText('YOUR TURN', W / 2, 20);
+        ctx.shadowBlur = 0;
+        if (message) {
+          ctx.fillStyle = '#888';
+          ctx.font = '11px "Courier New"';
+          ctx.fillText(message, W / 2, 38);
+        }
+      } else if (phase === 'aiTurn') {
+        ctx.fillStyle = AI_COLOR;
+        ctx.shadowColor = AI_COLOR;
+        ctx.shadowBlur = 8;
+        ctx.fillText('AI THINKING...', W / 2, 20);
+        ctx.shadowBlur = 0;
+      } else if (phase === 'gameover') {
+        ctx.fillStyle = THEME;
+        ctx.shadowColor = THEME;
+        ctx.shadowBlur = 10;
+        ctx.fillText('GAME OVER', W / 2, 28);
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw board background
+      ctx.fillStyle = BOARD_COLOR;
+      ctx.fillRect(BOARD_X, BOARD_Y, BOARD_W, BOARD_H);
+
+      // Draw grid
+      ctx.strokeStyle = GRID_COLOR;
+      ctx.lineWidth = 1;
+      for (let r = 0; r <= ROWS; r++) {
+        ctx.beginPath();
+        ctx.moveTo(BOARD_X, BOARD_Y + r * CELL);
+        ctx.lineTo(BOARD_X + BOARD_W, BOARD_Y + r * CELL);
+        ctx.stroke();
+      }
+      for (let c = 0; c <= COLS; c++) {
+        ctx.beginPath();
+        ctx.moveTo(BOARD_X + c * CELL, BOARD_Y);
+        ctx.lineTo(BOARD_X + c * CELL, BOARD_Y + BOARD_H);
+        ctx.stroke();
+      }
+
+      // Draw lakes
+      for (const lake of LAKES) {
+        const x = BOARD_X + lake.c * CELL;
+        const y = BOARD_Y + lake.r * CELL;
+        ctx.fillStyle = LAKE_COLOR;
+        ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+        // Water pattern
+        ctx.strokeStyle = '#2a5a8e';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          const wy = y + 12 + i * 12;
+          ctx.moveTo(x + 6, wy);
+          ctx.quadraticCurveTo(x + CELL / 4, wy - 5, x + CELL / 2, wy);
+          ctx.quadraticCurveTo(x + CELL * 3 / 4, wy + 5, x + CELL - 6, wy);
+          ctx.stroke();
+        }
+      }
+
+      // Setup zone highlight
+      if (phase === 'setup') {
+        ctx.fillStyle = 'rgba(68, 136, 255, 0.08)';
+        for (let r = 6; r < 10; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (!board[r][c]) {
+              const x = BOARD_X + c * CELL;
+              const y = BOARD_Y + r * CELL;
+              ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+            }
+          }
+        }
+      }
+
+      // Draw valid moves
+      for (const move of validMoves) {
+        const x = BOARD_X + move.c * CELL;
+        const y = BOARD_Y + move.r * CELL;
+        if (move.attack) {
+          ctx.fillStyle = 'rgba(255, 80, 80, 0.3)';
+          ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+          ctx.strokeStyle = 'rgba(255, 80, 80, 0.6)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 2, y + 2, CELL - 4, CELL - 4);
+        } else {
+          ctx.fillStyle = VALID_MOVE_COLOR;
+          ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+          // Dot in center
+          ctx.fillStyle = 'rgba(100, 255, 100, 0.5)';
+          ctx.beginPath();
+          ctx.arc(x + CELL / 2, y + CELL / 2, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Draw pieces
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const piece = board[r][c];
+          if (!piece) continue;
+          drawPiece(r, c, piece);
+        }
+      }
+
+      // Highlight selected piece
+      if (selectedPiece) {
+        const x = BOARD_X + selectedPiece.c * CELL;
+        const y = BOARD_Y + selectedPiece.r * CELL;
+        ctx.strokeStyle = THEME;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = THEME;
+        ctx.shadowBlur = 12;
+        ctx.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
+        ctx.shadowBlur = 0;
+      }
+
+      // Battle display
+      if (lastBattle && battleTimer > 0) {
+        drawBattleInfo();
+      }
+
+      // Bottom panel - captured pieces
+      drawCapturedPanel();
+    }
+
+    function drawPiece(r, c, piece) {
+      const x = BOARD_X + c * CELL;
+      const y = BOARD_Y + r * CELL;
+      const pad = 3;
+
+      const isPlayer = piece.owner === 0;
+      const showInfo = isPlayer || piece.revealed || phase === 'gameover';
+
+      // Piece background
+      if (isPlayer) {
+        ctx.fillStyle = showInfo ? PLAYER_COLOR : PLAYER_COLOR_DARK;
+        ctx.shadowColor = PLAYER_COLOR;
+      } else {
+        ctx.fillStyle = showInfo && piece.revealed ? AI_COLOR : AI_COLOR_DARK;
+        ctx.shadowColor = AI_COLOR;
+      }
+      ctx.shadowBlur = showInfo ? 4 : 0;
+      
+      // Rounded rectangle
+      const rx = x + pad, ry = y + pad, rw = CELL - pad * 2, rh = CELL - pad * 2;
+      const radius = 4;
+      ctx.beginPath();
+      ctx.moveTo(rx + radius, ry);
+      ctx.lineTo(rx + rw - radius, ry);
+      ctx.arcTo(rx + rw, ry, rx + rw, ry + radius, radius);
+      ctx.lineTo(rx + rw, ry + rh - radius);
+      ctx.arcTo(rx + rw, ry + rh, rx + rw - radius, ry + rh, radius);
+      ctx.lineTo(rx + radius, ry + rh);
+      ctx.arcTo(rx, ry + rh, rx, ry + rh - radius, radius);
+      ctx.lineTo(rx, ry + radius);
+      ctx.arcTo(rx, ry, rx + radius, ry, radius);
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Border
+      ctx.strokeStyle = isPlayer ? '#66aaff' : '#ff6666';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      if (showInfo) {
+        // Show rank/name
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        if (piece.rank === 0) {
+          // Bomb
+          ctx.font = 'bold 18px "Courier New"';
+          ctx.fillText('\u{1F4A3}', x + CELL / 2, y + CELL / 2 - 1);
+        } else if (piece.rank === 99) {
+          // Flag
+          ctx.font = 'bold 18px "Courier New"';
+          ctx.fillText('\u{1F3F4}', x + CELL / 2, y + CELL / 2 - 1);
+        } else {
+          // Rank number
+          ctx.font = 'bold 16px "Courier New"';
+          ctx.fillText(piece.rank, x + CELL / 2, y + CELL / 2 - 6);
+          // Abbreviation
+          ctx.font = '9px "Courier New"';
+          ctx.fillStyle = 'rgba(255,255,255,0.8)';
+          ctx.fillText(piece.abbr, x + CELL / 2, y + CELL / 2 + 10);
+        }
+      } else {
+        // Hidden piece - question mark with glow
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = 'bold 20px "Courier New"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('?', x + CELL / 2, y + CELL / 2);
+      }
+    }
+
+    function drawBattleInfo() {
+      const b = lastBattle;
+      const alpha = Math.min(1, battleTimer / 30);
+
+      // Battle popup
+      const px = W / 2;
+      const py = BOARD_Y + BOARD_H / 2;
+      const pw = 220, ph = 80;
+
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = 'rgba(10, 10, 20, 0.92)';
+      ctx.strokeStyle = THEME;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = THEME;
+      ctx.shadowBlur = 15;
+      
+      ctx.beginPath();
+      ctx.roundRect(px - pw / 2, py - ph / 2, pw, ph, 8);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Attacker info
+      ctx.fillStyle = b.attacker.owner === 0 ? PLAYER_COLOR : AI_COLOR;
+      ctx.font = 'bold 13px "Courier New"';
+      ctx.fillText(`${b.attacker.name} (${b.attacker.rank === 0 ? 'B' : b.attacker.rank === 99 ? 'F' : b.attacker.rank})`, px - 55, py - 20);
+
+      ctx.fillStyle = '#888';
+      ctx.font = 'bold 16px "Courier New"';
+      ctx.fillText('VS', px + 55, py - 20);
+
+      // Defender info
+      ctx.fillStyle = b.defender.owner === 0 ? PLAYER_COLOR : AI_COLOR;
+      ctx.font = 'bold 13px "Courier New"';
+      ctx.fillText(`${b.defender.name} (${b.defender.rank === 0 ? 'B' : b.defender.rank === 99 ? 'F' : b.defender.rank})`, px + 55, py - 20);
+
+      // Arrow
+      ctx.fillStyle = '#888';
+      ctx.font = '16px "Courier New"';
+      ctx.fillText('\u2694', px, py - 20);
+
+      // Result
+      ctx.font = 'bold 14px "Courier New"';
+      if (b.result === 'attacker') {
+        ctx.fillStyle = b.attacker.owner === 0 ? '#4f8' : '#f44';
+        ctx.fillText(b.attacker.owner === 0 ? 'You win!' : 'AI wins!', px, py + 15);
+      } else if (b.result === 'defender') {
+        ctx.fillStyle = b.defender.owner === 0 ? '#4f8' : '#f44';
+        ctx.fillText(b.defender.owner === 0 ? 'You win!' : 'AI wins!', px, py + 15);
+      } else {
+        ctx.fillStyle = '#ff8';
+        ctx.fillText('Both destroyed!', px, py + 15);
+      }
+
+      ctx.globalAlpha = 1;
+    }
+
+    function drawCapturedPanel() {
+      const py = PANEL_Y;
+      ctx.fillStyle = '#12121e';
+      ctx.fillRect(0, py, W, H - py);
+
+      ctx.font = '10px "Courier New"';
+      ctx.textAlign = 'left';
+
+      // Player's captures (AI pieces we took)
+      ctx.fillStyle = PLAYER_COLOR;
+      ctx.fillText('Your captures:', BOARD_X, py + 14);
+      let cx = BOARD_X;
+      for (let i = 0; i < aiCaptured.length && i < 20; i++) {
+        const p = aiCaptured[i];
+        ctx.fillStyle = 'rgba(255,68,68,0.3)';
+        ctx.fillRect(cx + i * 22, py + 20, 20, 16);
+        ctx.fillStyle = '#ff8888';
+        ctx.font = '9px "Courier New"';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.rank === 0 ? 'B' : p.rank === 99 ? 'F' : p.rank, cx + i * 22 + 10, py + 31);
+      }
+
+      // AI's captures
+      ctx.textAlign = 'left';
+      ctx.fillStyle = AI_COLOR;
+      ctx.font = '10px "Courier New"';
+      ctx.fillText('AI captures:', BOARD_X + 260, py + 14);
+      for (let i = 0; i < playerCaptured.length && i < 10; i++) {
+        const p = playerCaptured[i];
+        ctx.fillStyle = 'rgba(68,136,255,0.3)';
+        ctx.fillRect(BOARD_X + 260 + i * 22, py + 20, 20, 16);
+        ctx.fillStyle = '#88aaff';
+        ctx.font = '9px "Courier New"';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.rank === 0 ? 'B' : p.rank === 99 ? 'F' : p.rank, BOARD_X + 260 + i * 22 + 10, py + 31);
+      }
+    }
+
+    // ============ INPUT ============
+
+    function getCellFromMouse(mx, my) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (mx - rect.left) * (W / rect.width);
+      const y = (my - rect.top) * (H / rect.height);
+      const c = Math.floor((x - BOARD_X) / CELL);
+      const r = Math.floor((y - BOARD_Y) / CELL);
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS) return { r, c };
+      return null;
+    }
+
+    canvas.addEventListener('click', (e) => {
+      if (gameState === 'waiting') {
+        startGame();
+        return;
+      }
+      if (gameState === 'over') {
+        gameState = 'waiting';
+        overlayTitle.textContent = 'STRATEGO DIGITAL';
+        overlayText.textContent = 'Click to Start';
+        overlay.style.display = 'flex';
+        return;
+      }
+
+      const cell = getCellFromMouse(e.clientX, e.clientY);
+      if (!cell) return;
+
+      if (phase === 'setup') {
+        handleSetupClick(cell);
+      } else if (phase === 'play') {
+        handlePlayClick(cell);
+      }
+    });
+
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (phase === 'setup') {
+        // Auto-place remaining pieces
+        autoPlaceRemaining();
+      }
+    });
+
+    function handleSetupClick(cell) {
+      const { r, c } = cell;
+      // Must be in rows 6-9 (player's zone)
+      if (r < 6 || r > 9) return;
+      if (isLake(r, c)) return;
+      if (board[r][c]) return; // Already occupied
+
+      const piece = setupPieces[setupIndex];
+      board[r][c] = { owner: 0, ...piece, revealed: false };
+      setupIndex++;
+
+      if (setupIndex >= setupPieces.length) {
+        // Setup complete
+        phase = 'play';
+        initAIKnowledge();
+        message = 'Your turn - select a piece to move';
+      }
+    }
+
+    function autoPlaceRemaining() {
+      // Place all remaining setup pieces randomly
+      const emptyCells = [];
+      for (let r = 6; r < 10; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (!board[r][c] && !isLake(r, c)) emptyCells.push({ r, c });
+        }
+      }
+      shuffle(emptyCells);
+
+      while (setupIndex < setupPieces.length && emptyCells.length > 0) {
+        const cell = emptyCells.shift();
+        const piece = setupPieces[setupIndex];
+        board[cell.r][cell.c] = { owner: 0, ...piece, revealed: false };
+        setupIndex++;
+      }
+
+      if (setupIndex >= setupPieces.length) {
+        phase = 'play';
+        initAIKnowledge();
+        message = 'Your turn - select a piece to move';
+      }
+    }
+
+    function handlePlayClick(cell) {
+      const { r, c } = cell;
+
+      // Check if clicking a valid move destination
+      if (selectedPiece) {
+        const validMove = validMoves.find(m => m.r === r && m.c === c);
+        if (validMove) {
+          // Execute move
+          movePiece(selectedPiece.r, selectedPiece.c, r, c);
+          selectedPiece = null;
+          validMoves = [];
+
+          if (phase !== 'gameover') {
+            // Switch to AI turn
+            turn = 1;
+            phase = 'aiTurn';
+            message = '';
+            setTimeout(() => {
+              if (phase === 'aiTurn') {
+                aiTakeTurn();
+              }
+            }, 600);
+          }
+          return;
+        }
+      }
+
+      // Check if clicking own piece
+      if (board[r][c] && board[r][c].owner === 0) {
+        if (canMove(board[r][c])) {
+          const moves = getValidMoves(r, c);
+          if (moves.length > 0) {
+            selectedPiece = { r, c };
+            validMoves = moves;
+            message = `${board[r][c].name} selected`;
+          } else {
+            message = 'No valid moves for this piece';
+            messageTimer = 60;
+            selectedPiece = null;
+            validMoves = [];
+          }
+        } else {
+          message = `${board[r][c].name} cannot move`;
+          messageTimer = 60;
+          selectedPiece = null;
+          validMoves = [];
+        }
+      } else {
+        // Deselect
+        selectedPiece = null;
+        validMoves = [];
+      }
+    }
+
+    // ============ GAME LOOP ============
+
+    function update() {
+      if (battleTimer > 0) battleTimer--;
+      if (messageTimer > 0) {
+        messageTimer--;
+        if (messageTimer === 0 && phase === 'play') message = 'Your turn - select a piece';
+      }
+
+      // Check for stalemate
+      if (phase === 'play' && !hasMovesLeft(0)) {
+        endGame('lose');
+      }
+    }
+
+    function gameLoop() {
+      update();
+      drawBoard();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Initialize
+    overlay.style.display = 'flex';
+    gameLoop();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

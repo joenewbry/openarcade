@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Creep TD Versus</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 10px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 8px;
+      width: 900px;
+    }
+    .back { color: #0f8; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(0, 255, 136, 0.5); }
+    h1 { color: #0f8; font-size: 1.5rem; text-shadow: 0 0 15px rgba(0, 255, 136, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 900px;
+      margin-bottom: 6px;
+      font-size: 1rem;
+    }
+    .score-bar span { color: #0f8; }
+    canvas {
+      border: 2px solid #0f8;
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+      display: block;
+      cursor: crosshair;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #0f8;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.9);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(0,255,136,0.6); }
+    .overlay p { font-size: 1rem; color: #aaa; }
+    .overlay.hidden { display: none; }
+    .shop-bar {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+      width: 900px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .shop-btn {
+      background: #16213e;
+      border: 1px solid #0f8;
+      color: #0f8;
+      font-family: 'Courier New', monospace;
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .shop-btn:hover { background: #1a3a5e; box-shadow: 0 0 8px rgba(0,255,136,0.3); }
+    .shop-btn.active { background: #0f8; color: #1a1a2e; font-weight: bold; }
+    .shop-btn.send { border-color: #f44; color: #f44; }
+    .shop-btn.send:hover { background: #3a1616; box-shadow: 0 0 8px rgba(255,68,68,0.3); }
+    .shop-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .divider { color: #333; align-self: center; font-size: 1.2rem; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>CREEP TD VERSUS</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Best: <span id="best">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="900" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:900px;height:500px;">
+      <h2 id="overlayTitle">CREEP TD VERSUS</h2>
+      <p id="overlayText">Click to Start</p>
+    </div>
+  </div>
+  <div class="shop-bar" id="shopBar">
+    <button class="shop-btn" id="btnBasic" onclick="selectTower('basic')">Basic $10</button>
+    <button class="shop-btn" id="btnSniper" onclick="selectTower('sniper')">Sniper $25</button>
+    <button class="shop-btn" id="btnSplash" onclick="selectTower('splash')">Splash $30</button>
+    <button class="shop-btn" id="btnSlow" onclick="selectTower('slow')">Slow $15</button>
+    <span class="divider">|</span>
+    <button class="shop-btn send" id="btnCreepBasic" onclick="sendCreep('basic')">Send Basic $8</button>
+    <button class="shop-btn send" id="btnCreepFast" onclick="sendCreep('fast')">Send Fast $12</button>
+    <button class="shop-btn send" id="btnCreepTank" onclick="sendCreep('tank')">Send Tank $20</button>
+    <button class="shop-btn send" id="btnCreepSwarm" onclick="sendCreep('swarm')">Send Swarm $15</button>
+    <span class="divider">|</span>
+    <button class="shop-btn" id="btnSell" onclick="selectTower('sell')" style="border-color:#fa0;color:#fa0;">Sell Mode</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 900, H = 500;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState = 'waiting';
+    let score = 0;
+    let bestScore = parseInt(localStorage.getItem('creepTdVersusBest') || '0');
+    bestEl.textContent = bestScore;
+
+    // Grid constants
+    const COLS = 14, ROWS = 12;
+    const CELL = 30;
+    const FIELD_W = COLS * CELL; // 420
+    const FIELD_H = ROWS * CELL; // 360
+    const GAP = 60; // center gap
+    const P1_OX = 0, P1_OY = 70;
+    const P2_OX = FIELD_W + GAP, P2_OY = 70;
+
+    // Entry/exit: creeps enter top-left, exit bottom-right of each field
+    const ENTRY_COL = 0, ENTRY_ROW = 0;
+    const EXIT_COL = COLS - 1, EXIT_ROW = ROWS - 1;
+
+    // Tower definitions
+    const TOWER_DEFS = {
+      basic:  { cost: 10, range: 3, damage: 8, rate: 30, color: '#0f8', name: 'Basic', sellback: 5 },
+      sniper: { cost: 25, range: 6, damage: 30, rate: 60, color: '#4af', name: 'Sniper', sellback: 12 },
+      splash: { cost: 30, range: 3, damage: 12, rate: 45, color: '#f80', name: 'Splash', splashRadius: 1.5, sellback: 15 },
+      slow:   { cost: 15, range: 3, damage: 3,  rate: 25, color: '#a4f', name: 'Slow', slowFactor: 0.4, slowDuration: 90, sellback: 7 }
+    };
+
+    // Creep definitions (sent to opponent)
+    const CREEP_DEFS = {
+      basic: { cost: 8, hp: 60, speed: 1.0, reward: 3, color: '#e44', name: 'Basic', count: 1, radius: 5 },
+      fast:  { cost: 12, hp: 35, speed: 2.0, reward: 4, color: '#ff0', name: 'Fast', count: 1, radius: 4 },
+      tank:  { cost: 20, hp: 180, speed: 0.6, reward: 8, color: '#f80', name: 'Tank', count: 1, radius: 7 },
+      swarm: { cost: 15, hp: 25, speed: 1.2, reward: 1, color: '#f4f', name: 'Swarm', count: 5, radius: 3 }
+    };
+
+    let selectedTower = null;
+    let mouseX = 0, mouseY = 0;
+    let players = [];
+    let gameTime = 0;
+    let particles = [];
+    let projectiles = [];
+
+    // BFS pathfinding
+    function findPath(grid, startR, startC, endR, endC) {
+      const visited = Array.from({length: ROWS}, () => Array(COLS).fill(false));
+      const parent = Array.from({length: ROWS}, () => Array(COLS).fill(null));
+      const queue = [[startR, startC]];
+      visited[startR][startC] = true;
+      const dirs = [[0,1],[1,0],[0,-1],[-1,0]];
+      while (queue.length > 0) {
+        const [r, c] = queue.shift();
+        if (r === endR && c === endC) {
+          const path = [];
+          let cur = [endR, endC];
+          while (cur) {
+            path.unshift(cur);
+            cur = parent[cur[0]][cur[1]];
+          }
+          return path;
+        }
+        for (const [dr, dc] of dirs) {
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !visited[nr][nc] && !grid[nr][nc]) {
+            visited[nr][nc] = true;
+            parent[nr][nc] = [r, c];
+            queue.push([nr, nc]);
+          }
+        }
+      }
+      return null;
+    }
+
+    function createPlayer(isAI) {
+      const grid = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+      return {
+        isAI,
+        grid,
+        towers: [],
+        creeps: [],
+        lives: 20,
+        gold: 40,
+        path: findPath(grid, ENTRY_ROW, ENTRY_COL, EXIT_ROW, EXIT_COL),
+        creepsKilled: 0,
+        incomeTimer: 0
+      };
+    }
+
+    function init() {
+      players = [createPlayer(false), createPlayer(true)];
+      score = 0;
+      gameTime = 0;
+      particles = [];
+      projectiles = [];
+      selectedTower = null;
+      updateButtons();
+      scoreEl.textContent = '0';
+    }
+
+    function startGame() {
+      if (gameState === 'waiting' || gameState === 'over') {
+        init();
+        gameState = 'playing';
+        overlay.classList.add('hidden');
+      }
+    }
+
+    canvas.addEventListener('click', (e) => {
+      if (gameState === 'waiting' || gameState === 'over') { startGame(); return; }
+      if (gameState !== 'playing') return;
+
+      const rect = canvas.getBoundingClientRect();
+      const sx = (e.clientX - rect.left) * (W / rect.width);
+      const sy = (e.clientY - rect.top) * (H / rect.height);
+
+      // Only interact with player 1 field
+      const p = players[0];
+      const gx = sx - P1_OX, gy = sy - P1_OY;
+      const col = Math.floor(gx / CELL);
+      const row = Math.floor(gy / CELL);
+      if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return;
+
+      if (selectedTower === 'sell') {
+        // Sell tower
+        const ti = p.towers.findIndex(t => t.col === col && t.row === row);
+        if (ti >= 0) {
+          const t = p.towers[ti];
+          p.gold += TOWER_DEFS[t.type].sellback;
+          p.grid[row][col] = 0;
+          p.towers.splice(ti, 1);
+          p.path = findPath(p.grid, ENTRY_ROW, ENTRY_COL, EXIT_ROW, EXIT_COL);
+          updateButtons();
+        }
+        return;
+      }
+
+      if (!selectedTower || !TOWER_DEFS[selectedTower]) return;
+      const def = TOWER_DEFS[selectedTower];
+      if (p.gold < def.cost) return;
+
+      // Can't place on entry/exit
+      if ((row === ENTRY_ROW && col === ENTRY_COL) || (row === EXIT_ROW && col === EXIT_COL)) return;
+      // Can't place on occupied
+      if (p.grid[row][col]) return;
+
+      // Check path still exists
+      p.grid[row][col] = 1;
+      const newPath = findPath(p.grid, ENTRY_ROW, ENTRY_COL, EXIT_ROW, EXIT_COL);
+      if (!newPath) {
+        p.grid[row][col] = 0;
+        return;
+      }
+
+      p.gold -= def.cost;
+      p.towers.push({ type: selectedTower, row, col, cooldown: 0 });
+      p.path = newPath;
+      // Repath existing creeps
+      for (const c of p.creeps) {
+        repathCreep(c, p);
+      }
+      updateButtons();
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = (e.clientX - rect.left) * (W / rect.width);
+      mouseY = (e.clientY - rect.top) * (H / rect.height);
+    });
+
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      selectedTower = null;
+      updateButtons();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { selectedTower = null; updateButtons(); }
+      if (gameState === 'waiting' || gameState === 'over') { startGame(); }
+    });
+
+    function selectTower(type) {
+      if (gameState !== 'playing') return;
+      selectedTower = (selectedTower === type) ? null : type;
+      updateButtons();
+    }
+
+    function sendCreep(type) {
+      if (gameState !== 'playing') return;
+      const p = players[0]; // Player sends to AI's field
+      const def = CREEP_DEFS[type];
+      if (p.gold < def.cost) return;
+      p.gold -= def.cost;
+      spawnCreeps(players[1], type);
+      updateButtons();
+    }
+
+    function spawnCreeps(targetPlayer, type) {
+      const def = CREEP_DEFS[type];
+      for (let i = 0; i < def.count; i++) {
+        const creep = {
+          type,
+          hp: def.hp,
+          maxHp: def.hp,
+          speed: def.speed,
+          baseSpeed: def.speed,
+          color: def.color,
+          reward: def.reward,
+          radius: def.radius,
+          pathIndex: 0,
+          x: ENTRY_COL * CELL + CELL / 2,
+          y: ENTRY_ROW * CELL + CELL / 2,
+          slowTimer: 0,
+          spawnDelay: i * 15
+        };
+        // Assign path
+        if (targetPlayer.path) {
+          creep.path = targetPlayer.path.slice();
+        }
+        targetPlayer.creeps.push(creep);
+      }
+    }
+
+    function repathCreep(creep, player) {
+      if (!player.path) return;
+      // Find nearest path node ahead
+      const curCol = Math.floor(creep.x / CELL);
+      const curRow = Math.floor(creep.y / CELL);
+      const newPath = findPath(player.grid, curRow, curCol, EXIT_ROW, EXIT_COL);
+      if (newPath) {
+        creep.path = newPath;
+        creep.pathIndex = 0;
+      }
+    }
+
+    function updateButtons() {
+      if (gameState !== 'playing') return;
+      const p = players[0];
+      document.querySelectorAll('.shop-btn').forEach(b => b.classList.remove('active'));
+      if (selectedTower) {
+        const el = document.getElementById('btn' + selectedTower.charAt(0).toUpperCase() + selectedTower.slice(1));
+        if (el) el.classList.add('active');
+        if (selectedTower === 'sell') document.getElementById('btnSell').classList.add('active');
+      }
+      document.getElementById('btnBasic').disabled = p.gold < 10;
+      document.getElementById('btnSniper').disabled = p.gold < 25;
+      document.getElementById('btnSplash').disabled = p.gold < 30;
+      document.getElementById('btnSlow').disabled = p.gold < 15;
+      document.getElementById('btnCreepBasic').disabled = p.gold < 8;
+      document.getElementById('btnCreepFast').disabled = p.gold < 12;
+      document.getElementById('btnCreepTank').disabled = p.gold < 20;
+      document.getElementById('btnCreepSwarm').disabled = p.gold < 15;
+    }
+
+    // AI logic
+    function aiTick() {
+      const ai = players[1];
+      const human = players[0];
+      ai.incomeTimer++;
+
+      // Passive income for both
+      if (ai.incomeTimer % 180 === 0) {
+        ai.gold += 5;
+        players[0].gold += 5;
+      }
+
+      // AI decision every ~90 frames
+      if (gameTime % 90 !== 0) return;
+
+      // Decide: build tower or send creeps
+      const towerCount = ai.towers.length;
+      const buildPriority = towerCount < 8 ? 0.7 : 0.4;
+
+      if (Math.random() < buildPriority && ai.gold >= 10) {
+        // Try to build a tower
+        aiPlaceTower(ai);
+      } else if (ai.gold >= 8) {
+        // Send creeps to human
+        aiSendCreep(ai, human);
+      }
+    }
+
+    function aiPlaceTower(ai) {
+      // Prefer placing towers near the path to create a maze
+      if (!ai.path || ai.path.length < 2) return;
+
+      // Find candidate cells adjacent to path
+      const candidates = [];
+      const dirs = [[0,1],[1,0],[0,-1],[-1,0]];
+      for (const [pr, pc] of ai.path) {
+        for (const [dr, dc] of dirs) {
+          const nr = pr + dr, nc = pc + dc;
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !ai.grid[nr][nc]) {
+            if (!(nr === ENTRY_ROW && nc === ENTRY_COL) && !(nr === EXIT_ROW && nc === EXIT_COL)) {
+              candidates.push([nr, nc]);
+            }
+          }
+        }
+      }
+      if (candidates.length === 0) return;
+
+      // Shuffle and try to place
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+
+      // Choose tower type based on gold and strategy
+      let towerType = 'basic';
+      if (ai.gold >= 30 && Math.random() < 0.3) towerType = 'splash';
+      else if (ai.gold >= 25 && Math.random() < 0.3) towerType = 'sniper';
+      else if (ai.gold >= 15 && Math.random() < 0.25) towerType = 'slow';
+
+      const def = TOWER_DEFS[towerType];
+      if (ai.gold < def.cost) towerType = 'basic';
+      if (ai.gold < 10) return;
+
+      for (const [r, c] of candidates) {
+        ai.grid[r][c] = 1;
+        const newPath = findPath(ai.grid, ENTRY_ROW, ENTRY_COL, EXIT_ROW, EXIT_COL);
+        if (newPath) {
+          ai.gold -= TOWER_DEFS[towerType].cost;
+          ai.towers.push({ type: towerType, row: r, col: c, cooldown: 0 });
+          ai.path = newPath;
+          for (const cr of ai.creeps) repathCreep(cr, ai);
+          return;
+        }
+        ai.grid[r][c] = 0;
+      }
+    }
+
+    function aiSendCreep(ai, human) {
+      // Pick creep type based on available gold
+      const options = [];
+      if (ai.gold >= 8) options.push('basic');
+      if (ai.gold >= 12) options.push('fast');
+      if (ai.gold >= 20) options.push('tank');
+      if (ai.gold >= 15) options.push('swarm');
+      if (options.length === 0) return;
+
+      const type = options[Math.floor(Math.random() * options.length)];
+      ai.gold -= CREEP_DEFS[type].cost;
+      spawnCreeps(human, type);
+    }
+
+    function updateCreeps(player, ownerIndex) {
+      for (let i = player.creeps.length - 1; i >= 0; i--) {
+        const c = player.creeps[i];
+        if (c.spawnDelay > 0) { c.spawnDelay--; continue; }
+
+        // Slow timer
+        if (c.slowTimer > 0) {
+          c.slowTimer--;
+          if (c.slowTimer <= 0) c.speed = c.baseSpeed;
+        }
+
+        if (!c.path || c.pathIndex >= c.path.length) {
+          // Reached exit
+          player.lives--;
+          player.creeps.splice(i, 1);
+          // Particle burst at exit
+          for (let k = 0; k < 8; k++) {
+            particles.push({
+              x: EXIT_COL * CELL + CELL/2 + (ownerIndex === 0 ? P1_OX : P2_OX),
+              y: EXIT_ROW * CELL + CELL/2 + P1_OY,
+              vx: (Math.random()-0.5)*4, vy: (Math.random()-0.5)*4,
+              life: 30, color: '#f44'
+            });
+          }
+          continue;
+        }
+
+        // Move toward next path node
+        const [tr, tc] = c.path[c.pathIndex];
+        const tx = tc * CELL + CELL / 2;
+        const ty = tr * CELL + CELL / 2;
+        const dx = tx - c.x, dy = ty - c.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const moveSpeed = c.speed * 1.5;
+        if (dist < moveSpeed) {
+          c.x = tx;
+          c.y = ty;
+          c.pathIndex++;
+        } else {
+          c.x += (dx / dist) * moveSpeed;
+          c.y += (dy / dist) * moveSpeed;
+        }
+
+        // Check death
+        if (c.hp <= 0) {
+          // Reward goes to opponent (the one who owns the field)
+          const otherIndex = ownerIndex === 0 ? 1 : 0;
+          players[ownerIndex].gold += c.reward; // defender gets gold
+          players[ownerIndex].creepsKilled++;
+          if (ownerIndex === 0) {
+            score += c.reward;
+            scoreEl.textContent = score;
+          }
+          // Death particles
+          const ox = ownerIndex === 0 ? P1_OX : P2_OX;
+          for (let k = 0; k < 6; k++) {
+            particles.push({
+              x: c.x + ox, y: c.y + P1_OY,
+              vx: (Math.random()-0.5)*3, vy: (Math.random()-0.5)*3,
+              life: 25, color: c.color
+            });
+          }
+          player.creeps.splice(i, 1);
+        }
+      }
+    }
+
+    function updateTowers(player, playerIndex) {
+      for (const t of player.towers) {
+        if (t.cooldown > 0) { t.cooldown--; continue; }
+        const def = TOWER_DEFS[t.type];
+        const tx = t.col * CELL + CELL / 2;
+        const ty = t.row * CELL + CELL / 2;
+
+        // Find target
+        let target = null;
+        let bestProgress = -1;
+        for (const c of player.creeps) {
+          if (c.spawnDelay > 0) continue;
+          const dx = c.x - tx, dy = c.y - ty;
+          const d = Math.sqrt(dx*dx + dy*dy);
+          if (d <= def.range * CELL) {
+            const progress = c.pathIndex + (1 - d / (def.range * CELL));
+            if (progress > bestProgress) {
+              bestProgress = progress;
+              target = c;
+            }
+          }
+        }
+
+        if (target) {
+          t.cooldown = def.rate;
+          const ox = playerIndex === 0 ? P1_OX : P2_OX;
+
+          // Projectile
+          projectiles.push({
+            x: tx + ox, y: ty + P1_OY,
+            tx: target.x + ox, ty: target.y + P1_OY,
+            color: def.color,
+            life: 8,
+            playerIndex
+          });
+
+          if (def.splashRadius) {
+            // Splash damage
+            for (const c of player.creeps) {
+              const dx = c.x - target.x, dy = c.y - target.y;
+              if (Math.sqrt(dx*dx+dy*dy) <= def.splashRadius * CELL) {
+                c.hp -= def.damage;
+              }
+            }
+          } else {
+            target.hp -= def.damage;
+          }
+
+          if (def.slowFactor) {
+            target.speed = target.baseSpeed * def.slowFactor;
+            target.slowTimer = def.slowDuration;
+          }
+        }
+      }
+    }
+
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        projectiles[i].life--;
+        if (projectiles[i].life <= 0) projectiles.splice(i, 1);
+      }
+    }
+
+    function drawField(player, ox, oy, label, isHuman) {
+      // Background
+      ctx.fillStyle = isHuman ? '#0d1525' : '#150d18';
+      ctx.fillRect(ox, oy, FIELD_W, FIELD_H);
+
+      // Grid lines
+      ctx.strokeStyle = isHuman ? 'rgba(0,255,136,0.08)' : 'rgba(180,80,255,0.08)';
+      ctx.lineWidth = 0.5;
+      for (let r = 0; r <= ROWS; r++) {
+        ctx.beginPath();
+        ctx.moveTo(ox, oy + r * CELL);
+        ctx.lineTo(ox + FIELD_W, oy + r * CELL);
+        ctx.stroke();
+      }
+      for (let c = 0; c <= COLS; c++) {
+        ctx.beginPath();
+        ctx.moveTo(ox + c * CELL, oy);
+        ctx.lineTo(ox + c * CELL, oy + FIELD_H);
+        ctx.stroke();
+      }
+
+      // Draw path
+      if (player.path && player.path.length > 1) {
+        ctx.strokeStyle = isHuman ? 'rgba(0,255,136,0.12)' : 'rgba(180,80,255,0.12)';
+        ctx.lineWidth = CELL * 0.6;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(ox + player.path[0][1] * CELL + CELL/2, oy + player.path[0][0] * CELL + CELL/2);
+        for (let i = 1; i < player.path.length; i++) {
+          ctx.lineTo(ox + player.path[i][1] * CELL + CELL/2, oy + player.path[i][0] * CELL + CELL/2);
+        }
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        ctx.lineCap = 'butt';
+      }
+
+      // Entry/exit markers
+      ctx.fillStyle = '#0f8';
+      ctx.shadowColor = '#0f8';
+      ctx.shadowBlur = 10;
+      ctx.font = 'bold 10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('IN', ox + ENTRY_COL * CELL + CELL/2, oy + ENTRY_ROW * CELL + CELL/2 + 4);
+      ctx.fillStyle = '#f44';
+      ctx.shadowColor = '#f44';
+      ctx.fillText('OUT', ox + EXIT_COL * CELL + CELL/2, oy + EXIT_ROW * CELL + CELL/2 + 4);
+      ctx.shadowBlur = 0;
+
+      // Towers
+      for (const t of player.towers) {
+        const def = TOWER_DEFS[t.type];
+        const cx = ox + t.col * CELL + CELL/2;
+        const cy = oy + t.row * CELL + CELL/2;
+
+        // Tower body
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 6;
+        if (t.type === 'basic') {
+          ctx.fillRect(cx - 8, cy - 8, 16, 16);
+        } else if (t.type === 'sniper') {
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - 10);
+          ctx.lineTo(cx + 9, cy + 7);
+          ctx.lineTo(cx - 9, cy + 7);
+          ctx.closePath();
+          ctx.fill();
+        } else if (t.type === 'splash') {
+          ctx.beginPath();
+          ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (t.type === 'slow') {
+          // Diamond
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - 10);
+          ctx.lineTo(cx + 10, cy);
+          ctx.lineTo(cx, cy + 10);
+          ctx.lineTo(cx - 10, cy);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+
+        // Cooldown indicator
+        if (t.cooldown > 0) {
+          ctx.fillStyle = 'rgba(0,0,0,0.4)';
+          ctx.fillRect(cx - 8, cy - 8, 16, 16);
+        }
+      }
+
+      // Hover highlight for player field
+      if (isHuman && selectedTower && selectedTower !== 'sell' && TOWER_DEFS[selectedTower]) {
+        const gx = mouseX - ox, gy = mouseY - oy;
+        const hc = Math.floor(gx / CELL), hr = Math.floor(gy / CELL);
+        if (hc >= 0 && hc < COLS && hr >= 0 && hr < ROWS) {
+          const def = TOWER_DEFS[selectedTower];
+          // Range circle
+          ctx.strokeStyle = def.color + '40';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(ox + hc * CELL + CELL/2, oy + hr * CELL + CELL/2, def.range * CELL, 0, Math.PI*2);
+          ctx.stroke();
+
+          // Cell highlight
+          const canPlace = !player.grid[hr][hc] &&
+            !(hr === ENTRY_ROW && hc === ENTRY_COL) &&
+            !(hr === EXIT_ROW && hc === EXIT_COL);
+          ctx.fillStyle = canPlace ? 'rgba(0,255,136,0.2)' : 'rgba(255,0,0,0.2)';
+          ctx.fillRect(ox + hc * CELL, oy + hr * CELL, CELL, CELL);
+        }
+      }
+
+      // Sell mode highlight
+      if (isHuman && selectedTower === 'sell') {
+        const gx = mouseX - ox, gy = mouseY - oy;
+        const hc = Math.floor(gx / CELL), hr = Math.floor(gy / CELL);
+        if (hc >= 0 && hc < COLS && hr >= 0 && hr < ROWS) {
+          const hasTower = player.towers.some(t => t.col === hc && t.row === hr);
+          if (hasTower) {
+            ctx.fillStyle = 'rgba(255,170,0,0.3)';
+            ctx.fillRect(ox + hc * CELL, oy + hr * CELL, CELL, CELL);
+          }
+        }
+      }
+
+      // Tower range on hover (existing tower)
+      if (isHuman && !selectedTower) {
+        const gx = mouseX - ox, gy = mouseY - oy;
+        const hc = Math.floor(gx / CELL), hr = Math.floor(gy / CELL);
+        if (hc >= 0 && hc < COLS && hr >= 0 && hr < ROWS) {
+          const t = player.towers.find(t => t.col === hc && t.row === hr);
+          if (t) {
+            const def = TOWER_DEFS[t.type];
+            ctx.strokeStyle = def.color + '50';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(ox + hc * CELL + CELL/2, oy + hr * CELL + CELL/2, def.range * CELL, 0, Math.PI*2);
+            ctx.stroke();
+            // Info tooltip
+            ctx.fillStyle = 'rgba(0,0,0,0.8)';
+            ctx.fillRect(ox + hc * CELL + CELL + 2, oy + hr * CELL - 2, 85, 36);
+            ctx.fillStyle = def.color;
+            ctx.font = '9px Courier New';
+            ctx.textAlign = 'left';
+            ctx.fillText(def.name + ' Tower', ox + hc * CELL + CELL + 6, oy + hr * CELL + 10);
+            ctx.fillStyle = '#aaa';
+            ctx.fillText('DMG:' + def.damage + ' RNG:' + def.range, ox + hc * CELL + CELL + 6, oy + hr * CELL + 22);
+            ctx.fillText('Sell: $' + def.sellback, ox + hc * CELL + CELL + 6, oy + hr * CELL + 32);
+          }
+        }
+      }
+
+      // Creeps
+      for (const c of player.creeps) {
+        if (c.spawnDelay > 0) continue;
+        const cx = ox + c.x, cy = oy + c.y;
+
+        // Slow effect
+        if (c.slowTimer > 0) {
+          ctx.strokeStyle = '#a4f';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(cx, cy, c.radius + 3, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Body
+        ctx.fillStyle = c.color;
+        ctx.shadowColor = c.color;
+        ctx.shadowBlur = 4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, c.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Health bar
+        const barW = c.radius * 2 + 4;
+        const hpPct = c.hp / c.maxHp;
+        ctx.fillStyle = '#300';
+        ctx.fillRect(cx - barW/2, cy - c.radius - 6, barW, 3);
+        ctx.fillStyle = hpPct > 0.5 ? '#0f8' : hpPct > 0.25 ? '#ff0' : '#f44';
+        ctx.fillRect(cx - barW/2, cy - c.radius - 6, barW * hpPct, 3);
+      }
+
+      // Field label
+      ctx.fillStyle = isHuman ? '#0f8' : '#b4f';
+      ctx.shadowColor = isHuman ? '#0f8' : '#b4f';
+      ctx.shadowBlur = 8;
+      ctx.font = 'bold 12px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, ox + FIELD_W/2, oy - 28);
+      ctx.shadowBlur = 0;
+
+      // Lives and gold
+      const livesColor = player.lives > 10 ? '#0f8' : player.lives > 5 ? '#ff0' : '#f44';
+      ctx.fillStyle = livesColor;
+      ctx.font = '11px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('\u2665 ' + player.lives, ox + 4, oy - 6);
+      ctx.fillStyle = '#fd0';
+      ctx.textAlign = 'right';
+      ctx.fillText('$' + player.gold, ox + FIELD_W - 4, oy - 6);
+
+      // Kills
+      ctx.fillStyle = '#888';
+      ctx.textAlign = 'center';
+      ctx.fillText('Kills: ' + player.creepsKilled, ox + FIELD_W/2, oy - 6);
+
+      // Border
+      ctx.strokeStyle = isHuman ? '#0f8' : '#b4f';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(ox - 1, oy - 1, FIELD_W + 2, FIELD_H + 2);
+    }
+
+    function drawProjectiles() {
+      for (const p of projectiles) {
+        const t = p.life / 8;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 6;
+        ctx.globalAlpha = t;
+        ctx.beginPath();
+        const cx = p.x + (p.tx - p.x) * (1 - t);
+        const cy = p.y + (p.ty - p.y) * (1 - t);
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(p.tx, p.ty);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life / 30;
+        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawCenterPanel() {
+      const cx = FIELD_W + GAP/2;
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(FIELD_W, P1_OY, GAP, FIELD_H);
+
+      // VS text
+      ctx.fillStyle = '#555';
+      ctx.font = 'bold 16px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('VS', cx, P1_OY + FIELD_H/2);
+
+      // Wave timer
+      ctx.fillStyle = '#666';
+      ctx.font = '9px Courier New';
+      const secs = Math.floor(gameTime / 60);
+      const mins = Math.floor(secs / 60);
+      const ss = secs % 60;
+      ctx.fillText((mins < 10 ? '0' : '') + mins + ':' + (ss < 10 ? '0' : '') + ss, cx, P1_OY + FIELD_H/2 + 20);
+    }
+
+    function drawHUD() {
+      // Top info bar
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, P1_OY - 2);
+
+      ctx.font = 'bold 14px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#0f8';
+      ctx.shadowColor = '#0f8';
+      ctx.shadowBlur = 10;
+      ctx.fillText('CREEP TD VERSUS', W/2, 20);
+      ctx.shadowBlur = 0;
+
+      // Instructions at bottom
+      ctx.fillStyle = '#444';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('Left-click: place tower  |  Right-click: cancel  |  Build mazes & send creeps!', W/2, H - 8);
+    }
+
+    function draw() {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      drawHUD();
+      drawField(players[0], P1_OX, P1_OY, 'YOUR FIELD', true);
+      drawField(players[1], P2_OX, P2_OY, 'AI FIELD', false);
+      drawCenterPanel();
+      drawProjectiles();
+      drawParticles();
+    }
+
+    function endGame(winner) {
+      gameState = 'over';
+      score += Math.floor(gameTime / 60); // Time survived bonus
+      scoreEl.textContent = score;
+      if (score > bestScore) {
+        bestScore = score;
+        bestEl.textContent = bestScore;
+        localStorage.setItem('creepTdVersusBest', bestScore);
+      }
+      overlayTitle.textContent = winner === 0 ? 'VICTORY!' : 'DEFEATED';
+      overlayText.textContent = 'Score: ' + score + '  |  Click to play again';
+      overlay.classList.remove('hidden');
+      overlay.style.color = winner === 0 ? '#0f8' : '#f44';
+    }
+
+    function update() {
+      if (gameState !== 'playing') return;
+
+      gameTime++;
+      aiTick();
+
+      // Auto-wave: both sides get periodic free creeps sent at them
+      if (gameTime % 600 === 300) {
+        // Send auto-wave to both fields to keep pressure on
+        const waveNum = Math.floor(gameTime / 600);
+        if (waveNum % 3 === 0) {
+          spawnCreeps(players[0], 'fast');
+          spawnCreeps(players[1], 'basic');
+        } else if (waveNum % 3 === 1) {
+          spawnCreeps(players[0], 'basic');
+          spawnCreeps(players[1], 'fast');
+        } else {
+          spawnCreeps(players[0], 'tank');
+          spawnCreeps(players[1], 'tank');
+        }
+      }
+
+      updateTowers(players[0], 0);
+      updateTowers(players[1], 1);
+      updateCreeps(players[0], 0);
+      updateCreeps(players[1], 1);
+      updateParticles();
+      updateButtons();
+
+      // Check game over
+      if (players[0].lives <= 0) endGame(1);
+      else if (players[1].lives <= 0) endGame(0);
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    init();
+    gameLoop();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>
