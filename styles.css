@@ -403,3 +403,33 @@ body {
 
 .card-cookieclicker h2 { color: #ed4; }
 .card-cookieclicker:hover { border-color: #ed4; box-shadow: 0 8px 30px rgba(238, 221, 68, 0.15); }
+
+.card-drmario h2 { color: #f4c; }
+.card-drmario:hover { border-color: #f4c; box-shadow: 0 8px 30px rgba(255, 68, 204, 0.15); }
+
+.card-puyopuyo h2 { color: #c8f; }
+.card-puyopuyo:hover { border-color: #c8f; box-shadow: 0 8px 30px rgba(204, 136, 255, 0.15); }
+
+.card-pipedream h2 { color: #4dc; }
+.card-pipedream:hover { border-color: #4dc; box-shadow: 0 8px 30px rgba(68, 221, 204, 0.15); }
+
+.card-puzzlebobble h2 { color: #8fd; }
+.card-puzzlebobble:hover { border-color: #8fd; box-shadow: 0 8px 30px rgba(136, 255, 221, 0.15); }
+
+.card-bejeweled h2 { color: #f8a; }
+.card-bejeweled:hover { border-color: #f8a; box-shadow: 0 8px 30px rgba(255, 136, 170, 0.15); }
+
+.card-arkanoid h2 { color: #4fb; }
+.card-arkanoid:hover { border-color: #4fb; box-shadow: 0 8px 30px rgba(68, 255, 187, 0.15); }
+
+.card-dxball h2 { color: #fa6; }
+.card-dxball:hover { border-color: #fa6; box-shadow: 0 8px 30px rgba(255, 170, 102, 0.15); }
+
+.card-peggle h2 { color: #6af; }
+.card-peggle:hover { border-color: #6af; box-shadow: 0 8px 30px rgba(102, 170, 255, 0.15); }
+
+.card-towerdefense h2 { color: #cf4; }
+.card-towerdefense:hover { border-color: #cf4; box-shadow: 0 8px 30px rgba(204, 255, 68, 0.15); }
+
+.card-nonogram h2 { color: #a8e; }
+.card-nonogram:hover { border-color: #a8e; box-shadow: 0 8px 30px rgba(170, 136, 238, 0.15); }
