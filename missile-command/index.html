@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Missile Command</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 500px;
+    }
+    .back { color: #c4f; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(204,68,255,0.5); }
+    h1 { color: #c4f; font-size: 2rem; text-shadow: 0 0 15px rgba(204,68,255,0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 500px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #c4f; }
+    canvas {
+      border: 2px solid #c4f;
+      box-shadow: 0 0 20px rgba(204,68,255,0.4);
+      display: block;
+      cursor: crosshair;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #c4f;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>MISSILE COMMAND</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Best: <span id="best">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="500" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:500px;height:500px;">
+      <h2 id="overlayTitle">MISSILE COMMAND</h2>
+      <p id="overlayText">Click to start</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let score, best = 0, gameState;
+
+    // Ground level
+    const GROUND_Y = 460;
+    const GROUND_H = H - GROUND_Y;
+
+    // Cities: 6 cities in two groups of 3, gaps for bases
+    const CITY_W = 30;
+    const CITY_H = 20;
+    const cityPositions = [55, 100, 145, 305, 350, 395];
+    let cities; // array of { x, alive }
+
+    // Missile bases: left, center, right
+    const BASE_W = 24;
+    const BASE_H = 18;
+    const basePositions = [30, 245, 455]; // x-center of each base (adjusted to be between city groups)
+    let bases; // array of { x, ammo, maxAmmo }
+
+    // Counter-missiles (player)
+    let counterMissiles; // { sx, sy, tx, ty, x, y, speed, trail }
+    // Explosions from counter-missiles
+    let explosions; // { x, y, radius, maxRadius, growing, life }
+    // Enemy ICBMs
+    let icbms; // { sx, sy, tx, ty, x, y, speed, trail, mirv, mirvSplit, splitDone }
+    // Particles for visual flair
+    let particles;
+
+    // Wave management
+    let wave, icbmQueue, icbmSpawnTimer, icbmSpawnInterval;
+    let waveComplete, waveCompleteTimer;
+    let selectedBase;
+
+    // Mouse tracking
+    let mouseX = W / 2, mouseY = H / 2;
+
+    // Stars (fixed positions for background)
+    const stars = [];
+    for (let i = 0; i < 80; i++) {
+      stars.push({ x: Math.random() * W, y: Math.random() * (GROUND_Y - 20), size: Math.random() * 1.5 + 0.5 });
+    }
+
+    function init() {
+      score = 0;
+      scoreEl.textContent = '0';
+      wave = 0;
+      selectedBase = 1; // center base selected by default
+
+      cities = cityPositions.map(x => ({ x, alive: true }));
+      bases = basePositions.map(x => ({ x, ammo: 10, maxAmmo: 10 }));
+
+      counterMissiles = [];
+      explosions = [];
+      icbms = [];
+      particles = [];
+      icbmQueue = 0;
+      icbmSpawnTimer = 0;
+      waveComplete = false;
+      waveCompleteTimer = 0;
+
+      gameState = 'waiting';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'MISSILE COMMAND';
+      overlayText.innerHTML = 'Click to start<br>1/2/3 = select base';
+      draw();
+    }
+
+    function start() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      nextWave();
+      loop();
+    }
+
+    function nextWave() {
+      wave++;
+      waveComplete = false;
+      waveCompleteTimer = 0;
+
+      // Restock ammo (more ammo in later waves to compensate for more missiles)
+      const baseAmmo = Math.min(10 + Math.floor(wave / 3) * 2, 20);
+      bases.forEach(b => {
+        b.ammo = baseAmmo;
+        b.maxAmmo = baseAmmo;
+      });
+
+      // Wave parameters: more missiles, faster, MIRVs
+      const missileCount = 8 + wave * 3;
+      const mirvCount = wave >= 3 ? Math.floor((wave - 2) * 1.5) : 0;
+      icbmQueue = missileCount + mirvCount;
+      icbmSpawnInterval = Math.max(15, 60 - wave * 4);
+      icbmSpawnTimer = 0;
+    }
+
+    function loop() {
+      if (gameState !== 'playing') return;
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function update() {
+      // Spawn ICBMs from queue
+      if (icbmQueue > 0) {
+        icbmSpawnTimer++;
+        if (icbmSpawnTimer >= icbmSpawnInterval) {
+          icbmSpawnTimer = 0;
+          spawnICBM();
+          icbmQueue--;
+        }
+      }
+
+      // Update counter-missiles
+      for (let i = counterMissiles.length - 1; i >= 0; i--) {
+        const cm = counterMissiles[i];
+        const dx = cm.tx - cm.x;
+        const dy = cm.ty - cm.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < cm.speed) {
+          // Reached target -- create explosion
+          explosions.push({
+            x: cm.tx, y: cm.ty,
+            radius: 0, maxRadius: 35 + wave * 2,
+            growing: true, life: 1
+          });
+          counterMissiles.splice(i, 1);
+        } else {
+          cm.x += (dx / dist) * cm.speed;
+          cm.y += (dy / dist) * cm.speed;
+          cm.trail.push({ x: cm.x, y: cm.y });
+          if (cm.trail.length > 30) cm.trail.shift();
+        }
+      }
+
+      // Update explosions
+      for (let i = explosions.length - 1; i >= 0; i--) {
+        const ex = explosions[i];
+        if (ex.growing) {
+          ex.radius += 1.2;
+          if (ex.radius >= ex.maxRadius) {
+            ex.growing = false;
+          }
+        } else {
+          ex.life -= 0.025;
+          ex.radius -= 0.4;
+          if (ex.life <= 0 || ex.radius <= 0) {
+            explosions.splice(i, 1);
+          }
+        }
+      }
+
+      // Update ICBMs
+      for (let i = icbms.length - 1; i >= 0; i--) {
+        const m = icbms[i];
+        const dx = m.tx - m.x;
+        const dy = m.ty - m.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // MIRV split check
+        if (m.mirv && !m.splitDone && m.y > m.mirvSplit) {
+          m.splitDone = true;
+          // Split into 2-3 warheads targeting nearby cities/bases
+          const splitCount = 2 + (wave >= 6 ? 1 : 0);
+          for (let s = 0; s < splitCount; s++) {
+            const targets = getTargets();
+            if (targets.length > 0) {
+              const t = targets[Math.floor(Math.random() * targets.length)];
+              const speed = getICBMSpeed() * 1.1;
+              icbms.push({
+                sx: m.x, sy: m.y,
+                tx: t.x + (Math.random() - 0.5) * 20,
+                ty: t.y,
+                x: m.x + (Math.random() - 0.5) * 30,
+                y: m.y,
+                speed,
+                trail: [{ x: m.x, y: m.y }],
+                mirv: false, mirvSplit: 0, splitDone: false
+              });
+            }
+          }
+          // Original MIRV disappears
+          spawnParticles(m.x, m.y, '#f80', 6);
+          icbms.splice(i, 1);
+          continue;
+        }
+
+        if (dist < m.speed) {
+          // Hit ground target
+          hitGround(m.tx, m.ty);
+          spawnParticles(m.tx, m.ty, '#f44', 10);
+          icbms.splice(i, 1);
+        } else {
+          m.x += (dx / dist) * m.speed;
+          m.y += (dy / dist) * m.speed;
+          m.trail.push({ x: m.x, y: m.y });
+          if (m.trail.length > 50) m.trail.shift();
+
+          // Check if ICBM hit by any explosion
+          let destroyed = false;
+          for (const ex of explosions) {
+            const edx = m.x - ex.x;
+            const edy = m.y - ex.y;
+            if (Math.sqrt(edx * edx + edy * edy) < ex.radius) {
+              destroyed = true;
+              break;
+            }
+          }
+          if (destroyed) {
+            score += 25;
+            scoreEl.textContent = score;
+            if (score > best) {
+              best = score;
+              bestEl.textContent = best;
+            }
+            spawnParticles(m.x, m.y, '#c4f', 8);
+            icbms.splice(i, 1);
+          }
+        }
+      }
+
+      // Update particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.05; // gravity
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+
+      // Check wave completion
+      if (!waveComplete && icbmQueue === 0 && icbms.length === 0) {
+        waveComplete = true;
+        waveCompleteTimer = 90; // pause before next wave
+      }
+
+      if (waveComplete) {
+        waveCompleteTimer--;
+        if (waveCompleteTimer <= 0) {
+          // Bonus for surviving cities
+          const survivingCities = cities.filter(c => c.alive).length;
+          const bonus = survivingCities * 100;
+          score += bonus;
+          scoreEl.textContent = score;
+          if (score > best) {
+            best = score;
+            bestEl.textContent = best;
+          }
+          nextWave();
+        }
+      }
+
+      // Check game over: all cities destroyed
+      if (cities.every(c => !c.alive)) {
+        gameOver();
+      }
+    }
+
+    function getICBMSpeed() {
+      return 0.8 + wave * 0.2 + Math.random() * 0.3;
+    }
+
+    function getTargets() {
+      const targets = [];
+      cities.forEach(c => { if (c.alive) targets.push({ x: c.x + CITY_W / 2, y: GROUND_Y }); });
+      bases.forEach(b => { targets.push({ x: b.x, y: GROUND_Y }); });
+      return targets;
+    }
+
+    function spawnICBM() {
+      const targets = getTargets();
+      if (targets.length === 0) return;
+      const target = targets[Math.floor(Math.random() * targets.length)];
+      const sx = Math.random() * (W - 40) + 20;
+      const sy = -10;
+      const isMirv = wave >= 3 && Math.random() < Math.min(0.3 + (wave - 3) * 0.05, 0.5);
+      const speed = getICBMSpeed();
+
+      icbms.push({
+        sx, sy,
+        tx: target.x + (Math.random() - 0.5) * 10,
+        ty: target.y,
+        x: sx, y: sy,
+        speed,
+        trail: [{ x: sx, y: sy }],
+        mirv: isMirv,
+        mirvSplit: 100 + Math.random() * 200, // split at this Y
+        splitDone: false
+      });
+    }
+
+    function hitGround(x, y) {
+      // Check if any city is hit
+      cities.forEach(c => {
+        if (!c.alive) return;
+        if (Math.abs(x - (c.x + CITY_W / 2)) < CITY_W * 0.8) {
+          c.alive = false;
+          spawnParticles(c.x + CITY_W / 2, GROUND_Y - CITY_H / 2, '#f44', 15);
+        }
+      });
+      // Check if a base is hit (destroy some ammo)
+      bases.forEach(b => {
+        if (Math.abs(x - b.x) < BASE_W) {
+          b.ammo = Math.max(0, b.ammo - 5);
+          spawnParticles(b.x, GROUND_Y - BASE_H / 2, '#f80', 8);
+        }
+      });
+    }
+
+    function findBestBase(tx, ty) {
+      // Find closest base with ammo to the click target
+      let bestBase = -1;
+      let bestDist = Infinity;
+      bases.forEach((b, i) => {
+        if (b.ammo <= 0) return;
+        const dx = tx - b.x;
+        const dy = ty - (GROUND_Y - BASE_H);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestBase = i;
+        }
+      });
+      return bestBase;
+    }
+
+    function fireMissile(tx, ty) {
+      if (gameState !== 'playing') return;
+      // Don't fire below ground
+      if (ty > GROUND_Y - 10) ty = GROUND_Y - 10;
+
+      // Try selected base first, then find closest with ammo
+      let baseIdx = selectedBase;
+      if (bases[baseIdx].ammo <= 0) {
+        baseIdx = findBestBase(tx, ty);
+      }
+      if (baseIdx === -1) return; // no ammo anywhere
+
+      const b = bases[baseIdx];
+      b.ammo--;
+
+      const sx = b.x;
+      const sy = GROUND_Y - BASE_H;
+
+      counterMissiles.push({
+        sx, sy,
+        tx, ty,
+        x: sx, y: sy,
+        speed: 6,
+        trail: [{ x: sx, y: sy }]
+      });
+    }
+
+    function spawnParticles(x, y, color, count) {
+      for (let i = 0; i < count; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 1 + Math.random() * 3;
+        particles.push({
+          x, y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 1,
+          life: 15 + Math.random() * 20,
+          color
+        });
+      }
+    }
+
+    function gameOver() {
+      gameState = 'over';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'GAME OVER';
+      overlayText.innerHTML = `Score: ${score} &mdash; Wave ${wave}<br>Click to restart`;
+    }
+
+    function draw() {
+      // Background
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Stars
+      stars.forEach(s => {
+        ctx.fillStyle = `rgba(255,255,255,${0.3 + Math.random() * 0.2})`;
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+      });
+
+      // ICBM trails and heads
+      icbms.forEach(m => {
+        // Trail
+        if (m.trail.length > 1) {
+          ctx.strokeStyle = m.mirv && !m.splitDone ? '#f80' : '#f44';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(m.trail[0].x, m.trail[0].y);
+          for (let i = 1; i < m.trail.length; i++) {
+            ctx.lineTo(m.trail[i].x, m.trail[i].y);
+          }
+          ctx.stroke();
+        }
+        // Head
+        ctx.fillStyle = m.mirv && !m.splitDone ? '#ff0' : '#f44';
+        ctx.shadowColor = m.mirv && !m.splitDone ? '#ff0' : '#f44';
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.mirv && !m.splitDone ? 4 : 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+
+      // Counter-missile trails and heads
+      counterMissiles.forEach(cm => {
+        if (cm.trail.length > 1) {
+          ctx.strokeStyle = '#48f';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(cm.trail[0].x, cm.trail[0].y);
+          for (let i = 1; i < cm.trail.length; i++) {
+            ctx.lineTo(cm.trail[i].x, cm.trail[i].y);
+          }
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#48f';
+        ctx.shadowColor = '#48f';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(cm.x, cm.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+
+      // Explosions
+      explosions.forEach(ex => {
+        const alpha = ex.life * 0.8;
+        const gradient = ctx.createRadialGradient(ex.x, ex.y, 0, ex.x, ex.y, ex.radius);
+        gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+        gradient.addColorStop(0.3, `rgba(255, 180, 80, ${alpha * 0.8})`);
+        gradient.addColorStop(0.6, `rgba(204, 68, 255, ${alpha * 0.5})`);
+        gradient.addColorStop(1, `rgba(204, 68, 255, 0)`);
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Ground
+      ctx.fillStyle = '#2a1a3e';
+      ctx.fillRect(0, GROUND_Y, W, GROUND_H);
+      ctx.fillStyle = '#3a2a4e';
+      ctx.fillRect(0, GROUND_Y, W, 3);
+
+      // Cities
+      cities.forEach(c => {
+        if (!c.alive) {
+          // Rubble (deterministic)
+          ctx.fillStyle = '#3a2a3e';
+          for (let j = 0; j < 4; j++) {
+            const rh = 3 + ((c.x * 3 + j * 7) % 4);
+            const ry = GROUND_Y - 3 - ((c.x * 5 + j * 11) % 5);
+            ctx.fillRect(c.x + j * 8, ry, 6, rh);
+          }
+          return;
+        }
+        // Alive city: buildings
+        ctx.fillStyle = '#c4f';
+        ctx.shadowColor = '#c4f';
+        ctx.shadowBlur = 6;
+        // Building 1
+        ctx.fillRect(c.x, GROUND_Y - 18, 8, 18);
+        // Building 2
+        ctx.fillRect(c.x + 10, GROUND_Y - 14, 10, 14);
+        // Building 3
+        ctx.fillRect(c.x + 22, GROUND_Y - 20, 8, 20);
+        ctx.shadowBlur = 0;
+        // Windows (small dots, deterministic per city)
+        ctx.fillStyle = '#ff0';
+        let wi = 0;
+        for (let bx = c.x + 2; bx < c.x + CITY_W; bx += 12) {
+          for (let by = GROUND_Y - 16; by < GROUND_Y - 2; by += 5) {
+            wi++;
+            if ((c.x * 7 + wi * 13) % 10 > 2) {
+              ctx.fillRect(bx, by, 2, 2);
+            }
+          }
+        }
+      });
+
+      // Missile bases
+      bases.forEach((b, idx) => {
+        const bx = b.x;
+        const isSelected = idx === selectedBase;
+        // Base structure
+        ctx.fillStyle = isSelected ? '#c4f' : '#8a6aae';
+        ctx.shadowColor = '#c4f';
+        ctx.shadowBlur = isSelected ? 10 : 4;
+        // Triangular silo
+        ctx.beginPath();
+        ctx.moveTo(bx - BASE_W / 2, GROUND_Y);
+        ctx.lineTo(bx, GROUND_Y - BASE_H);
+        ctx.lineTo(bx + BASE_W / 2, GROUND_Y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Ammo count above base
+        ctx.fillStyle = b.ammo > 0 ? '#c4f' : '#555';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(b.ammo, bx, GROUND_Y - BASE_H - 6);
+
+        // Base number
+        ctx.fillStyle = isSelected ? '#fff' : '#888';
+        ctx.font = '9px Courier New';
+        ctx.fillText(idx + 1, bx, GROUND_Y - 5);
+      });
+
+      // Particles
+      particles.forEach(p => {
+        const alpha = p.life / 35;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, alpha);
+        ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+      });
+      ctx.globalAlpha = 1;
+
+      // Crosshair at mouse position (during gameplay)
+      if (gameState === 'playing') {
+        ctx.strokeStyle = '#c4f';
+        ctx.shadowColor = '#c4f';
+        ctx.shadowBlur = 6;
+        ctx.lineWidth = 1;
+        // Horizontal line
+        ctx.beginPath();
+        ctx.moveTo(mouseX - 10, mouseY);
+        ctx.lineTo(mouseX - 4, mouseY);
+        ctx.moveTo(mouseX + 4, mouseY);
+        ctx.lineTo(mouseX + 10, mouseY);
+        ctx.stroke();
+        // Vertical line
+        ctx.beginPath();
+        ctx.moveTo(mouseX, mouseY - 10);
+        ctx.lineTo(mouseX, mouseY - 4);
+        ctx.moveTo(mouseX, mouseY + 4);
+        ctx.lineTo(mouseX, mouseY + 10);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      // Wave indicator
+      if (gameState === 'playing') {
+        ctx.fillStyle = '#c4f';
+        ctx.font = '12px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText(`WAVE ${wave}`, 8, 16);
+
+        // Show surviving cities count
+        const alive = cities.filter(c => c.alive).length;
+        ctx.textAlign = 'right';
+        ctx.fillText(`CITIES: ${alive}`, W - 8, 16);
+      }
+
+      // Wave complete bonus display
+      if (waveComplete && waveCompleteTimer > 30) {
+        ctx.fillStyle = '#c4f';
+        ctx.shadowColor = '#c4f';
+        ctx.shadowBlur = 10;
+        ctx.font = '20px Courier New';
+        ctx.textAlign = 'center';
+        const survivingCities = cities.filter(c => c.alive).length;
+        ctx.fillText(`WAVE ${wave} COMPLETE`, W / 2, H / 2 - 20);
+        ctx.font = '14px Courier New';
+        ctx.fillStyle = '#aaa';
+        ctx.shadowBlur = 0;
+        ctx.fillText(`Bonus: ${survivingCities} cities x 100 = ${survivingCities * 100}`, W / 2, H / 2 + 10);
+      }
+    }
+
+    // Mouse handlers
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = (e.clientX - rect.left) * (W / rect.width);
+      mouseY = (e.clientY - rect.top) * (H / rect.height);
+    });
+
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const cx = (e.clientX - rect.left) * (W / rect.width);
+      const cy = (e.clientY - rect.top) * (H / rect.height);
+
+      if (gameState === 'waiting') {
+        start();
+        return;
+      }
+      if (gameState === 'over') {
+        init();
+        return;
+      }
+      if (gameState === 'playing') {
+        fireMissile(cx, cy);
+      }
+    });
+
+    // Keyboard: 1/2/3 to select base, space/click to start
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      if (gameState === 'waiting') {
+        start();
+        return;
+      }
+      if (gameState === 'over') {
+        init();
+        return;
+      }
+
+      if (gameState === 'playing') {
+        if (e.key === '1') selectedBase = 0;
+        if (e.key === '2') selectedBase = 1;
+        if (e.key === '3') selectedBase = 2;
+      }
+    });
+
+    // Prevent right-click context menu on canvas
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    init();
+  </script>
+  <script src="../recorder.js?v=3"></script>
+</body>
+</html>

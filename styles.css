@@ -343,3 +343,33 @@ body {
 
 .card-mrdo h2 { color: #fa4; }
 .card-mrdo:hover { border-color: #fa4; box-shadow: 0 8px 30px rgba(255, 170, 68, 0.15); }
+
+.card-galaga h2 { color: #f48; }
+.card-galaga:hover { border-color: #f48; box-shadow: 0 8px 30px rgba(255, 68, 136, 0.15); }
+
+.card-galaxian h2 { color: #84f; }
+.card-galaxian:hover { border-color: #84f; box-shadow: 0 8px 30px rgba(136, 68, 255, 0.15); }
+
+.card-centipede h2 { color: #6f8; }
+.card-centipede:hover { border-color: #6f8; box-shadow: 0 8px 30px rgba(102, 255, 136, 0.15); }
+
+.card-missilecommand h2 { color: #c4f; }
+.card-missilecommand:hover { border-color: #c4f; box-shadow: 0 8px 30px rgba(204, 68, 255, 0.15); }
+
+.card-phoenix h2 { color: #f62; }
+.card-phoenix:hover { border-color: #f62; box-shadow: 0 8px 30px rgba(255, 102, 34, 0.15); }
+
+.card-1942 h2 { color: #6db; }
+.card-1942:hover { border-color: #6db; box-shadow: 0 8px 30px rgba(102, 221, 187, 0.15); }
+
+.card-xevious h2 { color: #8e4; }
+.card-xevious:hover { border-color: #8e4; box-shadow: 0 8px 30px rgba(136, 238, 68, 0.15); }
+
+.card-raiden h2 { color: #f28; }
+.card-raiden:hover { border-color: #f28; box-shadow: 0 8px 30px rgba(255, 34, 136, 0.15); }
+
+.card-robotron h2 { color: #f8f; }
+.card-robotron:hover { border-color: #f8f; box-shadow: 0 8px 30px rgba(255, 136, 255, 0.15); }
+
+.card-moonpatrol h2 { color: #48e; }
+.card-moonpatrol:hover { border-color: #48e; box-shadow: 0 8px 30px rgba(68, 136, 238, 0.15); }

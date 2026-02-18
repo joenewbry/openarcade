@@ -236,6 +236,56 @@
         <p class="description">Dig through the garden, collect cherries, and defeat monsters! Throw your power ball or drop apples on their heads!</p>
         <p class="controls"><span>Controls:</span> Arrow keys to move, Space to throw</p>
       </a>
+      <a href="galaga/index.html" class="game-card card-galaga" data-game="galaga">
+        <div class="card-header"><h2>Galaga</h2><span class="plays-badge" data-game="galaga"></span></div>
+        <p class="description">Blast waves of swooping alien ships! Watch out for the boss's tractor beam. Double your firepower by rescuing your captured ship!</p>
+        <p class="controls"><span>Controls:</span> Left/Right to move, Space to fire</p>
+      </a>
+      <a href="galaxian/index.html" class="game-card card-galaxian" data-game="galaxian">
+        <div class="card-header"><h2>Galaxian</h2><span class="plays-badge" data-game="galaxian"></span></div>
+        <p class="description">The classic alien shooter! Aliens break formation and dive-bomb toward you. One shot at a time — make every bullet count!</p>
+        <p class="controls"><span>Controls:</span> Left/Right to move, Space to fire</p>
+      </a>
+      <a href="centipede/index.html" class="game-card card-centipede" data-game="centipede">
+        <div class="card-header"><h2>Centipede</h2><span class="plays-badge" data-game="centipede"></span></div>
+        <p class="description">Shoot the descending centipede as it weaves through mushrooms! Hitting a segment splits it in two. Watch for the spider!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Space to fire</p>
+      </a>
+      <a href="missile-command/index.html" class="game-card card-missilecommand" data-game="missile-command">
+        <div class="card-header"><h2>Missile Command</h2><span class="plays-badge" data-game="missile-command"></span></div>
+        <p class="description">Defend your cities from incoming ICBMs! Click to launch counter-missiles. Watch for MIRVs that split into multiple warheads!</p>
+        <p class="controls"><span>Controls:</span> Click to target, 1/2/3 to select base</p>
+      </a>
+      <a href="phoenix/index.html" class="game-card card-phoenix" data-game="phoenix">
+        <div class="card-header"><h2>Phoenix</h2><span class="plays-badge" data-game="phoenix"></span></div>
+        <p class="description">Battle waves of alien birds and a massive mothership! Phoenix birds regenerate — destroy them fast. Use your shield wisely!</p>
+        <p class="controls"><span>Controls:</span> Left/Right to move, Space to fire, Shift for shield</p>
+      </a>
+      <a href="1942/index.html" class="game-card card-1942" data-game="1942">
+        <div class="card-header"><h2>1942</h2><span class="plays-badge" data-game="1942"></span></div>
+        <p class="description">Fly your WWII fighter through waves of enemy planes! Barrel roll to dodge, collect power-ups, and defeat the boss!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to fly, Space to fire, Shift to roll</p>
+      </a>
+      <a href="xevious/index.html" class="game-card card-xevious" data-game="xevious">
+        <div class="card-header"><h2>Xevious</h2><span class="plays-badge" data-game="xevious"></span></div>
+        <p class="description">Dual-weapon vertical shooter! Fire at air enemies and bomb ground targets. Discover hidden bunkers in the scrolling terrain!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Space to fire + bomb</p>
+      </a>
+      <a href="raiden/index.html" class="game-card card-raiden" data-game="raiden">
+        <div class="card-header"><h2>Raiden</h2><span class="plays-badge" data-game="raiden"></span></div>
+        <p class="description">Intense vertical shooter with weapon upgrades! Collect Vulcan, Laser, or Missile power-ups. Use bombs to clear the screen!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Space to fire, Shift for bomb</p>
+      </a>
+      <a href="robotron/index.html" class="game-card card-robotron" data-game="robotron">
+        <div class="card-header"><h2>Robotron 2084</h2><span class="plays-badge" data-game="robotron"></span></div>
+        <p class="description">Twin-stick chaos! Move with WASD, fire with arrow keys. Rescue humans while fighting off swarms of robots!</p>
+        <p class="controls"><span>Controls:</span> WASD to move, Arrow keys to fire</p>
+      </a>
+      <a href="moon-patrol/index.html" class="game-card card-moonpatrol" data-game="moon-patrol">
+        <div class="card-header"><h2>Moon Patrol</h2><span class="plays-badge" data-game="moon-patrol"></span></div>
+        <p class="description">Drive your lunar buggy across the moon! Jump craters, shoot UFOs, and dodge obstacles on your patrol route.</p>
+        <p class="controls"><span>Controls:</span> Up to jump, Z forward fire, X upward fire</p>
+      </a>
     </div>
   </div>
   <script>
@@ -288,7 +338,7 @@
           /* Per-game play counts */
           var perGame = d.per_game || {};
           var totalSessions = d.total_sessions || 0;
-          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban','columns','nibbler','crossy-road','kaboom','air-hockey','simon','duck-hunt','tanks','whack-a-mole','slot-racer','pac-man','frogger','bomberman','dig-dug','qbert','lode-runner','boulder-dash','amidar','rally-x','mr-do'];
+          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban','columns','nibbler','crossy-road','kaboom','air-hockey','simon','duck-hunt','tanks','whack-a-mole','slot-racer','pac-man','frogger','bomberman','dig-dug','qbert','lode-runner','boulder-dash','amidar','rally-x','mr-do','galaga','galaxian','centipede','missile-command','phoenix','1942','xevious','raiden','robotron','moon-patrol'];
           games.forEach(function (g) {
             var badge = document.querySelector('.plays-badge[data-game="' + g + '"]');
             if (!badge) return;
