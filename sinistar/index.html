@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sinistar</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 500px;
+    }
+    .back { color: #f64; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 102, 68, 0.5); }
+    h1 { color: #f64; font-size: 2rem; text-shadow: 0 0 15px rgba(255, 102, 68, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 500px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #f64; }
+    canvas {
+      border: 2px solid #f64;
+      box-shadow: 0 0 20px rgba(255, 102, 68, 0.4);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #f64;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>SINISTAR</h1>
+  </div>
+  <div class="score-bar">
+    <div>Score: <span id="score">0</span></div>
+    <div>Lives: <span id="lives">3</span> &nbsp; Bombs: <span id="bombs">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="500" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:500px;height:500px;">
+      <h2 id="overlayTitle">SINISTAR</h2>
+      <p id="overlayText">Press SPACE to start<br>LEFT/RIGHT: rotate | UP: thrust<br>SPACE: fire | SHIFT: sinibomb</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const bombsEl = document.getElementById('bombs');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    // World size (wraps around)
+    const WORLD = 3000;
+    const HALF = WORLD / 2;
+
+    // Player constants
+    const TURN_SPEED = 0.065;
+    const THRUST = 0.14;
+    const FRICTION = 0.993;
+    const MAX_SPEED = 5;
+    const SHIP_SIZE = 12;
+    const BULLET_SPEED = 8;
+    const BULLET_LIFE = 45;
+    const FIRE_RATE = 7;
+    const INVINCIBLE_TIME = 90;
+    const CRYSTALS_PER_BOMB = 5;
+
+    // Sinistar constants
+    const SINISTAR_PIECES = 20;
+    const SINISTAR_SIZE = 30;
+    const SINISTAR_CHASE_SPEED = 3.2;
+    const SINISTAR_WANDER_SPEED = 1.0;
+    const SINIBOMB_DAMAGE = 5;
+    const SINIBOMB_SPEED = 6;
+
+    // Entity counts
+    const NUM_PLANETOIDS = 18;
+    const NUM_WORKERS = 8;
+    const NUM_WARRIORS = 5;
+
+    let ship, bullets, sinibombs, planetoids, crystals, workers, warriors;
+    let sinistar, particles;
+    let score, best = 0, lives, sinibombCount, gameState;
+    let fireCooldown, invincibleTimer;
+    let keys = {};
+    let camX, camY;
+    let warningText, warningTimer;
+    let level;
+
+    // Wrap world coordinate difference
+    function wrapDiff(a, b) {
+      let d = a - b;
+      if (d > HALF) d -= WORLD;
+      if (d < -HALF) d += WORLD;
+      return d;
+    }
+
+    function wrapCoord(v) {
+      return ((v % WORLD) + WORLD) % WORLD;
+    }
+
+    function worldDist(ax, ay, bx, by) {
+      const dx = wrapDiff(ax, bx);
+      const dy = wrapDiff(ay, by);
+      return Math.hypot(dx, dy);
+    }
+
+    function angleToward(fromX, fromY, toX, toY) {
+      return Math.atan2(wrapDiff(toY, fromY), wrapDiff(toX, fromX));
+    }
+
+    function createPlanetoid(x, y) {
+      const r = 18 + Math.random() * 14;
+      const numVerts = 7 + Math.floor(Math.random() * 5);
+      const verts = [];
+      for (let i = 0; i < numVerts; i++) {
+        const a = (i / numVerts) * Math.PI * 2;
+        const rv = r * (0.75 + Math.random() * 0.25);
+        verts.push({ x: Math.cos(a) * rv, y: Math.sin(a) * rv });
+      }
+      return {
+        x, y, r, verts,
+        crystals: 3 + Math.floor(Math.random() * 4),
+        hp: 3 + Math.floor(Math.random() * 3),
+        rot: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.005,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.3
+      };
+    }
+
+    function createWorker() {
+      return {
+        x: Math.random() * WORLD,
+        y: Math.random() * WORLD,
+        angle: Math.random() * Math.PI * 2,
+        speed: 1.2 + Math.random() * 0.5,
+        carrying: false,
+        targetCrystal: null,
+        hp: 2,
+        r: 8
+      };
+    }
+
+    function createWarrior() {
+      return {
+        x: Math.random() * WORLD,
+        y: Math.random() * WORLD,
+        angle: Math.random() * Math.PI * 2,
+        speed: 1.8 + Math.random() * 0.8,
+        hp: 3,
+        r: 9,
+        fireCooldown: 0,
+        bullets: []
+      };
+    }
+
+    function createSinistar() {
+      return {
+        x: Math.random() * WORLD,
+        y: Math.random() * WORLD,
+        pieces: 0,
+        hp: SINISTAR_PIECES,
+        angle: 0,
+        complete: false,
+        chargeTimer: 0,
+        vx: 0,
+        vy: 0,
+        mouthOpen: 0
+      };
+    }
+
+    function addParticles(x, y, count, color, speedMul) {
+      speedMul = speedMul || 1;
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = (Math.random() * 2.5 + 0.5) * speedMul;
+        particles.push({
+          x, y,
+          vx: Math.cos(a) * sp,
+          vy: Math.sin(a) * sp,
+          life: 15 + Math.random() * 20,
+          color
+        });
+      }
+    }
+
+    function showWarning(text) {
+      warningText = text;
+      warningTimer = 90;
+    }
+
+    function init() {
+      level = 1;
+      ship = { x: WORLD / 2, y: WORLD / 2, vx: 0, vy: 0, angle: -Math.PI / 2, thrusting: false };
+      bullets = [];
+      sinibombs = [];
+      planetoids = [];
+      crystals = [];
+      workers = [];
+      warriors = [];
+      particles = [];
+      score = 0;
+      lives = 3;
+      sinibombCount = 0;
+      fireCooldown = 0;
+      invincibleTimer = INVINCIBLE_TIME;
+      warningText = '';
+      warningTimer = 0;
+
+      // Spawn planetoids away from player
+      for (let i = 0; i < NUM_PLANETOIDS; i++) {
+        let px, py;
+        do {
+          px = Math.random() * WORLD;
+          py = Math.random() * WORLD;
+        } while (worldDist(px, py, ship.x, ship.y) < 200);
+        planetoids.push(createPlanetoid(px, py));
+      }
+
+      // Spawn workers
+      for (let i = 0; i < NUM_WORKERS; i++) {
+        workers.push(createWorker());
+      }
+
+      // Spawn warriors
+      for (let i = 0; i < NUM_WARRIORS; i++) {
+        warriors.push(createWarrior());
+      }
+
+      sinistar = createSinistar();
+
+      scoreEl.textContent = '0';
+      livesEl.textContent = lives;
+      bombsEl.textContent = '0';
+      gameState = 'waiting';
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'SINISTAR';
+      overlayText.innerHTML = 'Press SPACE to start<br>LEFT/RIGHT: rotate | UP: thrust<br>SPACE: fire | SHIFT: sinibomb';
+      camX = ship.x;
+      camY = ship.y;
+      draw();
+    }
+
+    function startGame() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      requestAnimationFrame(loop);
+    }
+
+    function loop() {
+      if (gameState !== 'playing') return;
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function nextLevel() {
+      level++;
+      // Respawn planetoids
+      for (let i = planetoids.length; i < NUM_PLANETOIDS; i++) {
+        let px, py;
+        do {
+          px = Math.random() * WORLD;
+          py = Math.random() * WORLD;
+        } while (worldDist(px, py, ship.x, ship.y) < 200);
+        planetoids.push(createPlanetoid(px, py));
+      }
+      // Respawn workers
+      for (let i = workers.length; i < NUM_WORKERS + level; i++) {
+        workers.push(createWorker());
+      }
+      // Respawn warriors
+      for (let i = warriors.length; i < NUM_WARRIORS + level; i++) {
+        warriors.push(createWarrior());
+      }
+      // New sinistar
+      sinistar = createSinistar();
+      showWarning('LEVEL ' + level);
+      score += 500;
+      scoreEl.textContent = score;
+    }
+
+    function update() {
+      // Ship controls
+      if (keys['ArrowLeft']) ship.angle -= TURN_SPEED;
+      if (keys['ArrowRight']) ship.angle += TURN_SPEED;
+      ship.thrusting = !!keys['ArrowUp'];
+
+      if (ship.thrusting) {
+        ship.vx += Math.cos(ship.angle) * THRUST;
+        ship.vy += Math.sin(ship.angle) * THRUST;
+        const sp = Math.hypot(ship.vx, ship.vy);
+        if (sp > MAX_SPEED) {
+          ship.vx = (ship.vx / sp) * MAX_SPEED;
+          ship.vy = (ship.vy / sp) * MAX_SPEED;
+        }
+      }
+      ship.vx *= FRICTION;
+      ship.vy *= FRICTION;
+      ship.x = wrapCoord(ship.x + ship.vx);
+      ship.y = wrapCoord(ship.y + ship.vy);
+
+      if (invincibleTimer > 0) invincibleTimer--;
+
+      // Fire bullets
+      if (fireCooldown > 0) fireCooldown--;
+      if (keys[' '] && fireCooldown === 0) {
+        bullets.push({
+          x: ship.x + Math.cos(ship.angle) * SHIP_SIZE,
+          y: ship.y + Math.sin(ship.angle) * SHIP_SIZE,
+          vx: Math.cos(ship.angle) * BULLET_SPEED + ship.vx * 0.3,
+          vy: Math.sin(ship.angle) * BULLET_SPEED + ship.vy * 0.3,
+          life: BULLET_LIFE
+        });
+        fireCooldown = FIRE_RATE;
+      }
+
+      // Fire sinibomb
+      if (keys['Shift'] && sinibombCount > 0 && sinibombs.length < 3) {
+        sinibombCount--;
+        bombsEl.textContent = sinibombCount;
+        sinibombs.push({
+          x: ship.x + Math.cos(ship.angle) * SHIP_SIZE,
+          y: ship.y + Math.sin(ship.angle) * SHIP_SIZE,
+          vx: Math.cos(ship.angle) * SINIBOMB_SPEED + ship.vx * 0.2,
+          vy: Math.sin(ship.angle) * SINIBOMB_SPEED + ship.vy * 0.2,
+          life: 90
+        });
+        keys['Shift'] = false; // One bomb per press
+      }
+
+      // Update bullets
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.x = wrapCoord(b.x + b.vx);
+        b.y = wrapCoord(b.y + b.vy);
+        b.life--;
+        if (b.life <= 0) bullets.splice(i, 1);
+      }
+
+      // Update sinibombs
+      for (let i = sinibombs.length - 1; i >= 0; i--) {
+        const sb = sinibombs[i];
+        sb.x = wrapCoord(sb.x + sb.vx);
+        sb.y = wrapCoord(sb.y + sb.vy);
+        sb.life--;
+        if (sb.life <= 0) {
+          addParticles(sb.x, sb.y, 6, '#ff0');
+          sinibombs.splice(i, 1);
+        }
+      }
+
+      // Update planetoids (drift)
+      for (const p of planetoids) {
+        p.x = wrapCoord(p.x + p.vx);
+        p.y = wrapCoord(p.y + p.vy);
+        p.rot += p.rotSpeed;
+      }
+
+      // Update crystals (drift slowly)
+      for (let i = crystals.length - 1; i >= 0; i--) {
+        const c = crystals[i];
+        c.x = wrapCoord(c.x + c.vx);
+        c.y = wrapCoord(c.y + c.vy);
+        c.vx *= 0.98;
+        c.vy *= 0.98;
+        c.life--;
+        if (c.life <= 0) {
+          crystals.splice(i, 1);
+        }
+      }
+
+      // Player collects crystals
+      for (let i = crystals.length - 1; i >= 0; i--) {
+        const c = crystals[i];
+        if (worldDist(ship.x, ship.y, c.x, c.y) < 20) {
+          crystals.splice(i, 1);
+          c.collected = true;
+          score += 10;
+          scoreEl.textContent = score;
+          // Count toward sinibomb
+          ship.crystalCount = (ship.crystalCount || 0) + 1;
+          if (ship.crystalCount >= CRYSTALS_PER_BOMB) {
+            ship.crystalCount = 0;
+            sinibombCount++;
+            bombsEl.textContent = sinibombCount;
+            showWarning('SINIBOMB READY!');
+          }
+        }
+      }
+
+      // Bullet-planetoid collisions
+      for (let bi = bullets.length - 1; bi >= 0; bi--) {
+        for (let pi = planetoids.length - 1; pi >= 0; pi--) {
+          const b = bullets[bi];
+          const p = planetoids[pi];
+          if (!b || !p) continue;
+          if (worldDist(b.x, b.y, p.x, p.y) < p.r) {
+            p.hp--;
+            addParticles(b.x, b.y, 4, '#888');
+            bullets.splice(bi, 1);
+            if (p.hp <= 0) {
+              // Release crystals
+              for (let c = 0; c < p.crystals; c++) {
+                const a = Math.random() * Math.PI * 2;
+                const sp = 0.5 + Math.random() * 1.5;
+                crystals.push({
+                  x: p.x + Math.cos(a) * p.r * 0.5,
+                  y: p.y + Math.sin(a) * p.r * 0.5,
+                  vx: Math.cos(a) * sp,
+                  vy: Math.sin(a) * sp,
+                  life: 600
+                });
+              }
+              addParticles(p.x, p.y, 10, '#aaa', 1.5);
+              planetoids.splice(pi, 1);
+              score += 25;
+              scoreEl.textContent = score;
+            }
+            break;
+          }
+        }
+      }
+
+      // Bullet-worker collisions
+      for (let bi = bullets.length - 1; bi >= 0; bi--) {
+        for (let wi = workers.length - 1; wi >= 0; wi--) {
+          const b = bullets[bi];
+          const w = workers[wi];
+          if (!b || !w) continue;
+          if (worldDist(b.x, b.y, w.x, w.y) < w.r + 4) {
+            w.hp--;
+            bullets.splice(bi, 1);
+            if (w.hp <= 0) {
+              addParticles(w.x, w.y, 8, '#4af');
+              if (w.carrying) {
+                // Drop crystal
+                crystals.push({
+                  x: w.x, y: w.y, vx: 0, vy: 0, life: 600
+                });
+              }
+              workers.splice(wi, 1);
+              score += 50;
+              scoreEl.textContent = score;
+              // Respawn after delay
+              setTimeout(() => {
+                if (gameState === 'playing') workers.push(createWorker());
+              }, 5000 + Math.random() * 5000);
+            }
+            break;
+          }
+        }
+      }
+
+      // Bullet-warrior collisions
+      for (let bi = bullets.length - 1; bi >= 0; bi--) {
+        for (let wi = warriors.length - 1; wi >= 0; wi--) {
+          const b = bullets[bi];
+          const w = warriors[wi];
+          if (!b || !w) continue;
+          if (worldDist(b.x, b.y, w.x, w.y) < w.r + 4) {
+            w.hp--;
+            bullets.splice(bi, 1);
+            if (w.hp <= 0) {
+              addParticles(w.x, w.y, 10, '#f44');
+              warriors.splice(wi, 1);
+              score += 100;
+              scoreEl.textContent = score;
+              setTimeout(() => {
+                if (gameState === 'playing') warriors.push(createWarrior());
+              }, 6000 + Math.random() * 5000);
+            }
+            break;
+          }
+        }
+      }
+
+      // Sinibomb-sinistar collisions
+      for (let si = sinibombs.length - 1; si >= 0; si--) {
+        const sb = sinibombs[si];
+        if (worldDist(sb.x, sb.y, sinistar.x, sinistar.y) < SINISTAR_SIZE + 10) {
+          addParticles(sb.x, sb.y, 20, '#ff0', 2);
+          addParticles(sinistar.x, sinistar.y, 15, '#f64', 1.5);
+          sinistar.hp -= SINIBOMB_DAMAGE;
+          sinibombs.splice(si, 1);
+          score += 200;
+          scoreEl.textContent = score;
+          if (sinistar.hp <= 0) {
+            // Sinistar destroyed!
+            addParticles(sinistar.x, sinistar.y, 40, '#f64', 3);
+            addParticles(sinistar.x, sinistar.y, 30, '#ff0', 2);
+            showWarning('SINISTAR DESTROYED!');
+            score += 1000;
+            scoreEl.textContent = score;
+            nextLevel();
+          }
+        }
+      }
+
+      // Update workers AI
+      for (const w of workers) {
+        if (w.carrying) {
+          // Fly toward sinistar to deliver crystal
+          const a = angleToward(w.x, w.y, sinistar.x, sinistar.y);
+          w.angle = a;
+          w.x = wrapCoord(w.x + Math.cos(a) * w.speed);
+          w.y = wrapCoord(w.y + Math.sin(a) * w.speed);
+
+          // Deliver crystal to sinistar
+          if (worldDist(w.x, w.y, sinistar.x, sinistar.y) < SINISTAR_SIZE + 10) {
+            w.carrying = false;
+            sinistar.pieces = Math.min(sinistar.pieces + 1, SINISTAR_PIECES);
+            if (sinistar.pieces >= SINISTAR_PIECES && !sinistar.complete) {
+              sinistar.complete = true;
+              sinistar.hp = SINISTAR_PIECES;
+              showWarning('BEWARE, I LIVE!');
+            }
+            addParticles(sinistar.x, sinistar.y, 5, '#4af');
+          }
+        } else {
+          // Find nearest crystal
+          let nearest = null;
+          let nearDist = Infinity;
+          for (const c of crystals) {
+            const d = worldDist(w.x, w.y, c.x, c.y);
+            if (d < nearDist) {
+              nearDist = d;
+              nearest = c;
+            }
+          }
+          if (nearest && nearDist < 800) {
+            const a = angleToward(w.x, w.y, nearest.x, nearest.y);
+            w.angle = a;
+            w.x = wrapCoord(w.x + Math.cos(a) * w.speed);
+            w.y = wrapCoord(w.y + Math.sin(a) * w.speed);
+            // Pick up crystal
+            if (nearDist < 12) {
+              w.carrying = true;
+              const idx = crystals.indexOf(nearest);
+              if (idx >= 0) crystals.splice(idx, 1);
+            }
+          } else {
+            // Wander toward nearest planetoid to mine
+            let nearP = null;
+            let nearPD = Infinity;
+            for (const p of planetoids) {
+              const d = worldDist(w.x, w.y, p.x, p.y);
+              if (d < nearPD) {
+                nearPD = d;
+                nearP = p;
+              }
+            }
+            if (nearP) {
+              const a = angleToward(w.x, w.y, nearP.x, nearP.y);
+              w.angle = a;
+              w.x = wrapCoord(w.x + Math.cos(a) * w.speed * 0.7);
+              w.y = wrapCoord(w.y + Math.sin(a) * w.speed * 0.7);
+              // Mine planetoid
+              if (nearPD < nearP.r + 5) {
+                if (Math.random() < 0.01) {
+                  nearP.hp--;
+                  if (nearP.hp <= 0) {
+                    for (let c = 0; c < nearP.crystals; c++) {
+                      const ca = Math.random() * Math.PI * 2;
+                      crystals.push({
+                        x: nearP.x + Math.cos(ca) * 10,
+                        y: nearP.y + Math.sin(ca) * 10,
+                        vx: Math.cos(ca) * 0.8,
+                        vy: Math.sin(ca) * 0.8,
+                        life: 600
+                      });
+                    }
+                    addParticles(nearP.x, nearP.y, 8, '#aaa');
+                    const idx = planetoids.indexOf(nearP);
+                    if (idx >= 0) planetoids.splice(idx, 1);
+                  }
+                }
+              }
+            } else {
+              // Wander randomly
+              w.x = wrapCoord(w.x + Math.cos(w.angle) * w.speed * 0.5);
+              w.y = wrapCoord(w.y + Math.sin(w.angle) * w.speed * 0.5);
+              if (Math.random() < 0.02) w.angle += (Math.random() - 0.5) * 0.5;
+            }
+          }
+        }
+      }
+
+      // Update warriors AI (chase and shoot player)
+      for (const w of warriors) {
+        const dist = worldDist(w.x, w.y, ship.x, ship.y);
+        const a = angleToward(w.x, w.y, ship.x, ship.y);
+        w.angle = a;
+
+        if (dist > 60) {
+          w.x = wrapCoord(w.x + Math.cos(a) * w.speed);
+          w.y = wrapCoord(w.y + Math.sin(a) * w.speed);
+        } else {
+          // Strafe
+          w.x = wrapCoord(w.x + Math.cos(a + Math.PI / 2) * w.speed * 0.5);
+          w.y = wrapCoord(w.y + Math.sin(a + Math.PI / 2) * w.speed * 0.5);
+        }
+
+        // Shoot at player
+        w.fireCooldown--;
+        if (w.fireCooldown <= 0 && dist < 350) {
+          w.bullets.push({
+            x: w.x, y: w.y,
+            vx: Math.cos(a) * 4,
+            vy: Math.sin(a) * 4,
+            life: 60
+          });
+          w.fireCooldown = 50 + Math.floor(Math.random() * 30);
+        }
+
+        // Update warrior bullets
+        for (let i = w.bullets.length - 1; i >= 0; i--) {
+          const b = w.bullets[i];
+          b.x = wrapCoord(b.x + b.vx);
+          b.y = wrapCoord(b.y + b.vy);
+          b.life--;
+          if (b.life <= 0) {
+            w.bullets.splice(i, 1);
+            continue;
+          }
+          // Hit player
+          if (invincibleTimer <= 0 && worldDist(b.x, b.y, ship.x, ship.y) < SHIP_SIZE + 3) {
+            w.bullets.splice(i, 1);
+            playerHit();
+            break;
+          }
+        }
+      }
+
+      // Update sinistar
+      if (sinistar.complete) {
+        // Chase player aggressively
+        const a = angleToward(sinistar.x, sinistar.y, ship.x, ship.y);
+        sinistar.angle = a;
+        const chaseSpeed = SINISTAR_CHASE_SPEED + level * 0.15;
+        sinistar.vx = Math.cos(a) * chaseSpeed;
+        sinistar.vy = Math.sin(a) * chaseSpeed;
+        sinistar.x = wrapCoord(sinistar.x + sinistar.vx);
+        sinistar.y = wrapCoord(sinistar.y + sinistar.vy);
+        sinistar.mouthOpen = Math.sin(Date.now() * 0.01) * 0.3 + 0.3;
+
+        // Warning messages
+        sinistar.chargeTimer++;
+        if (sinistar.chargeTimer % 120 === 0) {
+          const dist = worldDist(sinistar.x, sinistar.y, ship.x, ship.y);
+          if (dist < 300) {
+            showWarning('RUN, COWARD!');
+          } else if (Math.random() < 0.5) {
+            const msgs = ['BEWARE!', 'RUN!', 'I HUNGER!', 'RUN, COWARD!'];
+            showWarning(msgs[Math.floor(Math.random() * msgs.length)]);
+          }
+        }
+
+        // Sinistar hits player
+        if (invincibleTimer <= 0 && worldDist(sinistar.x, sinistar.y, ship.x, ship.y) < SINISTAR_SIZE + SHIP_SIZE) {
+          playerHit();
+        }
+      } else {
+        // Wander slowly
+        sinistar.angle += Math.sin(Date.now() * 0.001) * 0.02;
+        sinistar.x = wrapCoord(sinistar.x + Math.cos(sinistar.angle) * SINISTAR_WANDER_SPEED);
+        sinistar.y = wrapCoord(sinistar.y + Math.sin(sinistar.angle) * SINISTAR_WANDER_SPEED);
+
+        // Warn when nearly complete
+        if (sinistar.pieces >= SINISTAR_PIECES - 3 && sinistar.pieces < SINISTAR_PIECES) {
+          if (Math.random() < 0.005) showWarning('BEWARE...');
+        }
+      }
+
+      // Warrior collision with player
+      if (invincibleTimer <= 0) {
+        for (const w of warriors) {
+          if (worldDist(w.x, w.y, ship.x, ship.y) < w.r + SHIP_SIZE) {
+            playerHit();
+            break;
+          }
+        }
+      }
+
+      // Update particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+
+      // Warning timer
+      if (warningTimer > 0) warningTimer--;
+
+      // Camera follows ship smoothly
+      camX = ship.x;
+      camY = ship.y;
+
+      // Update best score
+      if (score > best) {
+        best = score;
+      }
+    }
+
+    function playerHit() {
+      addParticles(ship.x, ship.y, 15, '#f64');
+      lives--;
+      livesEl.textContent = lives;
+      if (lives <= 0) {
+        gameState = 'over';
+        overlay.style.display = 'flex';
+        overlayTitle.textContent = 'GAME OVER';
+        overlayText.textContent = 'Score: ' + score + ' — Press any key to restart';
+        return;
+      }
+      // Respawn
+      invincibleTimer = INVINCIBLE_TIME;
+      ship.vx = 0;
+      ship.vy = 0;
+    }
+
+    // Convert world to screen coords
+    function toScreen(wx, wy) {
+      let dx = wrapDiff(wx, camX);
+      let dy = wrapDiff(wy, camY);
+      return { x: W / 2 + dx, y: H / 2 + dy };
+    }
+
+    function isOnScreen(wx, wy, margin) {
+      const s = toScreen(wx, wy);
+      return s.x > -margin && s.x < W + margin && s.y > -margin && s.y < H + margin;
+    }
+
+    function draw() {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Star background (parallax)
+      ctx.fillStyle = '#334';
+      for (let i = 0; i < 80; i++) {
+        const sx = ((i * 137.5 + 50) % WORLD);
+        const sy = ((i * 251.3 + 80) % WORLD);
+        const s = toScreen(sx, sy);
+        if (s.x >= 0 && s.x < W && s.y >= 0 && s.y < H) {
+          ctx.fillRect(s.x, s.y, 1, 1);
+        }
+      }
+      ctx.fillStyle = '#445';
+      for (let i = 0; i < 50; i++) {
+        const sx = ((i * 193.7 + 200) % WORLD);
+        const sy = ((i * 317.1 + 150) % WORLD);
+        const s = toScreen(sx, sy);
+        if (s.x >= 0 && s.x < W && s.y >= 0 && s.y < H) {
+          ctx.fillRect(s.x, s.y, 1.5, 1.5);
+        }
+      }
+
+      // Particles
+      for (const p of particles) {
+        const s = toScreen(p.x, p.y);
+        if (s.x < -10 || s.x > W + 10 || s.y < -10 || s.y > H + 10) continue;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, p.life / 35);
+        ctx.fillRect(s.x - 1, s.y - 1, 2, 2);
+      }
+      ctx.globalAlpha = 1;
+
+      // Planetoids
+      for (const p of planetoids) {
+        if (!isOnScreen(p.x, p.y, p.r + 20)) continue;
+        const s = toScreen(p.x, p.y);
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(p.rot);
+        ctx.strokeStyle = '#888';
+        ctx.shadowColor = '#666';
+        ctx.shadowBlur = 4;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(p.verts[0].x, p.verts[0].y);
+        for (let i = 1; i < p.verts.length; i++) {
+          ctx.lineTo(p.verts[i].x, p.verts[i].y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        // HP indicator
+        ctx.fillStyle = 'rgba(136,136,136,0.2)';
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.shadowBlur = 0;
+
+      // Crystals
+      for (const c of crystals) {
+        if (!isOnScreen(c.x, c.y, 15)) continue;
+        const s = toScreen(c.x, c.y);
+        const blink = c.life < 120 ? (Math.floor(c.life / 8) % 2 === 0 ? 0.3 : 1.0) : 1.0;
+        ctx.fillStyle = '#4ff';
+        ctx.shadowColor = '#4ff';
+        ctx.shadowBlur = 10;
+        ctx.globalAlpha = blink;
+        ctx.beginPath();
+        // Diamond shape
+        ctx.moveTo(s.x, s.y - 6);
+        ctx.lineTo(s.x + 4, s.y);
+        ctx.lineTo(s.x, s.y + 6);
+        ctx.lineTo(s.x - 4, s.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.shadowBlur = 0;
+
+      // Workers
+      for (const w of workers) {
+        if (!isOnScreen(w.x, w.y, 20)) continue;
+        const s = toScreen(w.x, w.y);
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(w.angle);
+        ctx.strokeStyle = '#4af';
+        ctx.shadowColor = '#4af';
+        ctx.shadowBlur = 6;
+        ctx.lineWidth = 1.5;
+        // Small diamond ship
+        ctx.beginPath();
+        ctx.moveTo(8, 0);
+        ctx.lineTo(0, -5);
+        ctx.lineTo(-6, 0);
+        ctx.lineTo(0, 5);
+        ctx.closePath();
+        ctx.stroke();
+        if (w.carrying) {
+          // Show carried crystal
+          ctx.fillStyle = '#4ff';
+          ctx.fillRect(-2, -2, 4, 4);
+        }
+        ctx.restore();
+      }
+      ctx.shadowBlur = 0;
+
+      // Warriors
+      for (const w of warriors) {
+        if (!isOnScreen(w.x, w.y, 20)) continue;
+        const s = toScreen(w.x, w.y);
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(w.angle);
+        ctx.strokeStyle = '#f44';
+        ctx.shadowColor = '#f44';
+        ctx.shadowBlur = 8;
+        ctx.lineWidth = 2;
+        // Aggressive triangle
+        ctx.beginPath();
+        ctx.moveTo(10, 0);
+        ctx.lineTo(-7, -7);
+        ctx.lineTo(-4, 0);
+        ctx.lineTo(-7, 7);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+
+        // Warrior bullets
+        ctx.fillStyle = '#f88';
+        ctx.shadowColor = '#f44';
+        ctx.shadowBlur = 4;
+        for (const b of w.bullets) {
+          const bs = toScreen(b.x, b.y);
+          if (bs.x < -5 || bs.x > W + 5 || bs.y < -5 || bs.y > H + 5) continue;
+          ctx.beginPath();
+          ctx.arc(bs.x, bs.y, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.shadowBlur = 0;
+
+      // Sinistar
+      if (isOnScreen(sinistar.x, sinistar.y, SINISTAR_SIZE + 20)) {
+        const s = toScreen(sinistar.x, sinistar.y);
+        drawSinistar(s.x, s.y);
+      }
+
+      // Player ship
+      if (invincibleTimer <= 0 || Math.floor(invincibleTimer / 4) % 2 === 0) {
+        const ps = toScreen(ship.x, ship.y);
+        ctx.save();
+        ctx.translate(ps.x, ps.y);
+        ctx.rotate(ship.angle);
+        ctx.strokeStyle = '#f64';
+        ctx.shadowColor = '#f64';
+        ctx.shadowBlur = 12;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(SHIP_SIZE, 0);
+        ctx.lineTo(-SHIP_SIZE * 0.7, -SHIP_SIZE * 0.7);
+        ctx.lineTo(-SHIP_SIZE * 0.3, 0);
+        ctx.lineTo(-SHIP_SIZE * 0.7, SHIP_SIZE * 0.7);
+        ctx.closePath();
+        ctx.stroke();
+        // Thrust flame
+        if (ship.thrusting) {
+          ctx.strokeStyle = '#ff0';
+          ctx.shadowColor = '#ff0';
+          ctx.shadowBlur = 10;
+          ctx.beginPath();
+          ctx.moveTo(-SHIP_SIZE * 0.4, -SHIP_SIZE * 0.25);
+          ctx.lineTo(-SHIP_SIZE * (0.7 + Math.random() * 0.4), 0);
+          ctx.lineTo(-SHIP_SIZE * 0.4, SHIP_SIZE * 0.25);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      ctx.shadowBlur = 0;
+
+      // Player bullets
+      ctx.fillStyle = '#fff';
+      ctx.shadowColor = '#f64';
+      ctx.shadowBlur = 6;
+      for (const b of bullets) {
+        const s = toScreen(b.x, b.y);
+        if (s.x < -5 || s.x > W + 5 || s.y < -5 || s.y > H + 5) continue;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+
+      // Sinibombs
+      for (const sb of sinibombs) {
+        const s = toScreen(sb.x, sb.y);
+        if (s.x < -10 || s.x > W + 10 || s.y < -10 || s.y > H + 10) continue;
+        ctx.fillStyle = '#ff0';
+        ctx.shadowColor = '#ff0';
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#fa0';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+
+      // HUD: Sinistar build progress
+      drawBuildMeter();
+
+      // HUD: Minimap
+      drawMinimap();
+
+      // HUD: Crystal counter toward next bomb
+      drawCrystalCounter();
+
+      // Lives indicator
+      for (let i = 0; i < lives; i++) {
+        ctx.save();
+        ctx.translate(20 + i * 22, H - 18);
+        ctx.rotate(-Math.PI / 2);
+        ctx.strokeStyle = '#f64';
+        ctx.shadowColor = '#f64';
+        ctx.shadowBlur = 4;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(8, 0);
+        ctx.lineTo(-5, -4);
+        ctx.lineTo(-3, 0);
+        ctx.lineTo(-5, 4);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.shadowBlur = 0;
+
+      // Warning text
+      if (warningTimer > 0) {
+        const alpha = warningTimer > 60 ? 1 : warningTimer / 60;
+        const pulse = 0.8 + Math.sin(Date.now() * 0.015) * 0.2;
+        ctx.save();
+        ctx.globalAlpha = alpha * pulse;
+        ctx.fillStyle = '#f64';
+        ctx.shadowColor = '#f64';
+        ctx.shadowBlur = 20;
+        ctx.font = 'bold 28px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(warningText, W / 2, 60);
+        ctx.restore();
+        ctx.shadowBlur = 0;
+      }
+
+      // Off-screen sinistar indicator
+      if (!isOnScreen(sinistar.x, sinistar.y, SINISTAR_SIZE)) {
+        drawSinistarArrow();
+      }
+    }
+
+    function drawSinistar(sx, sy) {
+      const progress = sinistar.pieces / SINISTAR_PIECES;
+      const size = SINISTAR_SIZE;
+      const mouth = sinistar.complete ? sinistar.mouthOpen : 0;
+
+      ctx.save();
+      ctx.translate(sx, sy);
+
+      // Face color based on progress
+      const r = Math.floor(100 + progress * 155);
+      const g = Math.floor(40 + progress * 30);
+      const b = Math.floor(20);
+      const faceColor = 'rgb(' + r + ',' + g + ',' + b + ')';
+
+      ctx.shadowColor = sinistar.complete ? '#f64' : '#840';
+      ctx.shadowBlur = sinistar.complete ? 20 : 8;
+
+      // Skull outline
+      ctx.strokeStyle = faceColor;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, size, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Fill partial based on build progress
+      if (progress > 0) {
+        ctx.fillStyle = faceColor;
+        ctx.globalAlpha = 0.15 + progress * 0.25;
+        ctx.beginPath();
+        ctx.arc(0, 0, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      // Eyes
+      if (progress > 0.2) {
+        ctx.fillStyle = sinistar.complete ? '#ff0' : '#a60';
+        ctx.shadowColor = sinistar.complete ? '#ff0' : '#a60';
+        ctx.shadowBlur = sinistar.complete ? 12 : 4;
+        // Left eye
+        ctx.beginPath();
+        ctx.moveTo(-14, -10);
+        ctx.lineTo(-8, -6);
+        ctx.lineTo(-14, -2);
+        ctx.closePath();
+        ctx.fill();
+        // Right eye
+        ctx.beginPath();
+        ctx.moveTo(14, -10);
+        ctx.lineTo(8, -6);
+        ctx.lineTo(14, -2);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Mouth
+      if (progress > 0.4) {
+        ctx.strokeStyle = sinistar.complete ? '#f44' : '#840';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const mouthY = 8 + mouth * 6;
+        ctx.moveTo(-12, 6);
+        ctx.lineTo(-8, mouthY);
+        ctx.lineTo(-3, 6 + mouth * 2);
+        ctx.lineTo(0, mouthY);
+        ctx.lineTo(3, 6 + mouth * 2);
+        ctx.lineTo(8, mouthY);
+        ctx.lineTo(12, 6);
+        ctx.stroke();
+      }
+
+      // Nose
+      if (progress > 0.6) {
+        ctx.strokeStyle = faceColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-2, -2);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(2, -2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawBuildMeter() {
+      const bw = 100;
+      const bh = 8;
+      const bx = W - bw - 10;
+      const by = H - 26;
+      const progress = sinistar.pieces / SINISTAR_PIECES;
+
+      ctx.fillStyle = '#16213e';
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = '#0f3460';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx, by, bw, bh);
+
+      // Fill
+      const fillColor = sinistar.complete ? '#f44' : '#f64';
+      ctx.fillStyle = fillColor;
+      if (sinistar.complete) {
+        ctx.shadowColor = '#f44';
+        ctx.shadowBlur = 8;
+      }
+      ctx.fillRect(bx, by, bw * progress, bh);
+      ctx.shadowBlur = 0;
+
+      // Label
+      ctx.fillStyle = '#aaa';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'right';
+      ctx.fillText(sinistar.complete ? 'SINISTAR LIVES!' : 'SINISTAR', bx + bw, by - 3);
+      ctx.textAlign = 'left';
+    }
+
+    function drawMinimap() {
+      const ms = 70;
+      const mx = W - ms - 8;
+      const my = 8;
+
+      ctx.fillStyle = 'rgba(22, 33, 62, 0.8)';
+      ctx.fillRect(mx, my, ms, ms);
+      ctx.strokeStyle = '#0f3460';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mx, my, ms, ms);
+
+      const scale = ms / WORLD;
+
+      // Planetoids
+      ctx.fillStyle = '#666';
+      for (const p of planetoids) {
+        ctx.fillRect(mx + p.x * scale - 1, my + p.y * scale - 1, 2, 2);
+      }
+
+      // Crystals
+      ctx.fillStyle = '#4ff';
+      for (const c of crystals) {
+        ctx.fillRect(mx + c.x * scale, my + c.y * scale, 1, 1);
+      }
+
+      // Workers
+      ctx.fillStyle = '#4af';
+      for (const w of workers) {
+        ctx.fillRect(mx + w.x * scale, my + w.y * scale, 2, 2);
+      }
+
+      // Warriors
+      ctx.fillStyle = '#f44';
+      for (const w of warriors) {
+        ctx.fillRect(mx + w.x * scale, my + w.y * scale, 2, 2);
+      }
+
+      // Sinistar
+      ctx.fillStyle = sinistar.complete ? '#f44' : '#840';
+      ctx.fillRect(mx + sinistar.x * scale - 2, my + sinistar.y * scale - 2, 4, 4);
+
+      // Player
+      ctx.fillStyle = '#f64';
+      ctx.fillRect(mx + ship.x * scale - 1, my + ship.y * scale - 1, 3, 3);
+    }
+
+    function drawCrystalCounter() {
+      const cx = 10;
+      const cy = H - 42;
+      const count = ship.crystalCount || 0;
+
+      ctx.fillStyle = '#aaa';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('CRYSTALS', cx, cy);
+
+      for (let i = 0; i < CRYSTALS_PER_BOMB; i++) {
+        ctx.fillStyle = i < count ? '#4ff' : '#16213e';
+        ctx.strokeStyle = i < count ? '#4ff' : '#0f3460';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        const dx = cx + 4 + i * 14;
+        const dy = cy + 10;
+        ctx.moveTo(dx, dy - 4);
+        ctx.lineTo(dx + 4, dy);
+        ctx.lineTo(dx, dy + 4);
+        ctx.lineTo(dx - 4, dy);
+        ctx.closePath();
+        if (i < count) {
+          ctx.shadowColor = '#4ff';
+          ctx.shadowBlur = 4;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+        ctx.stroke();
+      }
+    }
+
+    function drawSinistarArrow() {
+      const dx = wrapDiff(sinistar.x, camX);
+      const dy = wrapDiff(sinistar.y, camY);
+      const a = Math.atan2(dy, dx);
+      const margin = 20;
+      const ex = W / 2 + Math.cos(a) * (W / 2 - margin);
+      const ey = H / 2 + Math.sin(a) * (H / 2 - margin);
+      const clampX = Math.max(margin, Math.min(W - margin, ex));
+      const clampY = Math.max(margin, Math.min(H - margin, ey));
+
+      const color = sinistar.complete ? '#f44' : '#840';
+      const pulse = sinistar.complete ? (0.6 + Math.sin(Date.now() * 0.01) * 0.4) : 0.5;
+
+      ctx.save();
+      ctx.translate(clampX, clampY);
+      ctx.rotate(a);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = sinistar.complete ? 10 : 4;
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Shift'].includes(e.key)) {
+        e.preventDefault();
+      }
+      keys[e.key] = true;
+
+      if (gameState === 'waiting') {
+        startGame();
+        return;
+      }
+      if (gameState === 'over') {
+        init();
+        return;
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+
+    init();
+  </script>
+  <script src="../recorder.js?v=3"></script>
+</body>
+</html>

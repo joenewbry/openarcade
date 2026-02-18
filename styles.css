@@ -490,3 +490,33 @@ body {
 
 .card-paperboy h2 { color: #6ca; }
 .card-paperboy:hover { border-color: #6ca; box-shadow: 0 8px 30px rgba(102, 204, 170, 0.15); }
+
+.card-supermario h2 { color: #f42; }
+.card-supermario:hover { border-color: #f42; box-shadow: 0 8px 30px rgba(255, 68, 34, 0.15); }
+
+.card-megaman h2 { color: #4bf; }
+.card-megaman:hover { border-color: #4bf; box-shadow: 0 8px 30px rgba(68, 187, 255, 0.15); }
+
+.card-spelunky h2 { color: #ea6; }
+.card-spelunky:hover { border-color: #ea6; box-shadow: 0 8px 30px rgba(238, 170, 102, 0.15); }
+
+.card-outrun h2 { color: #f4e; }
+.card-outrun:hover { border-color: #f4e; box-shadow: 0 8px 30px rgba(255, 68, 238, 0.15); }
+
+.card-gradius h2 { color: #8ef; }
+.card-gradius:hover { border-color: #8ef; box-shadow: 0 8px 30px rgba(136, 238, 255, 0.15); }
+
+.card-rtype h2 { color: #f8e; }
+.card-rtype:hover { border-color: #f8e; box-shadow: 0 8px 30px rgba(255, 136, 238, 0.15); }
+
+.card-defender h2 { color: #4f8; }
+.card-defender:hover { border-color: #4f8; box-shadow: 0 8px 30px rgba(68, 255, 136, 0.15); }
+
+.card-tempest h2 { color: #e4f; }
+.card-tempest:hover { border-color: #e4f; box-shadow: 0 8px 30px rgba(238, 68, 255, 0.15); }
+
+.card-sinistar h2 { color: #f64; }
+.card-sinistar:hover { border-color: #f64; box-shadow: 0 8px 30px rgba(255, 102, 68, 0.15); }
+
+.card-pinball h2 { color: #fc6; }
+.card-pinball:hover { border-color: #fc6; box-shadow: 0 8px 30px rgba(255, 204, 102, 0.15); }
