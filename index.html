@@ -136,6 +136,56 @@
         <p class="description">Push all the boxes onto the target positions! Plan your moves carefully -- you can push boxes but never pull them. Fewest moves wins!</p>
         <p class="controls"><span>Controls:</span> Arrow keys to move, Z to undo, R to reset</p>
       </a>
+      <a href="columns/index.html" class="game-card card-columns" data-game="columns">
+        <div class="card-header"><h2>Columns</h2><span class="plays-badge" data-game="columns"></span></div>
+        <p class="description">Match three or more gems by stacking columns of three. Cycle gem order as they fall to set up combos and chain reactions!</p>
+        <p class="controls"><span>Controls:</span> Left/Right to move, Up to cycle, Down to drop</p>
+      </a>
+      <a href="nibbler/index.html" class="game-card card-nibbler" data-game="nibbler">
+        <div class="card-header"><h2>Nibbler</h2><span class="plays-badge" data-game="nibbler"></span></div>
+        <p class="description">Guide your ever-growing snake through maze corridors! Eat all the food to advance. Don't crash into walls or yourself!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to change direction</p>
+      </a>
+      <a href="crossy-road/index.html" class="game-card card-crossy" data-game="crossy-road">
+        <div class="card-header"><h2>Crossy Road</h2><span class="plays-badge" data-game="crossy-road"></span></div>
+        <p class="description">Hop across busy roads and rivers! Dodge traffic, ride logs, and cross as far as you can. Every row forward scores a point!</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to hop and dodge</p>
+      </a>
+      <a href="kaboom/index.html" class="game-card card-kaboom" data-game="kaboom">
+        <div class="card-header"><h2>Kaboom!</h2><span class="plays-badge" data-game="kaboom"></span></div>
+        <p class="description">Catch the bombs before they hit the ground! A mad bomber drops bombs faster and faster. Move your buckets to catch them all!</p>
+        <p class="controls"><span>Controls:</span> Mouse or Left/Right to move buckets</p>
+      </a>
+      <a href="air-hockey/index.html" class="game-card card-airhockey" data-game="air-hockey">
+        <div class="card-header"><h2>Air Hockey</h2><span class="plays-badge" data-game="air-hockey"></span></div>
+        <p class="description">Smack the puck into the opponent's goal! Control your mallet with the mouse and play against the CPU. First to 7 wins!</p>
+        <p class="controls"><span>Controls:</span> Mouse to move your mallet</p>
+      </a>
+      <a href="simon/index.html" class="game-card card-simon" data-game="simon">
+        <div class="card-header"><h2>Simon</h2><span class="plays-badge" data-game="simon"></span></div>
+        <p class="description">Watch the pattern, then repeat it! Simon shows a sequence of colored lights that grows longer each round. How many can you remember?</p>
+        <p class="controls"><span>Controls:</span> Click panels or press 1-4 keys</p>
+      </a>
+      <a href="duck-hunt/index.html" class="game-card card-duckhunt" data-game="duck-hunt">
+        <div class="card-header"><h2>Duck Hunt</h2><span class="plays-badge" data-game="duck-hunt"></span></div>
+        <p class="description">Shoot the ducks as they fly across the screen! Click to fire at flying ducks before they escape. Limited shots per round!</p>
+        <p class="controls"><span>Controls:</span> Mouse to aim, Click to shoot</p>
+      </a>
+      <a href="tanks/index.html" class="game-card card-tanks" data-game="tanks">
+        <div class="card-header"><h2>Tanks</h2><span class="plays-badge" data-game="tanks"></span></div>
+        <p class="description">Aim your cannon and fire at the enemy tank! Adjust angle and power to arc your shot over the terrain. Destroy them first!</p>
+        <p class="controls"><span>Controls:</span> Up/Down angle, Left/Right power, Space to fire</p>
+      </a>
+      <a href="whack-a-mole/index.html" class="game-card card-whackamole" data-game="whack-a-mole">
+        <div class="card-header"><h2>Whack-a-Mole</h2><span class="plays-badge" data-game="whack-a-mole"></span></div>
+        <p class="description">Smack the moles as they pop up from their holes! Be quick — they don't stay up for long. Watch out for the bonus golden mole!</p>
+        <p class="controls"><span>Controls:</span> Click on moles to whack them</p>
+      </a>
+      <a href="slot-racer/index.html" class="game-card card-slotracer" data-game="slot-racer">
+        <div class="card-header"><h2>Slot Racer</h2><span class="plays-badge" data-game="slot-racer"></span></div>
+        <p class="description">Race your car around the slot track! Hold to accelerate, release to slow down. Go too fast on curves and you'll fly off!</p>
+        <p class="controls"><span>Controls:</span> Hold Space or click to accelerate</p>
+      </a>
     </div>
   </div>
   <script>
@@ -188,7 +238,7 @@
           /* Per-game play counts */
           var perGame = d.per_game || {};
           var totalSessions = d.total_sessions || 0;
-          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban'];
+          var games = ['tetris','space-invaders','flappy','snake','breakout','pong','asteroids','tron','2048','dino','lunar-lander','minesweeper','lights-out','helicopter','canabalt','doodle-jump','sokoban','columns','nibbler','crossy-road','kaboom','air-hockey','simon','duck-hunt','tanks','whack-a-mole','slot-racer'];
           games.forEach(function (g) {
             var badge = document.querySelector('.plays-badge[data-game="' + g + '"]');
             if (!badge) return;

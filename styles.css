@@ -283,3 +283,33 @@ body {
 
 .card-sokoban h2 { color: #f08; }
 .card-sokoban:hover { border-color: #f08; box-shadow: 0 8px 30px rgba(255, 0, 136, 0.15); }
+
+.card-columns h2 { color: #c6f; }
+.card-columns:hover { border-color: #c6f; box-shadow: 0 8px 30px rgba(204, 102, 255, 0.15); }
+
+.card-nibbler h2 { color: #4f6; }
+.card-nibbler:hover { border-color: #4f6; box-shadow: 0 8px 30px rgba(68, 255, 102, 0.15); }
+
+.card-crossy h2 { color: #fc4; }
+.card-crossy:hover { border-color: #fc4; box-shadow: 0 8px 30px rgba(255, 204, 68, 0.15); }
+
+.card-kaboom h2 { color: #f06; }
+.card-kaboom:hover { border-color: #f06; box-shadow: 0 8px 30px rgba(255, 0, 102, 0.15); }
+
+.card-airhockey h2 { color: #6cf; }
+.card-airhockey:hover { border-color: #6cf; box-shadow: 0 8px 30px rgba(102, 204, 255, 0.15); }
+
+.card-simon h2 { color: #f6c; }
+.card-simon:hover { border-color: #f6c; box-shadow: 0 8px 30px rgba(255, 102, 204, 0.15); }
+
+.card-duckhunt h2 { color: #f66; }
+.card-duckhunt:hover { border-color: #f66; box-shadow: 0 8px 30px rgba(255, 102, 102, 0.15); }
+
+.card-tanks h2 { color: #af4; }
+.card-tanks:hover { border-color: #af4; box-shadow: 0 8px 30px rgba(170, 255, 68, 0.15); }
+
+.card-whackamole h2 { color: #fc8; }
+.card-whackamole:hover { border-color: #fc8; box-shadow: 0 8px 30px rgba(255, 204, 136, 0.15); }
+
+.card-slotracer h2 { color: #a6f; }
+.card-slotracer:hover { border-color: #a6f; box-shadow: 0 8px 30px rgba(170, 102, 255, 0.15); }
