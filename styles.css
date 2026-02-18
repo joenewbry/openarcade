@@ -463,3 +463,30 @@ body {
 
 .card-fruitninja h2 { color: #e6a; }
 .card-fruitninja:hover { border-color: #e6a; box-shadow: 0 8px 30px rgba(238, 102, 170, 0.15); }
+
+.card-brickbreaker h2 { color: #e48; }
+.card-brickbreaker:hover { border-color: #e48; box-shadow: 0 8px 30px rgba(238, 68, 136, 0.15); }
+
+.card-sudoku h2 { color: #4ae; }
+.card-sudoku:hover { border-color: #4ae; box-shadow: 0 8px 30px rgba(68, 170, 238, 0.15); }
+
+.card-klotski h2 { color: #f8c; }
+.card-klotski:hover { border-color: #f8c; box-shadow: 0 8px 30px rgba(255, 136, 204, 0.15); }
+
+.card-towerofhanoi h2 { color: #8da; }
+.card-towerofhanoi:hover { border-color: #8da; box-shadow: 0 8px 30px rgba(136, 221, 170, 0.15); }
+
+.card-spaceduel h2 { color: #c8a; }
+.card-spaceduel:hover { border-color: #c8a; box-shadow: 0 8px 30px rgba(204, 136, 170, 0.15); }
+
+.card-warlords h2 { color: #a4e; }
+.card-warlords:hover { border-color: #a4e; box-shadow: 0 8px 30px rgba(170, 68, 238, 0.15); }
+
+.card-rampart h2 { color: #4ec; }
+.card-rampart:hover { border-color: #4ec; box-shadow: 0 8px 30px rgba(68, 238, 204, 0.15); }
+
+.card-spyhunter h2 { color: #e86; }
+.card-spyhunter:hover { border-color: #e86; box-shadow: 0 8px 30px rgba(238, 136, 102, 0.15); }
+
+.card-paperboy h2 { color: #6ca; }
+.card-paperboy:hover { border-color: #6ca; box-shadow: 0 8px 30px rgba(102, 204, 170, 0.15); }
