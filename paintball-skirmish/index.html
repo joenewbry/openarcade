@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paintball Skirmish - OpenArcade</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#eee;font-family:'Courier New',monospace;display:flex;flex-direction:column;align-items:center;min-height:100vh;overflow-x:hidden}
+a{color:#4af;text-decoration:none}
+a:hover{text-decoration:underline}
+#back-link{position:fixed;top:12px;left:16px;font-size:14px;z-index:100;color:#4af;text-shadow:0 0 6px #4af}
+#score-bar{width:600px;max-width:95vw;display:flex;justify-content:space-between;align-items:center;padding:8px 14px;margin-top:48px;margin-bottom:4px;background:rgba(68,170,255,0.08);border:1px solid rgba(68,170,255,0.25);border-radius:6px;font-size:13px;text-shadow:0 0 6px rgba(68,170,255,0.4)}
+#score-bar .label{color:#888}
+#score-bar .value{color:#4af;font-weight:bold}
+.red-val{color:#f55!important}
+#game-container{position:relative;width:600px;height:500px;max-width:95vw;margin-top:4px}
+canvas#game{width:100%;height:100%;border:1px solid rgba(68,170,255,0.3);border-radius:4px;display:block;cursor:crosshair}
+#overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(26,26,46,0.92);border-radius:4px;z-index:10;transition:opacity 0.3s}
+#overlay.hidden{opacity:0;pointer-events:none}
+#overlay h1{font-size:26px;color:#4af;text-shadow:0 0 18px #4af,0 0 40px rgba(68,170,255,0.3);margin-bottom:10px}
+#overlay h2{font-size:18px;color:#4af;text-shadow:0 0 12px #4af;margin-bottom:8px}
+#overlay p{font-size:12px;color:#aaa;margin:3px 0;text-align:center;max-width:440px}
+#overlay .round-info{font-size:14px;color:#ccc;margin:8px 0}
+#overlay button{margin-top:16px;padding:10px 32px;background:transparent;border:2px solid #4af;color:#4af;font-family:'Courier New',monospace;font-size:15px;cursor:pointer;border-radius:4px;text-shadow:0 0 8px rgba(68,170,255,0.5);box-shadow:0 0 12px rgba(68,170,255,0.15);transition:all 0.2s}
+#overlay button:hover{background:rgba(68,170,255,0.15);box-shadow:0 0 20px rgba(68,170,255,0.3)}
+#hud{position:absolute;bottom:8px;left:8px;right:8px;display:flex;justify-content:space-between;align-items:flex-end;pointer-events:none;font-size:11px;color:#ccc;text-shadow:0 0 4px rgba(0,0,0,0.8)}
+</style>
+</head>
+<body>
+<a id="back-link" href="../">&larr; Back</a>
+<div id="score-bar">
+  <div><span class="label">BLUE Team: </span><span class="value" id="blueAlive">3</span><span class="label"> alive</span></div>
+  <div><span class="label">Round </span><span class="value" id="roundNum">1</span><span class="label">/5 | </span><span class="value" id="blueWins">0</span><span class="label">-</span><span class="value red-val" id="redWins">0</span></div>
+  <div><span class="label">RED Team: </span><span class="value red-val" id="redAlive">3</span><span class="label"> alive</span></div>
+</div>
+<div id="game-container">
+  <canvas id="game" width="600" height="500"></canvas>
+  <div id="overlay">
+    <h1>PAINTBALL SKIRMISH</h1>
+    <h2 id="overlayTitle">3v3 Team Elimination</h2>
+    <p>WASD = Move | Mouse = Aim | Click = Shoot</p>
+    <p>R = Reload | Shift = Crouch behind cover</p>
+    <p>Eliminate the red team! Best of 5 rounds.</p>
+    <button id="startBtn" onclick="startGame()">START MATCH</button>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 600, H = 500;
+
+let gameState = 'menu';
+let score = 0;
+
+const blueAliveEl = document.getElementById('blueAlive');
+const redAliveEl = document.getElementById('redAlive');
+const roundNumEl = document.getElementById('roundNum');
+const blueWinsEl = document.getElementById('blueWins');
+const redWinsEl = document.getElementById('redWins');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlayTitle');
+const startBtn = document.getElementById('startBtn');
+
+// --- Map & Cover ---
+let coverObjects = [];
+let ammoPickups = [];
+let splats = [];
+let players = [];
+let bullets = [];
+let particles = [];
+let roundNum = 1;
+let blueWins = 0, redWins = 0;
+let roundEndTimer = 0;
+let roundMessage = '';
+
+const PLAYER_R = 10;
+const BULLET_SPEED = 8;
+const MOVE_SPEED = 2.2;
+const CROUCH_SPEED = 0.8;
+const MAX_AMMO = 50;
+const RELOAD_TIME = 60; // frames
+const SHOOT_COOLDOWN = 8;
+const AI_SHOOT_COOLDOWN = 15;
+const COVER_TYPES = ['bunker','wall','tree','barrel','sandbag'];
+
+// Input
+let keys = {};
+let mouseX = 300, mouseY = 250;
+let mouseDown = false;
+let shiftDown = false;
+
+document.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if(e.key === 'Shift') shiftDown = true;
+  if(e.key.toLowerCase() === 'r' && gameState === 'playing') {
+    const p = getHumanPlayer();
+    if(p && !p.dead && p.ammo < MAX_AMMO && !p.reloading) {
+      p.reloading = true;
+      p.reloadTimer = RELOAD_TIME;
+    }
+  }
+});
+document.addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()] = false;
+  if(e.key === 'Shift') shiftDown = false;
+});
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mouseX = (e.clientX - r.left) * (W / r.width);
+  mouseY = (e.clientY - r.top) * (H / r.height);
+});
+canvas.addEventListener('mousedown', e => { mouseDown = true; e.preventDefault(); });
+canvas.addEventListener('mouseup', e => { mouseDown = false; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+function getHumanPlayer() {
+  return players.find(p => p.human);
+}
+
+// --- Map Generation ---
+function generateMap() {
+  coverObjects = [];
+  // Central bunkers
+  coverObjects.push({x:300,y:250,w:50,h:20,type:'bunker',hp:999});
+  coverObjects.push({x:300,y:170,w:20,h:40,type:'wall',hp:999});
+  coverObjects.push({x:300,y:330,w:20,h:40,type:'wall',hp:999});
+  // Left side
+  coverObjects.push({x:120,y:120,w:40,h:15,type:'sandbag',hp:999});
+  coverObjects.push({x:100,y:250,w:15,h:50,type:'wall',hp:999});
+  coverObjects.push({x:150,y:380,w:35,h:15,type:'sandbag',hp:999});
+  coverObjects.push({x:200,y:180,w:20,h:20,type:'barrel',hp:999});
+  coverObjects.push({x:220,y:320,w:24,h:24,type:'tree',hp:999});
+  // Right side
+  coverObjects.push({x:480,y:120,w:40,h:15,type:'sandbag',hp:999});
+  coverObjects.push({x:500,y:250,w:15,h:50,type:'wall',hp:999});
+  coverObjects.push({x:450,y:380,w:35,h:15,type:'sandbag',hp:999});
+  coverObjects.push({x:400,y:180,w:20,h:20,type:'barrel',hp:999});
+  coverObjects.push({x:380,y:320,w:24,h:24,type:'tree',hp:999});
+  // Extra cover
+  coverObjects.push({x:200,y:60,w:30,h:12,type:'sandbag',hp:999});
+  coverObjects.push({x:400,y:440,w:30,h:12,type:'sandbag',hp:999});
+  coverObjects.push({x:60,y:60,w:22,h:22,type:'tree',hp:999});
+  coverObjects.push({x:540,y:440,w:22,h:22,type:'tree',hp:999});
+  coverObjects.push({x:60,y:440,w:22,h:22,type:'tree',hp:999});
+  coverObjects.push({x:540,y:60,w:22,h:22,type:'tree',hp:999});
+}
+
+function spawnAmmoPickups() {
+  ammoPickups = [];
+  const spots = [{x:300,y:100},{x:300,y:400},{x:150,y:250},{x:450,y:250},{x:200,y:150},{x:400,y:350}];
+  for(const s of spots) {
+    ammoPickups.push({x:s.x,y:s.y,active:true,respawn:0});
+  }
+}
+
+// --- Player Creation ---
+function createPlayers() {
+  players = [];
+  // Blue team (left side) - player 0 is human
+  const blueSpawns = [{x:40,y:200},{x:40,y:250},{x:40,y:300}];
+  for(let i=0;i<3;i++){
+    players.push({
+      x:blueSpawns[i].x, y:blueSpawns[i].y,
+      vx:0, vy:0,
+      angle:0,
+      team:'blue',
+      human: i===0,
+      dead:false,
+      ammo:MAX_AMMO,
+      reloading:false,
+      reloadTimer:0,
+      shootCooldown:0,
+      crouching:false,
+      behindCover:false,
+      r:PLAYER_R,
+      id:i,
+      // AI state
+      aiTarget:null,
+      aiMoveTarget:null,
+      aiState:'advance', // advance, cover, flank, retreat
+      aiStateTimer:0,
+      aiAccuracy: 0.6 + Math.random()*0.2,
+      aiBravery: 0.3 + Math.random()*0.5,
+      aiLastShootDir: 0,
+      eliminations: 0,
+    });
+  }
+  // Red team (right side) - all AI
+  const redSpawns = [{x:560,y:200},{x:560,y:250},{x:560,y:300}];
+  for(let i=0;i<3;i++){
+    players.push({
+      x:redSpawns[i].x, y:redSpawns[i].y,
+      vx:0, vy:0,
+      angle:Math.PI,
+      team:'red',
+      human:false,
+      dead:false,
+      ammo:MAX_AMMO,
+      reloading:false,
+      reloadTimer:0,
+      shootCooldown:0,
+      crouching:false,
+      behindCover:false,
+      r:PLAYER_R,
+      id:i+3,
+      aiTarget:null,
+      aiMoveTarget:null,
+      aiState:'advance',
+      aiStateTimer:0,
+      aiAccuracy: 0.5 + Math.random()*0.25,
+      aiBravery: 0.3 + Math.random()*0.5,
+      aiLastShootDir: 0,
+      eliminations: 0,
+    });
+  }
+}
+
+// --- Collision ---
+function rectContains(rx,ry,rw,rh,px,py) {
+  return px >= rx-rw/2 && px <= rx+rw/2 && py >= ry-rh/2 && py <= ry+rh/2;
+}
+
+function circleRectOverlap(cx,cy,cr,rx,ry,rw,rh) {
+  const closestX = Math.max(rx-rw/2, Math.min(cx, rx+rw/2));
+  const closestY = Math.max(ry-rh/2, Math.min(cy, ry+rh/2));
+  const dx = cx-closestX, dy=cy-closestY;
+  return dx*dx+dy*dy < cr*cr;
+}
+
+function lineRectIntersect(x1,y1,x2,y2,rx,ry,rw,rh) {
+  // Check if line segment from (x1,y1) to (x2,y2) intersects rect
+  const left=rx-rw/2, right=rx+rw/2, top=ry-rh/2, bottom=ry+rh/2;
+  // Check all 4 edges
+  if(lineLineIntersect(x1,y1,x2,y2,left,top,right,top)) return true;
+  if(lineLineIntersect(x1,y1,x2,y2,right,top,right,bottom)) return true;
+  if(lineLineIntersect(x1,y1,x2,y2,left,bottom,right,bottom)) return true;
+  if(lineLineIntersect(x1,y1,x2,y2,left,top,left,bottom)) return true;
+  return false;
+}
+
+function lineLineIntersect(x1,y1,x2,y2,x3,y3,x4,y4) {
+  const d = (x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
+  if(Math.abs(d)<0.001) return false;
+  const t = ((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;
+  const u = -((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/d;
+  return t>=0 && t<=1 && u>=0 && u<=1;
+}
+
+function hasLineOfSight(x1,y1,x2,y2) {
+  for(const c of coverObjects) {
+    if(lineRectIntersect(x1,y1,x2,y2,c.x,c.y,c.w,c.h)) return false;
+  }
+  return true;
+}
+
+function isNearCover(px,py,margin) {
+  for(const c of coverObjects) {
+    if(circleRectOverlap(px,py,margin||20,c.x,c.y,c.w,c.h)) return true;
+  }
+  return false;
+}
+
+function getNearestCover(px,py) {
+  let best=null, bestD=Infinity;
+  for(const c of coverObjects) {
+    const d = Math.hypot(c.x-px,c.y-py);
+    if(d<bestD) { bestD=d; best=c; }
+  }
+  return best;
+}
+
+function pushOutOfCover(p) {
+  for(const c of coverObjects) {
+    if(circleRectOverlap(p.x,p.y,p.r,c.x,c.y,c.w,c.h)) {
+      // Push out
+      const cx = Math.max(c.x-c.w/2, Math.min(p.x, c.x+c.w/2));
+      const cy = Math.max(c.y-c.h/2, Math.min(p.y, c.y+c.h/2));
+      const dx=p.x-cx, dy=p.y-cy;
+      const dist=Math.hypot(dx,dy);
+      if(dist>0.01) {
+        const push = p.r - dist + 1;
+        p.x += (dx/dist)*push;
+        p.y += (dy/dist)*push;
+      } else {
+        p.x += p.r + 1;
+      }
+    }
+  }
+}
+
+// --- Shooting ---
+function shoot(p) {
+  if(p.dead || p.ammo<=0 || p.shootCooldown>0 || p.reloading) return;
+  p.ammo--;
+  p.shootCooldown = p.human ? SHOOT_COOLDOWN : AI_SHOOT_COOLDOWN;
+  const bx = p.x + Math.cos(p.angle)*14;
+  const by = p.y + Math.sin(p.angle)*14;
+  // Add spread
+  let spread = p.human ? 0.04 : (0.1 * (1 - p.aiAccuracy));
+  const a = p.angle + (Math.random()-0.5)*spread;
+  bullets.push({
+    x:bx, y:by,
+    vx:Math.cos(a)*BULLET_SPEED,
+    vy:Math.sin(a)*BULLET_SPEED,
+    team:p.team,
+    owner:p.id,
+    life:80,
+    color: p.team==='blue' ? '#4af' : '#f55',
+  });
+  // Muzzle particles
+  for(let i=0;i<4;i++){
+    const pa = a + (Math.random()-0.5)*0.5;
+    particles.push({
+      x:bx,y:by,
+      vx:Math.cos(pa)*(2+Math.random()*3),
+      vy:Math.sin(pa)*(2+Math.random()*3),
+      life:10+Math.random()*8,
+      color:p.team==='blue'?'#4af':'#f55',
+      r:2+Math.random()*2,
+    });
+  }
+  if(p.ammo<=0 && !p.reloading) {
+    p.reloading = true;
+    p.reloadTimer = RELOAD_TIME;
+  }
+}
+
+// --- AI ---
+function updateAI(p, dt) {
+  if(p.dead || p.human) return;
+  const enemies = players.filter(e=>e.team!==p.team && !e.dead);
+  const allies = players.filter(a=>a.team===p.team && !a.dead && a.id!==p.id);
+  if(enemies.length===0) return;
+
+  // Find nearest visible enemy
+  let nearestVis = null, nearestVisDist = Infinity;
+  let nearest = null, nearestDist = Infinity;
+  for(const e of enemies) {
+    const d = Math.hypot(e.x-p.x, e.y-p.y);
+    if(d < nearestDist) { nearestDist=d; nearest=e; }
+    if(hasLineOfSight(p.x,p.y,e.x,e.y) && d < nearestVisDist) {
+      nearestVisDist=d; nearestVis=e;
+    }
+  }
+
+  p.aiStateTimer--;
+  if(p.aiStateTimer<=0) {
+    // Decide state
+    const coverNearby = isNearCover(p.x,p.y,30);
+    if(p.ammo < 10 && !p.reloading) {
+      p.aiState = 'retreat';
+      p.aiStateTimer = 60 + Math.random()*40;
+    } else if(nearestVis && nearestVisDist < 120) {
+      // Close combat
+      p.aiState = Math.random() < p.aiBravery ? 'aggressive' : 'cover';
+      p.aiStateTimer = 40 + Math.random()*40;
+    } else if(!nearestVis && Math.random() < 0.4) {
+      p.aiState = 'flank';
+      p.aiStateTimer = 80 + Math.random()*60;
+    } else if(nearestVis) {
+      p.aiState = Math.random() < 0.5 ? 'advance' : 'cover';
+      p.aiStateTimer = 50 + Math.random()*50;
+    } else {
+      p.aiState = 'advance';
+      p.aiStateTimer = 40 + Math.random()*40;
+    }
+  }
+
+  // Reload if low
+  if(p.ammo < 15 && !p.reloading && p.ammo > 0 && (!nearestVis || nearestVisDist > 150)) {
+    p.reloading = true;
+    p.reloadTimer = RELOAD_TIME;
+  }
+
+  // Movement based on state
+  let moveX = 0, moveY = 0;
+  let wantCrouch = false;
+
+  switch(p.aiState) {
+    case 'advance': {
+      // Move toward nearest enemy, prefer through cover
+      if(nearest) {
+        const cov = findCoverToward(p, nearest);
+        if(cov && Math.hypot(cov.x-p.x,cov.y-p.y) > 25) {
+          const a = Math.atan2(cov.y-p.y, cov.x-p.x);
+          moveX = Math.cos(a); moveY = Math.sin(a);
+        } else {
+          const a = Math.atan2(nearest.y-p.y, nearest.x-p.x);
+          moveX = Math.cos(a)*0.5; moveY = Math.sin(a)*0.5;
+        }
+      }
+      break;
+    }
+    case 'cover': {
+      // Get behind nearest cover relative to enemy
+      const cov = getNearestCover(p.x,p.y);
+      if(cov && nearest) {
+        // Position behind cover relative to enemy
+        const eAngle = Math.atan2(nearest.y-cov.y, nearest.x-cov.x);
+        const behindX = cov.x - Math.cos(eAngle)*(cov.w/2+20);
+        const behindY = cov.y - Math.sin(eAngle)*(cov.h/2+20);
+        const d = Math.hypot(behindX-p.x, behindY-p.y);
+        if(d > 10) {
+          const a = Math.atan2(behindY-p.y, behindX-p.x);
+          moveX = Math.cos(a); moveY = Math.sin(a);
+        } else {
+          wantCrouch = true;
+        }
+      }
+      break;
+    }
+    case 'flank': {
+      // Move perpendicular to enemy direction
+      if(nearest) {
+        const a = Math.atan2(nearest.y-p.y, nearest.x-p.x);
+        const flankDir = (p.id % 2 === 0) ? 1 : -1;
+        const fa = a + flankDir * Math.PI/3;
+        moveX = Math.cos(fa); moveY = Math.sin(fa);
+      }
+      break;
+    }
+    case 'retreat': {
+      // Fall back to own side
+      const safeX = p.team === 'blue' ? 80 : 520;
+      const a = Math.atan2(250-p.y, safeX-p.x);
+      moveX = Math.cos(a); moveY = Math.sin(a);
+      wantCrouch = isNearCover(p.x,p.y,25);
+      if(!p.reloading && p.ammo < MAX_AMMO) {
+        p.reloading = true;
+        p.reloadTimer = RELOAD_TIME;
+      }
+      break;
+    }
+    case 'aggressive': {
+      // Rush toward enemy
+      if(nearest) {
+        const a = Math.atan2(nearest.y-p.y, nearest.x-p.x);
+        moveX = Math.cos(a)*1.2; moveY = Math.sin(a)*1.2;
+      }
+      break;
+    }
+  }
+
+  // Ammo pickup seeking
+  let seekingPickup = false;
+  if(p.ammo < 20 && !p.reloading) {
+    const pickup = ammoPickups.find(a=>a.active && Math.hypot(a.x-p.x,a.y-p.y)<200);
+    if(pickup) {
+      const a = Math.atan2(pickup.y-p.y, pickup.x-p.x);
+      moveX = Math.cos(a); moveY = Math.sin(a);
+      seekingPickup = true;
+    }
+  }
+
+  // Apply movement
+  const spd = wantCrouch ? CROUCH_SPEED : MOVE_SPEED;
+  p.crouching = wantCrouch;
+  p.vx = moveX * spd;
+  p.vy = moveY * spd;
+
+  // Aim at visible enemy
+  if(nearestVis) {
+    const targetAngle = Math.atan2(nearestVis.y-p.y, nearestVis.x-p.x);
+    // Smooth aim
+    let diff = targetAngle - p.angle;
+    while(diff > Math.PI) diff -= Math.PI*2;
+    while(diff < -Math.PI) diff += Math.PI*2;
+    p.angle += diff * 0.15;
+
+    // Shoot if aimed well and have ammo and not too far
+    const aimError = Math.abs(diff);
+    if(aimError < 0.2 && !p.reloading && p.ammo > 0 && nearestVisDist < 350) {
+      // Conserve ammo: don't spam if enemy behind cover (crouching)
+      const shouldShoot = !nearestVis.crouching || nearestVisDist < 100 || Math.random() < 0.3;
+      if(shouldShoot) shoot(p);
+    }
+  } else if(nearest) {
+    // Turn toward last known direction
+    const targetAngle = Math.atan2(nearest.y-p.y, nearest.x-p.x);
+    let diff = targetAngle - p.angle;
+    while(diff > Math.PI) diff -= Math.PI*2;
+    while(diff < -Math.PI) diff += Math.PI*2;
+    p.angle += diff * 0.05;
+  }
+}
+
+function findCoverToward(p, target) {
+  let best = null, bestScore = -Infinity;
+  for(const c of coverObjects) {
+    const dToTarget = Math.hypot(target.x-c.x, target.y-c.y);
+    const dFromMe = Math.hypot(c.x-p.x, c.y-p.y);
+    // Prefer cover that's between us and enemy but closer to us
+    const score = -dToTarget*0.3 - dFromMe*0.7;
+    if(dFromMe > 15 && dToTarget < Math.hypot(target.x-p.x,target.y-p.y) && score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+  return best;
+}
+
+// --- Update ---
+function update() {
+  if(gameState !== 'playing') return;
+
+  // Round end check
+  if(roundEndTimer > 0) {
+    roundEndTimer--;
+    if(roundEndTimer <= 0) {
+      if(blueWins >= 3 || redWins >= 3) {
+        endMatch();
+      } else {
+        startRound();
+      }
+    }
+    return;
+  }
+
+  // Update players
+  for(const p of players) {
+    if(p.dead) continue;
+
+    // Human input
+    if(p.human) {
+      let mx=0, my=0;
+      if(keys['w']||keys['arrowup']) my=-1;
+      if(keys['s']||keys['arrowdown']) my=1;
+      if(keys['a']||keys['arrowleft']) mx=-1;
+      if(keys['d']||keys['arrowright']) mx=1;
+      const len = Math.hypot(mx,my);
+      if(len>0) { mx/=len; my/=len; }
+      p.crouching = shiftDown && isNearCover(p.x,p.y,25);
+      const spd = p.crouching ? CROUCH_SPEED : MOVE_SPEED;
+      p.vx = mx * spd;
+      p.vy = my * spd;
+      p.angle = Math.atan2(mouseY-p.y, mouseX-p.x);
+      if(mouseDown) shoot(p);
+    } else {
+      updateAI(p, 1);
+    }
+
+    // Reload
+    if(p.reloading) {
+      p.reloadTimer--;
+      if(p.reloadTimer <= 0) {
+        p.ammo = MAX_AMMO;
+        p.reloading = false;
+      }
+    }
+    p.shootCooldown = Math.max(0, p.shootCooldown-1);
+
+    // Move
+    p.x += p.vx;
+    p.y += p.vy;
+    // Bounds
+    p.x = Math.max(p.r, Math.min(W-p.r, p.x));
+    p.y = Math.max(p.r, Math.min(H-p.r, p.y));
+    // Push out of cover
+    pushOutOfCover(p);
+
+    // Check behind cover
+    p.behindCover = p.crouching && isNearCover(p.x,p.y,20);
+
+    // Ammo pickups
+    for(const a of ammoPickups) {
+      if(a.active && Math.hypot(a.x-p.x,a.y-p.y)<18) {
+        a.active = false;
+        a.respawn = 300 + Math.random()*200;
+        p.ammo = Math.min(MAX_AMMO, p.ammo+20);
+        // Particle effect
+        for(let i=0;i<8;i++) {
+          particles.push({
+            x:a.x,y:a.y,
+            vx:(Math.random()-0.5)*4,
+            vy:(Math.random()-0.5)*4,
+            life:20,color:'#ff0',r:3,
+          });
+        }
+      }
+    }
+  }
+
+  // Ammo respawn
+  for(const a of ammoPickups) {
+    if(!a.active) {
+      a.respawn--;
+      if(a.respawn<=0) a.active=true;
+    }
+  }
+
+  // Bullets
+  for(let i=bullets.length-1;i>=0;i--) {
+    const b = bullets[i];
+    b.x += b.vx;
+    b.y += b.vy;
+    b.life--;
+
+    // Out of bounds
+    if(b.x<0||b.x>W||b.y<0||b.y>H||b.life<=0) {
+      bullets.splice(i,1);
+      continue;
+    }
+
+    // Hit cover
+    let hitCover = false;
+    for(const c of coverObjects) {
+      if(rectContains(c.x,c.y,c.w+4,c.h+4,b.x,b.y)) {
+        hitCover = true;
+        // Splat on cover
+        splats.push({x:b.x,y:b.y,r:4+Math.random()*4,color:b.color,alpha:0.7});
+        for(let j=0;j<3;j++){
+          particles.push({
+            x:b.x,y:b.y,
+            vx:(Math.random()-0.5)*3,vy:(Math.random()-0.5)*3,
+            life:12,color:b.color,r:2,
+          });
+        }
+        break;
+      }
+    }
+    if(hitCover) { bullets.splice(i,1); continue; }
+
+    // Hit players
+    let hitPlayer = false;
+    for(const p of players) {
+      if(p.dead || p.team === b.team) continue;
+      if(Math.hypot(p.x-b.x,p.y-b.y) < p.r+3) {
+        // Check if player is behind cover (crouching) - reduced hit chance
+        if(p.behindCover && Math.random() < 0.7) {
+          // Paintball deflected by cover
+          splats.push({x:b.x,y:b.y,r:3,color:b.color,alpha:0.5});
+          hitPlayer = true;
+          break;
+        }
+        // ELIMINATION!
+        p.dead = true;
+        hitPlayer = true;
+        const owner = players.find(pl=>pl.id===b.owner);
+        if(owner) owner.eliminations++;
+        if(b.team==='blue') score++;
+
+        // Big splat effect
+        for(let j=0;j<20;j++){
+          const a = Math.random()*Math.PI*2;
+          const sp = 1+Math.random()*5;
+          particles.push({
+            x:p.x,y:p.y,
+            vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
+            life:25+Math.random()*15,
+            color: b.color,
+            r:3+Math.random()*5,
+          });
+        }
+        // Ground splats
+        for(let j=0;j<6;j++){
+          splats.push({
+            x:p.x+(Math.random()-0.5)*30,
+            y:p.y+(Math.random()-0.5)*30,
+            r:8+Math.random()*12,
+            color:b.color,
+            alpha:0.4+Math.random()*0.3,
+          });
+        }
+        break;
+      }
+    }
+    if(hitPlayer) { bullets.splice(i,1); continue; }
+  }
+
+  // Particles
+  for(let i=particles.length-1;i>=0;i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.95;
+    p.vy *= 0.95;
+    p.life--;
+    if(p.life<=0) particles.splice(i,1);
+  }
+
+  // Check round end
+  const blueAlive = players.filter(p=>p.team==='blue'&&!p.dead).length;
+  const redAlive = players.filter(p=>p.team==='red'&&!p.dead).length;
+  blueAliveEl.textContent = blueAlive;
+  redAliveEl.textContent = redAlive;
+
+  if(blueAlive===0 || redAlive===0) {
+    if(blueAlive===0) {
+      redWins++;
+      roundMessage = 'RED TEAM WINS ROUND ' + roundNum + '!';
+    } else {
+      blueWins++;
+      roundMessage = 'BLUE TEAM WINS ROUND ' + roundNum + '!';
+    }
+    roundNum++;
+    blueWinsEl.textContent = blueWins;
+    redWinsEl.textContent = redWins;
+    roundNumEl.textContent = Math.min(roundNum, 5);
+    roundEndTimer = 120; // 2 seconds pause
+  }
+}
+
+// --- Draw ---
+function draw() {
+  // Background - field
+  ctx.fillStyle = '#1a2a1a';
+  ctx.fillRect(0,0,W,H);
+
+  // Field markings
+  ctx.strokeStyle = 'rgba(100,140,100,0.15)';
+  ctx.lineWidth = 1;
+  for(let x=0;x<W;x+=40) {
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for(let y=0;y<H;y+=40) {
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+  // Center line
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+
+  // Spawn zones
+  ctx.fillStyle = 'rgba(68,170,255,0.05)';
+  ctx.fillRect(0,0,80,H);
+  ctx.fillStyle = 'rgba(255,85,85,0.05)';
+  ctx.fillRect(W-80,0,80,H);
+
+  // Splats (ground)
+  for(const s of splats) {
+    ctx.globalAlpha = s.alpha * 0.6;
+    ctx.fillStyle = s.color;
+    ctx.beginPath();
+    ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+    ctx.fill();
+    // Irregular splat shape
+    for(let i=0;i<3;i++){
+      const a = Math.random()*Math.PI*2;
+      const d = s.r*0.5;
+      ctx.beginPath();
+      ctx.arc(s.x+Math.cos(a)*d,s.y+Math.sin(a)*d,s.r*0.4,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // Ammo pickups
+  for(const a of ammoPickups) {
+    if(!a.active) continue;
+    ctx.fillStyle = '#ff0';
+    ctx.globalAlpha = 0.6 + 0.3*Math.sin(Date.now()*0.005);
+    ctx.beginPath();
+    ctx.arc(a.x,a.y,8,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('A',a.x,a.y+1);
+    ctx.globalAlpha = 1;
+  }
+
+  // Cover objects
+  for(const c of coverObjects) {
+    const x=c.x-c.w/2, y=c.y-c.h/2;
+    switch(c.type) {
+      case 'bunker':
+        ctx.fillStyle = '#556';
+        ctx.fillRect(x,y,c.w,c.h);
+        ctx.strokeStyle = '#778';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x,y,c.w,c.h);
+        // Sandbag texture
+        ctx.fillStyle = '#667';
+        for(let i=0;i<c.w;i+=8){
+          ctx.fillRect(x+i,y,6,c.h);
+        }
+        break;
+      case 'wall':
+        ctx.fillStyle = '#5a5a6a';
+        ctx.fillRect(x,y,c.w,c.h);
+        ctx.strokeStyle = '#7a7a8a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x,y,c.w,c.h);
+        break;
+      case 'tree':
+        // Trunk
+        ctx.fillStyle = '#543';
+        ctx.fillRect(c.x-3,c.y-3,6,6);
+        // Canopy
+        ctx.fillStyle = '#2a5a2a';
+        ctx.beginPath();
+        ctx.arc(c.x,c.y,c.w/2,0,Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#3a7a3a';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        break;
+      case 'barrel':
+        ctx.fillStyle = '#665544';
+        ctx.beginPath();
+        ctx.arc(c.x,c.y,c.w/2,0,Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#887766';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.strokeStyle = '#554433';
+        ctx.beginPath();
+        ctx.arc(c.x,c.y,c.w/4,0,Math.PI*2);
+        ctx.stroke();
+        break;
+      case 'sandbag':
+        ctx.fillStyle = '#8a7a5a';
+        ctx.fillRect(x,y,c.w,c.h);
+        ctx.strokeStyle = '#9a8a6a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x,y,c.w,c.h);
+        // Bag lines
+        for(let i=0;i<c.w;i+=10) {
+          ctx.beginPath();
+          ctx.moveTo(x+i,y);
+          ctx.lineTo(x+i,y+c.h);
+          ctx.stroke();
+        }
+        break;
+    }
+  }
+
+  // Players
+  for(const p of players) {
+    const isBlue = p.team === 'blue';
+    const mainColor = isBlue ? '#4af' : '#f55';
+    const darkColor = isBlue ? '#28a' : '#a33';
+
+    if(p.dead) {
+      // Dead player - X mark
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = mainColor;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(p.x-8,p.y-8); ctx.lineTo(p.x+8,p.y+8);
+      ctx.moveTo(p.x+8,p.y-8); ctx.lineTo(p.x-8,p.y+8);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      continue;
+    }
+
+    // Crouch indicator
+    if(p.crouching) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3,3]);
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r+6,0,Math.PI*2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Body
+    ctx.fillStyle = p.crouching ? darkColor : mainColor;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.crouching?p.r-2:p.r,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Direction / gun
+    const gx = p.x + Math.cos(p.angle)*14;
+    const gy = p.y + Math.sin(p.angle)*14;
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(p.x+Math.cos(p.angle)*8, p.y+Math.sin(p.angle)*8);
+    ctx.lineTo(gx, gy);
+    ctx.stroke();
+
+    // Human indicator
+    if(p.human) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r+4,0,Math.PI*2);
+      ctx.stroke();
+    }
+
+    // Team label
+    ctx.fillStyle = '#fff';
+    ctx.font = '8px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    if(p.human) {
+      ctx.fillText('YOU', p.x, p.y-p.r-4);
+    }
+
+    // Ammo bar (small)
+    const barW = 16, barH = 3;
+    const barX = p.x-barW/2, barY = p.y+p.r+4;
+    ctx.fillStyle = '#333';
+    ctx.fillRect(barX,barY,barW,barH);
+    const ammoFrac = p.ammo/MAX_AMMO;
+    ctx.fillStyle = p.reloading ? '#f80' : (ammoFrac < 0.2 ? '#f00' : '#0f0');
+    ctx.fillRect(barX,barY,barW*ammoFrac,barH);
+  }
+
+  // Bullets
+  for(const b of bullets) {
+    ctx.fillStyle = b.color;
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(b.x,b.y,3,0,Math.PI*2);
+    ctx.fill();
+    // Trail
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.arc(b.x-b.vx*0.5,b.y-b.vy*0.5,2,0,Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Particles
+  for(const p of particles) {
+    ctx.globalAlpha = p.life / 30;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r*(p.life/30),0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // HUD for human player
+  const hp = getHumanPlayer();
+  if(hp && !hp.dead) {
+    // Ammo counter
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(8,H-48,140,40);
+    ctx.strokeStyle = '#4af';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(8,H-48,140,40);
+
+    ctx.fillStyle = hp.reloading ? '#f80' : '#fff';
+    ctx.font = '14px Courier New';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    if(hp.reloading) {
+      const pct = Math.round((1-hp.reloadTimer/RELOAD_TIME)*100);
+      ctx.fillText('RELOADING '+pct+'%', 14, H-44);
+    } else {
+      ctx.fillText('AMMO: '+hp.ammo+'/'+MAX_AMMO, 14, H-44);
+    }
+    // Ammo bar
+    ctx.fillStyle = '#333';
+    ctx.fillRect(14,H-24,120,8);
+    const af = hp.ammo/MAX_AMMO;
+    ctx.fillStyle = hp.reloading ? '#f80' : (af<0.2?'#f00':'#4af');
+    ctx.fillRect(14,H-24,120*af,8);
+
+    // Crosshair at mouse
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(mouseX,mouseY,12,0,Math.PI*2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mouseX-16,mouseY); ctx.lineTo(mouseX-6,mouseY);
+    ctx.moveTo(mouseX+6,mouseY); ctx.lineTo(mouseX+16,mouseY);
+    ctx.moveTo(mouseX,mouseY-16); ctx.lineTo(mouseX,mouseY-6);
+    ctx.moveTo(mouseX,mouseY+6); ctx.lineTo(mouseX,mouseY+16);
+    ctx.stroke();
+  } else if(hp && hp.dead) {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#f55';
+    ctx.font = '24px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('ELIMINATED', W/2, H/2-15);
+    ctx.fillStyle = '#aaa';
+    ctx.font = '14px Courier New';
+    ctx.fillText('Watching teammates...', W/2, H/2+15);
+  }
+
+  // Shift hint
+  if(hp && !hp.dead && isNearCover(hp.x,hp.y,30) && !hp.crouching) {
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('[SHIFT] Crouch behind cover', hp.x, hp.y - 22);
+  }
+
+  // Round message
+  if(roundEndTimer > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0,H/2-30,W,60);
+    ctx.fillStyle = roundMessage.includes('BLUE') ? '#4af' : '#f55';
+    ctx.font = 'bold 22px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(roundMessage, W/2, H/2-5);
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px Courier New';
+    ctx.fillText('Score: '+blueWins+' - '+redWins, W/2, H/2+18);
+  }
+
+  // Controls hint (first 3 seconds)
+  if(gameState === 'playing' && roundNum === 1 && Date.now() - gameStartTime < 4000) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(W/2-150,H-20,300,16);
+    ctx.fillStyle = '#888';
+    ctx.font = '10px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('WASD=Move  Mouse=Aim  Click=Shoot  R=Reload  Shift=Crouch', W/2, H-10);
+  }
+}
+
+let gameStartTime = 0;
+
+// --- Game Flow ---
+function startGame() {
+  gameState = 'playing';
+  score = 0;
+  roundNum = 1;
+  blueWins = 0;
+  redWins = 0;
+  blueWinsEl.textContent = 0;
+  redWinsEl.textContent = 0;
+  roundNumEl.textContent = 1;
+  gameStartTime = Date.now();
+  overlay.classList.add('hidden');
+  startRound();
+}
+
+function startRound() {
+  generateMap();
+  spawnAmmoPickups();
+  createPlayers();
+  bullets = [];
+  particles = [];
+  // Keep splats for atmosphere but limit count
+  if(splats.length > 100) splats = splats.slice(-50);
+  roundEndTimer = 0;
+  roundMessage = '';
+  blueAliveEl.textContent = 3;
+  redAliveEl.textContent = 3;
+}
+
+function endMatch() {
+  gameState = 'menu';
+  const winner = blueWins > redWins ? 'BLUE' : 'RED';
+  const winColor = blueWins > redWins ? '#4af' : '#f55';
+  overlay.classList.remove('hidden');
+  overlayTitle.textContent = winner + ' TEAM WINS!';
+  overlayTitle.style.color = winColor;
+
+  const infoP = overlay.querySelectorAll('p');
+  infoP[0].textContent = 'Final Score: ' + blueWins + ' - ' + redWins;
+  infoP[1].textContent = 'Your Eliminations: ' + score;
+  infoP[2].textContent = 'Click to play again!';
+  startBtn.textContent = 'PLAY AGAIN';
+  startBtn.onclick = () => {
+    overlayTitle.textContent = '3v3 Team Elimination';
+    overlayTitle.style.color = '#4af';
+    infoP[0].textContent = 'WASD = Move | Mouse = Aim | Click = Shoot';
+    infoP[1].textContent = 'R = Reload | Shift = Crouch behind cover';
+    infoP[2].textContent = 'Eliminate the red team! Best of 5 rounds.';
+    startGame();
+  };
+}
+
+// --- Loop ---
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Start drawing menu state
+draw();
+gameLoop();
+</script>
+<script src="../recorder.js?v=2"></script>
+</body>
+</html>

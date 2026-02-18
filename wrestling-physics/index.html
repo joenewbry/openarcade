@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wrestling Physics</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 500px;
+    }
+    .back { color: #f82; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 136, 34, 0.5); }
+    h1 { color: #f82; font-size: 1.6rem; text-shadow: 0 0 15px rgba(255, 136, 34, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 500px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #f82; }
+    .controls-info {
+      width: 500px;
+      margin-bottom: 8px;
+      font-size: 0.7rem;
+      color: #666;
+      text-align: center;
+    }
+    canvas {
+      border: 2px solid #f82;
+      box-shadow: 0 0 20px rgba(255, 136, 34, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #f82;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 15px rgba(255, 136, 34, 0.6); }
+    .overlay p { font-size: 1rem; color: #aaa; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>WRESTLING PHYSICS</h1>
+  </div>
+  <div class="score-bar">
+    <div>You: <span id="score">0</span></div>
+    <div id="roundInfo" style="color:#f82;font-size:0.9rem;">Best of 3</div>
+    <div>CPU: <span id="aiScore">0</span></div>
+  </div>
+  <div class="controls-info">
+    Q/W=Left Arm | O/P=Right Arm | A/S=Left Leg | K/L=Right Leg
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="500" height="400"></canvas>
+    <div class="overlay" id="overlay" style="width:500px;height:400px;">
+      <h2 id="overlayTitle">WRESTLING PHYSICS</h2>
+      <p id="overlayText">Press any key to start</p>
+      <p style="font-size:0.75rem;color:#888;margin-top:12px;">QWOP-style limb controls. Pin or ring-out your opponent!</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 500, H = 400;
+    const scoreEl = document.getElementById('score');
+    const aiScoreEl = document.getElementById('aiScore');
+    const roundInfoEl = document.getElementById('roundInfo');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState = 'waiting';
+    let score = 0;
+    let aiScoreVal = 0;
+    let round = 1;
+    let maxRounds = 3;
+    let roundTimer = 0;
+    let pinTimer = 0;
+    let pinTarget = null; // 'player' or 'ai'
+    let pinCount = 0;
+    let matchMessage = '';
+    let matchMessageTimer = 0;
+    let shakeTimer = 0;
+    let shakeX = 0, shakeY = 0;
+
+    // Ring dimensions
+    const RING_LEFT = 60;
+    const RING_RIGHT = 440;
+    const RING_TOP = 140;
+    const MAT_Y = 320; // mat/floor level
+    const ROPE_Y1 = 160;
+    const ROPE_Y2 = 210;
+    const ROPE_Y3 = 260;
+    const GRAVITY = 0.35;
+    const FRICTION = 0.92;
+    const JOINT_RADIUS = 5;
+    const LIMB_THICK = 3;
+
+    // Keys
+    const keys = {};
+    document.addEventListener('keydown', e => {
+      keys[e.key.toLowerCase()] = true;
+      if (gameState === 'waiting' || gameState === 'roundEnd' || gameState === 'matchEnd') {
+        if (gameState === 'waiting') {
+          startMatch();
+        } else if (gameState === 'roundEnd') {
+          startRound();
+        } else if (gameState === 'matchEnd') {
+          score = 0;
+          aiScoreVal = 0;
+          round = 1;
+          scoreEl.textContent = '0';
+          aiScoreEl.textContent = '0';
+          startMatch();
+        }
+      }
+    });
+    document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+    // Ragdoll wrestler: a set of points connected by constraints
+    // Points: head, neck, shoulderL, shoulderR, elbowL, elbowR, handL, handR,
+    //         hip, kneeL, kneeR, footL, footR
+    function createWrestler(x, facing, color, outlineColor) {
+      const f = facing; // 1 = right, -1 = left
+      const pts = {
+        head:     { x: x, y: MAT_Y - 110, vx: 0, vy: 0, r: 10, mass: 2 },
+        neck:     { x: x, y: MAT_Y - 95, vx: 0, vy: 0, r: 4, mass: 1 },
+        shoulderL:{ x: x - 12*f, y: MAT_Y - 90, vx: 0, vy: 0, r: 5, mass: 1.5 },
+        shoulderR:{ x: x + 12*f, y: MAT_Y - 90, vx: 0, vy: 0, r: 5, mass: 1.5 },
+        elbowL:   { x: x - 24*f, y: MAT_Y - 78, vx: 0, vy: 0, r: 4, mass: 1 },
+        elbowR:   { x: x + 24*f, y: MAT_Y - 78, vx: 0, vy: 0, r: 4, mass: 1 },
+        handL:    { x: x - 34*f, y: MAT_Y - 68, vx: 0, vy: 0, r: 4, mass: 0.8 },
+        handR:    { x: x + 34*f, y: MAT_Y - 68, vx: 0, vy: 0, r: 4, mass: 0.8 },
+        hip:      { x: x, y: MAT_Y - 55, vx: 0, vy: 0, r: 6, mass: 3 },
+        kneeL:    { x: x - 8*f, y: MAT_Y - 30, vx: 0, vy: 0, r: 4, mass: 1.2 },
+        kneeR:    { x: x + 8*f, y: MAT_Y - 30, vx: 0, vy: 0, r: 4, mass: 1.2 },
+        footL:    { x: x - 12*f, y: MAT_Y - 5, vx: 0, vy: 0, r: 5, mass: 1, grounded: false },
+        footR:    { x: x + 12*f, y: MAT_Y - 5, vx: 0, vy: 0, r: 5, mass: 1, grounded: false }
+      };
+      // Constraints: [pointA, pointB, restLength]
+      const bones = [
+        ['head', 'neck', 15],
+        ['neck', 'shoulderL', 14],
+        ['neck', 'shoulderR', 14],
+        ['shoulderL', 'elbowL', 18],
+        ['shoulderR', 'elbowR', 18],
+        ['elbowL', 'handL', 16],
+        ['elbowR', 'handR', 16],
+        ['neck', 'hip', 40],
+        ['hip', 'kneeL', 26],
+        ['hip', 'kneeR', 26],
+        ['kneeL', 'footL', 24],
+        ['kneeR', 'footR', 24],
+        // Stiffening
+        ['shoulderL', 'shoulderR', 24],
+        ['shoulderL', 'hip', 42],
+        ['shoulderR', 'hip', 42],
+        ['head', 'hip', 55],
+      ];
+      return {
+        pts, bones, facing: f, color, outlineColor,
+        // Limb motor targets (angle offsets applied as forces)
+        motors: { armL: 0, armR: 0, legL: 0, legR: 0 },
+        grabbing: false, // whether this wrestler is grabbing the other
+        pinned: false,
+        onMat: false,
+        shouldersOnMat: 0, // frames both shoulders touch mat
+      };
+    }
+
+    let player, ai;
+
+    function startMatch() {
+      gameState = 'playing';
+      round = 1;
+      score = 0;
+      aiScoreVal = 0;
+      scoreEl.textContent = '0';
+      aiScoreEl.textContent = '0';
+      updateRoundInfo();
+      overlay.style.display = 'none';
+      startRound();
+    }
+
+    function startRound() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      player = createWrestler(180, 1, '#4af', '#28d');
+      ai = createWrestler(320, -1, '#f44', '#c22');
+      pinTimer = 0;
+      pinTarget = null;
+      pinCount = 0;
+      roundTimer = 0;
+      matchMessage = '';
+      matchMessageTimer = 0;
+      updateRoundInfo();
+    }
+
+    function updateRoundInfo() {
+      roundInfoEl.textContent = `Round ${round}/${maxRounds}`;
+    }
+
+    // Physics
+    function applyGravity(w) {
+      for (const k in w.pts) {
+        const p = w.pts[k];
+        p.vy += GRAVITY;
+      }
+    }
+
+    function applyMotors(w) {
+      const m = w.motors;
+      const f = w.facing;
+      const str = 2.8; // motor strength
+
+      // Left arm: Q=up, W=down -> applies force to elbowL and handL
+      if (m.armL !== 0) {
+        const dir = m.armL; // -1 up, 1 down
+        w.pts.elbowL.vy += dir * str * 1.2;
+        w.pts.elbowL.vx -= f * str * 0.5;
+        w.pts.handL.vy += dir * str * 1.5;
+        w.pts.handL.vx -= f * str * 0.3;
+      }
+      // Right arm: O=up, P=down
+      if (m.armR !== 0) {
+        const dir = m.armR;
+        w.pts.elbowR.vy += dir * str * 1.2;
+        w.pts.elbowR.vx += f * str * 0.5;
+        w.pts.handR.vy += dir * str * 1.5;
+        w.pts.handR.vx += f * str * 0.3;
+      }
+      // Left leg: A=up, S=down
+      if (m.legL !== 0) {
+        const dir = m.legL;
+        w.pts.kneeL.vy += dir * str * 1.0;
+        w.pts.kneeL.vx -= f * str * 0.6;
+        w.pts.footL.vy += dir * str * 1.4;
+        w.pts.footL.vx -= f * str * 0.4;
+        // Moving legs pushes the body
+        w.pts.hip.vx += f * str * 0.15 * -dir;
+      }
+      // Right leg: K=up, L=down
+      if (m.legR !== 0) {
+        const dir = m.legR;
+        w.pts.kneeR.vy += dir * str * 1.0;
+        w.pts.kneeR.vx += f * str * 0.6;
+        w.pts.footR.vy += dir * str * 1.4;
+        w.pts.footR.vx += f * str * 0.4;
+        w.pts.hip.vx += f * str * 0.15 * -dir;
+      }
+    }
+
+    function solveConstraints(w) {
+      for (let iter = 0; iter < 5; iter++) {
+        for (const [a, b, len] of w.bones) {
+          const pa = w.pts[a];
+          const pb = w.pts[b];
+          const dx = pb.x - pa.x;
+          const dy = pb.y - pa.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          const diff = (dist - len) / dist;
+          const totalMass = pa.mass + pb.mass;
+          const ratioA = pb.mass / totalMass;
+          const ratioB = pa.mass / totalMass;
+          pa.x += dx * diff * ratioA * 0.5;
+          pa.y += dy * diff * ratioA * 0.5;
+          pb.x -= dx * diff * ratioB * 0.5;
+          pb.y -= dy * diff * ratioB * 0.5;
+        }
+        // Floor collision
+        for (const k in w.pts) {
+          const p = w.pts[k];
+          if (p.y + p.r > MAT_Y) {
+            p.y = MAT_Y - p.r;
+            p.vy *= -0.3;
+            p.vx *= 0.85;
+            if (k === 'footL' || k === 'footR') p.grounded = true;
+          }
+        }
+      }
+    }
+
+    function updatePoints(w) {
+      for (const k in w.pts) {
+        const p = w.pts[k];
+        p.vx *= FRICTION;
+        p.vy *= FRICTION;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.grounded = false;
+      }
+    }
+
+    function dist(a, b) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Check if wrestler's hands overlap with opponent's body
+    function checkGrab(attacker, defender) {
+      const hands = [attacker.pts.handL, attacker.pts.handR];
+      const bodyParts = ['head', 'neck', 'shoulderL', 'shoulderR', 'hip'];
+      for (const hand of hands) {
+        for (const part of bodyParts) {
+          const bp = defender.pts[part];
+          if (dist(hand, bp) < hand.r + bp.r + 8) {
+            return { hand, bodyPart: bp, partName: part };
+          }
+        }
+      }
+      return null;
+    }
+
+    function applyGrabForces(attacker, defender) {
+      const grab = checkGrab(attacker, defender);
+      if (grab) {
+        attacker.grabbing = true;
+        // Pull opponent toward grabbing hand
+        const dx = grab.hand.x - grab.bodyPart.x;
+        const dy = grab.hand.y - grab.bodyPart.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = 0.8;
+        grab.bodyPart.vx += (dx / d) * force;
+        grab.bodyPart.vy += (dy / d) * force;
+        grab.hand.vx -= (dx / d) * force * 0.3;
+        grab.hand.vy -= (dy / d) * force * 0.3;
+      } else {
+        attacker.grabbing = false;
+      }
+    }
+
+    // Body-body collision (push apart)
+    function collideWrestlers(a, b) {
+      const partsA = ['head', 'shoulderL', 'shoulderR', 'hip'];
+      const partsB = ['head', 'shoulderL', 'shoulderR', 'hip'];
+      for (const ka of partsA) {
+        for (const kb of partsB) {
+          const pa = a.pts[ka];
+          const pb = b.pts[kb];
+          const dx = pb.x - pa.x;
+          const dy = pb.y - pa.y;
+          const d = Math.sqrt(dx * dx + dy * dy) || 1;
+          const minDist = pa.r + pb.r + 4;
+          if (d < minDist) {
+            const push = (minDist - d) / d * 0.5;
+            pa.x -= dx * push * 0.5;
+            pa.y -= dy * push * 0.5;
+            pb.x += dx * push * 0.5;
+            pb.y += dy * push * 0.5;
+            pa.vx -= dx * push * 0.15;
+            pa.vy -= dy * push * 0.15;
+            pb.vx += dx * push * 0.15;
+            pb.vy += dy * push * 0.15;
+          }
+        }
+      }
+    }
+
+    // Check pin: both shoulders on mat
+    function checkShouldersOnMat(w) {
+      const sl = w.pts.shoulderL;
+      const sr = w.pts.shoulderR;
+      const threshold = 12;
+      return (MAT_Y - sl.y - sl.r < threshold) && (MAT_Y - sr.y - sr.r < threshold);
+    }
+
+    // Check ring-out
+    function checkRingOut(w) {
+      const hip = w.pts.hip;
+      return hip.x < RING_LEFT - 20 || hip.x > RING_RIGHT + 20;
+    }
+
+    // AI control
+    let aiTimer = 0;
+    let aiAction = { armL: 0, armR: 0, legL: 0, legR: 0 };
+
+    function updateAI() {
+      aiTimer++;
+      
+      // Change actions periodically with some randomness
+      if (aiTimer % 8 === 0) {
+        const playerHip = player.pts.hip;
+        const aiHip = ai.pts.hip;
+        const dx = playerHip.x - aiHip.x;
+        const distToPlayer = Math.abs(dx);
+
+        // Movement: walk toward player using legs
+        if (distToPlayer > 50) {
+          // Alternate legs to walk
+          if (aiTimer % 16 < 8) {
+            aiAction.legL = dx > 0 ? 1 : -1;
+            aiAction.legR = 0;
+          } else {
+            aiAction.legR = dx > 0 ? 1 : -1;
+            aiAction.legL = 0;
+          }
+        } else {
+          // Close: try to grab and push down
+          // Pump arms to grab
+          if (aiTimer % 16 < 8) {
+            aiAction.armL = -1; // up
+            aiAction.armR = 1;  // down (push)
+          } else {
+            aiAction.armL = 1;
+            aiAction.armR = -1;
+          }
+          // Legs: ground and push
+          aiAction.legL = Math.random() > 0.5 ? 1 : -1;
+          aiAction.legR = Math.random() > 0.5 ? 1 : -1;
+        }
+
+        // If being pinned, flail wildly
+        if (checkShouldersOnMat(ai)) {
+          aiAction.armL = Math.random() > 0.3 ? -1 : 1;
+          aiAction.armR = Math.random() > 0.3 ? -1 : 1;
+          aiAction.legL = Math.random() > 0.3 ? -1 : 1;
+          aiAction.legR = Math.random() > 0.3 ? -1 : 1;
+        }
+
+        // If near edge, try to move toward center
+        if (aiHip.x < RING_LEFT + 40) {
+          aiAction.legL = 1; aiAction.legR = -1;
+        } else if (aiHip.x > RING_RIGHT - 40) {
+          aiAction.legL = -1; aiAction.legR = 1;
+        }
+
+        // Add some chaos / comedy
+        if (Math.random() < 0.15) {
+          aiAction.armL = (Math.random() > 0.5) ? -1 : 1;
+          aiAction.armR = (Math.random() > 0.5) ? -1 : 1;
+          aiAction.legL = (Math.random() > 0.5) ? -1 : 1;
+          aiAction.legR = (Math.random() > 0.5) ? -1 : 1;
+        }
+      }
+
+      ai.motors.armL = aiAction.armL;
+      ai.motors.armR = aiAction.armR;
+      ai.motors.legL = aiAction.legL;
+      ai.motors.legR = aiAction.legR;
+    }
+
+    function handlePlayerInput() {
+      player.motors.armL = keys['q'] ? -1 : (keys['w'] ? 1 : 0);
+      player.motors.armR = keys['o'] ? -1 : (keys['p'] ? 1 : 0);
+      player.motors.legL = keys['a'] ? -1 : (keys['s'] ? 1 : 0);
+      player.motors.legR = keys['k'] ? -1 : (keys['l'] ? 1 : 0);
+    }
+
+    // --- DRAWING ---
+    function drawRing() {
+      // Mat
+      ctx.fillStyle = '#3a2820';
+      ctx.fillRect(RING_LEFT - 10, MAT_Y, RING_RIGHT - RING_LEFT + 20, 60);
+
+      // Mat surface
+      ctx.fillStyle = '#5a3a2a';
+      ctx.fillRect(RING_LEFT, MAT_Y - 2, RING_RIGHT - RING_LEFT, 4);
+
+      // Ring posts
+      ctx.fillStyle = '#888';
+      ctx.fillRect(RING_LEFT - 6, RING_TOP, 8, MAT_Y - RING_TOP);
+      ctx.fillRect(RING_RIGHT - 2, RING_TOP, 8, MAT_Y - RING_TOP);
+
+      // Post tops (turnbuckles)
+      ctx.fillStyle = '#f82';
+      ctx.beginPath();
+      ctx.arc(RING_LEFT - 2, RING_TOP, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(RING_RIGHT + 2, RING_TOP, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ropes
+      ctx.strokeStyle = '#f82';
+      ctx.lineWidth = 2;
+      for (const ry of [ROPE_Y1, ROPE_Y2, ROPE_Y3]) {
+        ctx.beginPath();
+        ctx.moveTo(RING_LEFT - 2, ry);
+        ctx.lineTo(RING_RIGHT + 2, ry);
+        ctx.stroke();
+      }
+
+      // Mat pattern (X pattern for wrestling)
+      ctx.strokeStyle = 'rgba(255,136,34,0.15)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(RING_LEFT + 20, MAT_Y - 1);
+      ctx.lineTo(250, MAT_Y - 50);
+      ctx.lineTo(RING_RIGHT - 20, MAT_Y - 1);
+      ctx.stroke();
+
+      // Audience silhouettes
+      ctx.fillStyle = '#0d0d1a';
+      for (let i = 0; i < 20; i++) {
+        const ax = 25 + i * 24;
+        const ay = 80 + Math.sin(i * 1.3) * 8;
+        ctx.beginPath();
+        ctx.arc(ax, ay, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(ax - 5, ay + 8, 10, 12);
+      }
+
+      // Crowd glow
+      ctx.fillStyle = 'rgba(255,136,34,0.05)';
+      ctx.fillRect(0, 40, W, 70);
+    }
+
+    function drawWrestler(w) {
+      const p = w.pts;
+      ctx.strokeStyle = w.outlineColor;
+      ctx.lineWidth = LIMB_THICK + 2;
+      ctx.lineCap = 'round';
+
+      // Draw limb connections (shadow/outline)
+      const limbs = [
+        ['neck', 'shoulderL'], ['neck', 'shoulderR'],
+        ['shoulderL', 'elbowL'], ['shoulderR', 'elbowR'],
+        ['elbowL', 'handL'], ['elbowR', 'handR'],
+        ['neck', 'hip'],
+        ['hip', 'kneeL'], ['hip', 'kneeR'],
+        ['kneeL', 'footL'], ['kneeR', 'footR'],
+      ];
+      for (const [a, b] of limbs) {
+        ctx.beginPath();
+        ctx.moveTo(p[a].x, p[a].y);
+        ctx.lineTo(p[b].x, p[b].y);
+        ctx.stroke();
+      }
+
+      // Draw limbs (main color)
+      ctx.strokeStyle = w.color;
+      ctx.lineWidth = LIMB_THICK;
+      for (const [a, b] of limbs) {
+        ctx.beginPath();
+        ctx.moveTo(p[a].x, p[a].y);
+        ctx.lineTo(p[b].x, p[b].y);
+        ctx.stroke();
+      }
+
+      // Torso fill
+      ctx.fillStyle = w.color;
+      ctx.beginPath();
+      ctx.moveTo(p.shoulderL.x, p.shoulderL.y);
+      ctx.lineTo(p.shoulderR.x, p.shoulderR.y);
+      ctx.lineTo(p.hip.x + 6 * w.facing, p.hip.y);
+      ctx.lineTo(p.hip.x - 6 * w.facing, p.hip.y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Draw joints
+      for (const k in p) {
+        const pt = p[k];
+        ctx.fillStyle = (k === 'handL' || k === 'handR') ? '#fff' : w.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+        ctx.fill();
+        // Joint outline
+        ctx.strokeStyle = w.outlineColor;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // Head details
+      ctx.fillStyle = '#fff';
+      const eyeOff = w.facing * 3;
+      // Eyes
+      ctx.beginPath();
+      ctx.arc(p.head.x + eyeOff - 2, p.head.y - 2, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.head.x + eyeOff + 3, p.head.y - 2, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Wrestling mask/headband
+      ctx.strokeStyle = w.color === '#4af' ? '#29f' : '#d22';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.head.x, p.head.y - 2, p.head.r - 1, Math.PI + 0.3, -0.3);
+      ctx.stroke();
+
+      // Grab indicator
+      if (w.grabbing) {
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        for (const hk of ['handL', 'handR']) {
+          ctx.beginPath();
+          ctx.arc(p[hk].x, p[hk].y, p[hk].r + 6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+    }
+
+    function drawPinIndicator() {
+      if (pinTarget && pinTimer > 0) {
+        const w = pinTarget === 'ai' ? ai : player;
+        const sx = (w.pts.shoulderL.x + w.pts.shoulderR.x) / 2;
+        const sy = Math.min(w.pts.shoulderL.y, w.pts.shoulderR.y) - 25;
+
+        // Pin count display
+        const seconds = Math.floor(pinTimer / 60);
+        const progress = pinTimer / 180; // 3 seconds = 180 frames
+
+        ctx.fillStyle = '#f82';
+        ctx.font = 'bold 16px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(`PIN! ${(pinTimer / 60).toFixed(1)}s`, sx, sy);
+
+        // Progress bar
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(sx - 30, sy + 5, 60, 8);
+        ctx.fillStyle = '#f82';
+        ctx.fillRect(sx - 30, sy + 5, 60 * progress, 8);
+
+        // Flashing border
+        if (Math.floor(pinTimer / 8) % 2 === 0) {
+          ctx.strokeStyle = '#f82';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(sx - 35, sy - 15, 70, 35);
+        }
+      }
+    }
+
+    function drawKeyGuide() {
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(5, H - 55, 200, 50);
+      ctx.fillRect(W - 205, H - 55, 200, 50);
+
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+
+      // Player controls
+      ctx.fillStyle = '#4af';
+      ctx.fillText('YOU (Blue)', 10, H - 43);
+      ctx.fillStyle = '#888';
+      ctx.fillText('Q/W: L.Arm Up/Dn', 10, H - 31);
+      ctx.fillText('O/P: R.Arm Up/Dn', 10, H - 20);
+      ctx.fillText('A/S: L.Leg Up/Dn', 10, H - 9);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#f44';
+      ctx.fillText('CPU (Red)', W - 10, H - 43);
+      ctx.fillStyle = '#888';
+      ctx.fillText('K/L: R.Leg Up/Dn', W - 10, H - 31);
+      ctx.fillText('Pin=3s shoulders down', W - 10, H - 20);
+      ctx.fillText('Ring-out=fall off edge', W - 10, H - 9);
+    }
+
+    function drawMessage() {
+      if (matchMessageTimer > 0) {
+        const alpha = Math.min(1, matchMessageTimer / 30);
+        ctx.fillStyle = `rgba(255,136,34,${alpha})`;
+        ctx.font = 'bold 24px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(matchMessage, W / 2, 130);
+        ctx.strokeStyle = `rgba(0,0,0,${alpha})`;
+        ctx.lineWidth = 1;
+        ctx.strokeText(matchMessage, W / 2, 130);
+      }
+    }
+
+    // --- GAME LOOP ---
+    function update() {
+      if (gameState !== 'playing') return;
+
+      roundTimer++;
+
+      // Player input
+      handlePlayerInput();
+
+      // AI
+      updateAI();
+
+      // Apply motors
+      applyMotors(player);
+      applyMotors(ai);
+
+      // Physics
+      applyGravity(player);
+      applyGravity(ai);
+      updatePoints(player);
+      updatePoints(ai);
+      solveConstraints(player);
+      solveConstraints(ai);
+
+      // Wrestler collision
+      collideWrestlers(player, ai);
+
+      // Grab mechanics
+      applyGrabForces(player, ai);
+      applyGrabForces(ai, player);
+
+      // Keep wrestlers somewhat upright (weak force)
+      for (const w of [player, ai]) {
+        const headAboveHip = w.pts.head.y < w.pts.hip.y;
+        if (!headAboveHip) {
+          w.pts.head.vy -= 0.8;
+          w.pts.hip.vy += 0.3;
+        }
+        // Gentle centering of balance
+        const hipX = w.pts.hip.x;
+        const footMidX = (w.pts.footL.x + w.pts.footR.x) / 2;
+        const diff = hipX - footMidX;
+        w.pts.hip.vx -= diff * 0.005;
+      }
+
+      // Check pin conditions
+      const playerPinned = checkShouldersOnMat(player);
+      const aiPinned = checkShouldersOnMat(ai);
+
+      if (aiPinned && !playerPinned) {
+        if (pinTarget === 'ai') {
+          pinTimer++;
+        } else {
+          pinTarget = 'ai';
+          pinTimer = 1;
+        }
+      } else if (playerPinned && !aiPinned) {
+        if (pinTarget === 'player') {
+          pinTimer++;
+        } else {
+          pinTarget = 'player';
+          pinTimer = 1;
+        }
+      } else {
+        pinTimer = Math.max(0, pinTimer - 2);
+        if (pinTimer <= 0) pinTarget = null;
+      }
+
+      // Pin success (3 seconds = 180 frames at 60fps)
+      if (pinTimer >= 180) {
+        if (pinTarget === 'ai') {
+          score++;
+          scoreEl.textContent = score;
+          matchMessage = 'PIN! You score!';
+        } else {
+          aiScoreVal++;
+          aiScoreEl.textContent = aiScoreVal;
+          matchMessage = 'PIN! CPU scores!';
+        }
+        matchMessageTimer = 120;
+        shakeTimer = 15;
+        endRound();
+        return;
+      }
+
+      // Ring out check
+      if (checkRingOut(player)) {
+        aiScoreVal++;
+        aiScoreEl.textContent = aiScoreVal;
+        matchMessage = 'RING OUT! CPU scores!';
+        matchMessageTimer = 120;
+        shakeTimer = 20;
+        endRound();
+        return;
+      }
+      if (checkRingOut(ai)) {
+        score++;
+        scoreEl.textContent = score;
+        matchMessage = 'RING OUT! You score!';
+        matchMessageTimer = 120;
+        shakeTimer = 20;
+        endRound();
+        return;
+      }
+
+      // Message timer
+      if (matchMessageTimer > 0) matchMessageTimer--;
+
+      // Shake timer
+      if (shakeTimer > 0) {
+        shakeTimer--;
+        shakeX = (Math.random() - 0.5) * shakeTimer * 0.8;
+        shakeY = (Math.random() - 0.5) * shakeTimer * 0.8;
+      } else {
+        shakeX = 0;
+        shakeY = 0;
+      }
+    }
+
+    function endRound() {
+      pinTimer = 0;
+      pinTarget = null;
+
+      if (round >= maxRounds || score >= 2 || aiScoreVal >= 2) {
+        // Match over
+        gameState = 'matchEnd';
+        overlay.style.display = 'flex';
+        if (score > aiScoreVal) {
+          overlayTitle.textContent = 'YOU WIN!';
+          overlayText.textContent = `${score} - ${aiScoreVal}. Press any key to rematch`;
+        } else if (aiScoreVal > score) {
+          overlayTitle.textContent = 'CPU WINS!';
+          overlayText.textContent = `${score} - ${aiScoreVal}. Press any key to rematch`;
+        } else {
+          overlayTitle.textContent = 'DRAW!';
+          overlayText.textContent = `${score} - ${aiScoreVal}. Press any key to rematch`;
+        }
+      } else {
+        round++;
+        gameState = 'roundEnd';
+        overlay.style.display = 'flex';
+        overlayTitle.textContent = matchMessage;
+        overlayText.textContent = `Round ${round} - Press any key`;
+      }
+    }
+
+    function draw() {
+      ctx.save();
+      ctx.translate(shakeX, shakeY);
+
+      // Background
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(-10, -10, W + 20, H + 20);
+
+      // Arena lighting
+      const grad = ctx.createRadialGradient(W/2, MAT_Y - 60, 20, W/2, MAT_Y - 60, 250);
+      grad.addColorStop(0, 'rgba(255,136,34,0.08)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+
+      drawRing();
+
+      if (player && ai) {
+        drawWrestler(player);
+        drawWrestler(ai);
+        drawPinIndicator();
+      }
+
+      drawKeyGuide();
+      drawMessage();
+
+      // Title if waiting
+      if (gameState === 'waiting') {
+        // drawn by overlay
+      }
+
+      ctx.restore();
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Initialize
+    function getGameState() {
+      return {
+        gameState,
+        score,
+        aiScore: aiScoreVal,
+        round,
+        pinTimer,
+        pinTarget
+      };
+    }
+
+    gameLoop();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

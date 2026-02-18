@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smash Arena</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #f48; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 68, 136, 0.5); }
+    h1 { color: #f48; font-size: 1.8rem; text-shadow: 0 0 15px rgba(255, 68, 136, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #f48; }
+    canvas {
+      border: 2px solid #f48;
+      box-shadow: 0 0 20px rgba(255, 68, 136, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #f48;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.88);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(255,68,136,0.6); }
+    .overlay p { font-size: 0.9rem; color: #aaa; line-height: 1.6; }
+    .overlay .highlight { color: #f48; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>SMASH ARENA</h1>
+  </div>
+  <div class="score-bar">
+    <div>KOs: <span id="score">0</span></div>
+    <div>Stocks: <span id="stocksDisp">3</span> | P1: <span id="dmgDisp">0</span>%</div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="400"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:400px;">
+      <h2 id="overlayTitle">SMASH ARENA</h2>
+      <p id="overlayText">Click to Fight!<br><br>
+        <span class="highlight">Arrows</span> = Move/Jump &nbsp; <span class="highlight">Z</span> = Attack<br>
+        <span class="highlight">X</span> = Special &nbsp; <span class="highlight">C</span> = Grab &nbsp; <span class="highlight">S</span> = Shield<br><br>
+        Higher damage % = more knockback!<br>
+        KO opponents off screen. 3 stocks each.</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 400;
+    const scoreEl = document.getElementById('score');
+    const stocksDisp = document.getElementById('stocksDisp');
+    const dmgDisp = document.getElementById('dmgDisp');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState = 'waiting';
+    let score = 0;
+
+    const THEME = '#f48';
+    const THEME_RGB = '255,68,136';
+    const BG = '#1a1a2e';
+    const BG2 = '#16213e';
+
+    // Physics
+    const GRAVITY = 0.55;
+    const MAX_FALL = 12;
+    const GROUND_FRICTION = 0.85;
+    const AIR_FRICTION = 0.97;
+    const JUMP_FORCE = -11;
+    const DOUBLE_JUMP_FORCE = -9.5;
+    const MOVE_SPEED = 4.2;
+    const AIR_SPEED = 3.0;
+    const HITSTUN_FACTOR = 0.06;
+    const KB_SCALING = 0.12;
+    const BASE_KB = 3;
+    const DI_STRENGTH = 0.08;
+
+    // Stage
+    const STAGE_Y = 310;
+    const STAGE_LEFT = 100;
+    const STAGE_RIGHT = 500;
+    const BLAST_TOP = -80;
+    const BLAST_BOTTOM = 480;
+    const BLAST_LEFT = -60;
+    const BLAST_RIGHT = 660;
+
+    const platforms = [
+      { x: 100, y: STAGE_Y, w: 400, h: 18, isMain: true },
+      { x: 140, y: 230, w: 100, h: 10, isMain: false },
+      { x: 360, y: 230, w: 100, h: 10, isMain: false },
+      { x: 240, y: 160, w: 120, h: 10, isMain: false },
+    ];
+
+    // Ledges
+    const ledges = [
+      { x: STAGE_LEFT, y: STAGE_Y, side: 'left' },
+      { x: STAGE_RIGHT, y: STAGE_Y, side: 'right' },
+    ];
+
+    // Character data
+    const CHAR_W = 28, CHAR_H = 38;
+    const CHARACTERS = [
+      { name: 'Blaze', color: '#f44', accentColor: '#f88', speed: 1.0, weight: 1.0, jumpMul: 1.0,
+        specDesc: 'Fireball', specType: 'projectile', specColor: '#f80' },
+      { name: 'Frost', color: '#48f', accentColor: '#8af', speed: 1.1, weight: 0.85, jumpMul: 1.1,
+        specDesc: 'Ice Dash', specType: 'dash', specColor: '#4ef' },
+      { name: 'Terra', color: '#4a4', accentColor: '#8d8', speed: 0.85, weight: 1.3, jumpMul: 0.9,
+        specDesc: 'Rock Smash', specType: 'slam', specColor: '#a84' },
+      { name: 'Volt', color: '#ff4', accentColor: '#ffa', speed: 1.2, weight: 0.8, jumpMul: 1.15,
+        specDesc: 'Thunder', specType: 'projectile', specColor: '#ff0' },
+    ];
+
+    // Attacks
+    const ATTACKS = {
+      jab:    { dmg: 4,  kb: 2.5,  start: 3,  active: 3,  end: 8,  rangeX: 30, rangeY: 14 },
+      smash:  { dmg: 14, kb: 8,    start: 12, active: 4,  end: 18, rangeX: 38, rangeY: 18 },
+      aerial: { dmg: 8,  kb: 5,    start: 5,  active: 4,  end: 10, rangeX: 32, rangeY: 20 },
+      upAir:  { dmg: 9,  kb: 6,    start: 5,  active: 4,  end: 10, rangeX: 24, rangeY: 30 },
+      dAir:   { dmg: 10, kb: 7,    start: 7,  active: 4,  end: 14, rangeX: 22, rangeY: 28 },
+      grab:   { dmg: 0,  kb: 0,    start: 6,  active: 3,  end: 25, rangeX: 28, rangeY: 14 },
+    };
+
+    // Items
+    const ITEM_TYPES = [
+      { name: 'Beam Sword', color: '#4ff', w: 20, h: 8, attackBoost: 1.6, kbBoost: 1.4, duration: 600 },
+      { name: 'Hammer', color: '#f84', w: 16, h: 22, attackBoost: 2.2, kbBoost: 2.0, duration: 360 },
+      { name: 'Bomb', color: '#444', w: 14, h: 14, attackBoost: 1.0, kbBoost: 1.0, duration: 300, explosive: true },
+    ];
+
+    let players = [];
+    let projectiles = [];
+    let items = [];
+    let particles = [];
+    let shakeTimer = 0;
+    let shakeIntensity = 0;
+    let itemSpawnTimer = 0;
+    let frameCount = 0;
+    let keys = {};
+    let lastTime = 0;
+    let matchOver = false;
+    let countdownTimer = 0;
+    let countdownValue = 0;
+    let stageHazardTimer = 0;
+    let hazardWarning = null;
+    let hazardActive = null;
+
+    // Input
+    document.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+    });
+    document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    canvas.addEventListener('click', () => {
+      if (gameState === 'waiting' || gameState === 'over') {
+        startGame();
+      }
+    });
+
+    function createPlayer(index, charIndex, isAI) {
+      const ch = CHARACTERS[charIndex];
+      const spawnX = 180 + index * 100;
+      return {
+        x: spawnX, y: STAGE_Y - CHAR_H,
+        vx: 0, vy: 0,
+        w: CHAR_W, h: CHAR_H,
+        facing: index < 2 ? 1 : -1,
+        charIndex: charIndex,
+        color: ch.color,
+        accentColor: ch.accentColor,
+        speed: ch.speed,
+        weight: ch.weight,
+        jumpMul: ch.jumpMul,
+        damage: 0,
+        stocks: 3,
+        kos: 0,
+        isAI: isAI,
+        grounded: false,
+        jumpsLeft: 2,
+        attack: null,
+        attackFrame: 0,
+        attackType: null,
+        hitstun: 0,
+        shielding: false,
+        shieldHP: 100,
+        grabbing: null,
+        grabbedBy: null,
+        invincible: 0,
+        item: null,
+        itemTimer: 0,
+        respawnTimer: 0,
+        alive: true,
+        index: index,
+        name: ch.name,
+        specType: ch.specType,
+        specColor: ch.specColor,
+        // AI state
+        aiTarget: null,
+        aiTimer: 0,
+        aiAction: null,
+        aiDodgeTimer: 0,
+        aiComboStep: 0,
+        fastFall: false,
+        deathY: 0,
+        ledgeGrab: 0,
+        smashCharge: 0,
+        platform: null,
+        // Animation
+        animFrame: 0,
+        animTimer: 0,
+        hitlag: 0,
+        lastHitBy: -1,
+      };
+    }
+
+    function startGame() {
+      gameState = 'playing';
+      score = 0;
+      overlay.style.display = 'none';
+      players = [
+        createPlayer(0, 0, false),
+        createPlayer(1, 1, true),
+        createPlayer(2, 2, true),
+        createPlayer(3, 3, true),
+      ];
+      projectiles = [];
+      items = [];
+      particles = [];
+      itemSpawnTimer = 300;
+      stageHazardTimer = 900;
+      hazardWarning = null;
+      hazardActive = null;
+      matchOver = false;
+      countdownTimer = 180;
+      countdownValue = 3;
+      frameCount = 0;
+      updateHUD();
+    }
+
+    function updateHUD() {
+      const p = players[0];
+      if (!p) return;
+      scoreEl.textContent = score;
+      stocksDisp.textContent = p.stocks;
+      dmgDisp.textContent = Math.floor(p.damage);
+    }
+
+    // Collision helpers
+    function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+      return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    }
+
+    function playerOnPlatform(p) {
+      for (const plat of platforms) {
+        if (p.vy >= 0 && p.x + p.w > plat.x && p.x < plat.x + plat.w &&
+            p.y + p.h >= plat.y && p.y + p.h <= plat.y + 12) {
+          return plat;
+        }
+      }
+      return null;
+    }
+
+    function spawnParticle(x, y, vx, vy, color, life, size) {
+      particles.push({ x, y, vx, vy, color, life, maxLife: life, size: size || 3 });
+    }
+
+    function spawnKOExplosion(x, y, color) {
+      shakeTimer = 15;
+      shakeIntensity = 8;
+      for (let i = 0; i < 30; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 2 + Math.random() * 6;
+        spawnParticle(x, y, Math.cos(ang) * spd, Math.sin(ang) * spd, color, 40 + Math.random() * 20, 3 + Math.random() * 4);
+      }
+      // KO star burst
+      for (let i = 0; i < 8; i++) {
+        const ang = i / 8 * Math.PI * 2;
+        spawnParticle(x, y, Math.cos(ang) * 8, Math.sin(ang) * 8, '#fff', 25, 5);
+      }
+    }
+
+    function spawnHitSparks(x, y, dmg) {
+      const count = Math.min(dmg * 2, 15);
+      for (let i = 0; i < count; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 1 + Math.random() * 3;
+        const c = ['#fff', '#ff8', '#f84', THEME][Math.floor(Math.random() * 4)];
+        spawnParticle(x, y, Math.cos(ang) * spd, Math.sin(ang) * spd, c, 10 + Math.random() * 10, 2 + Math.random() * 2);
+      }
+    }
+
+    function applyKnockback(target, attacker, attack, dirX, dirY, multiplier) {
+      const dmgPercent = target.damage;
+      const kbMul = multiplier || 1;
+      const itemKB = attacker.item ? attacker.item.kbBoost : 1;
+      const totalKB = (BASE_KB + attack.kb * kbMul * itemKB) * (1 + dmgPercent * KB_SCALING) / target.weight;
+      const angle = Math.atan2(dirY || -0.6, dirX);
+      target.vx = Math.cos(angle) * totalKB;
+      target.vy = Math.sin(angle) * totalKB;
+      target.hitstun = Math.floor(totalKB * HITSTUN_FACTOR * 60);
+      target.grounded = false;
+      target.lastHitBy = attacker.index;
+
+      if (totalKB > 8) {
+        shakeTimer = Math.min(totalKB * 0.5, 10);
+        shakeIntensity = Math.min(totalKB * 0.4, 6);
+      }
+    }
+
+    function fireProjectile(p) {
+      const ch = CHARACTERS[p.charIndex];
+      projectiles.push({
+        x: p.x + p.w / 2 + p.facing * 20,
+        y: p.y + p.h / 2,
+        vx: p.facing * 6,
+        vy: ch.specType === 'projectile' && p.charIndex === 3 ? -3 : 0,
+        w: 12, h: 10,
+        color: ch.specColor,
+        owner: p.index,
+        dmg: 8,
+        kb: 4,
+        life: 80,
+      });
+    }
+
+    function spawnItem() {
+      const type = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
+      const x = 150 + Math.random() * 300;
+      items.push({
+        x, y: -20, vy: 1.5,
+        ...type,
+        grounded: false,
+        life: 600,
+      });
+    }
+
+    // --- AI ---
+    function updateAI(p) {
+      if (!p.alive || p.respawnTimer > 0 || p.hitstun > 0) return;
+      p.aiTimer--;
+
+      // Find closest alive enemy
+      let closest = null, closestDist = Infinity;
+      for (const other of players) {
+        if (other.index === p.index || !other.alive || other.respawnTimer > 0) continue;
+        const d = Math.abs(other.x - p.x) + Math.abs(other.y - p.y);
+        if (d < closestDist) { closestDist = d; closest = other; }
+      }
+      if (!closest) return;
+      p.aiTarget = closest;
+
+      const dx = closest.x - p.x;
+      const dy = closest.y - p.y;
+      const distX = Math.abs(dx);
+      const distY = Math.abs(dy);
+      p.facing = dx > 0 ? 1 : -1;
+
+      // Recovery: if off stage and below stage level
+      if (p.y > STAGE_Y + 20 || p.x < STAGE_LEFT - 30 || p.x > STAGE_RIGHT + 30) {
+        // Try to recover
+        const stageCenter = (STAGE_LEFT + STAGE_RIGHT) / 2;
+        if (p.x < stageCenter) p.vx = Math.min(p.vx + 0.4, AIR_SPEED);
+        else p.vx = Math.max(p.vx - 0.4, -AIR_SPEED);
+        if (p.jumpsLeft > 0 && p.y > STAGE_Y - 30) {
+          p.vy = DOUBLE_JUMP_FORCE * p.jumpMul;
+          p.jumpsLeft--;
+          p.grounded = false;
+        }
+        // Special recovery
+        if (p.jumpsLeft <= 0 && p.y > STAGE_Y) {
+          doSpecial(p);
+        }
+        return;
+      }
+
+      // Edge guard: if target is off stage, go to edge and attack
+      if (closest.y > STAGE_Y + 30 || closest.x < STAGE_LEFT - 20 || closest.x > STAGE_RIGHT + 20) {
+        if (p.grounded) {
+          // Move to nearest edge
+          const nearEdge = closest.x < STAGE_LEFT ? STAGE_LEFT : STAGE_RIGHT;
+          if (Math.abs(p.x - nearEdge) > 20) {
+            p.vx += (nearEdge > p.x ? 1 : -1) * 0.5;
+          }
+          // Jump off to edge guard if close
+          if (Math.abs(p.x - nearEdge) < 40 && closestDist < 150 && Math.random() < 0.03) {
+            p.vy = JUMP_FORCE * p.jumpMul;
+            p.grounded = false;
+            p.jumpsLeft--;
+          }
+        }
+        if (!p.grounded && distX < 50 && distY < 50) {
+          doAttack(p, 'aerial');
+        }
+        return;
+      }
+
+      // Dodge incoming attacks
+      if (closest.attack && closestDist < 60 && p.aiDodgeTimer <= 0) {
+        if (Math.random() < 0.5) {
+          p.shielding = true;
+          p.aiDodgeTimer = 20;
+        } else if (p.grounded && Math.random() < 0.4) {
+          p.vy = JUMP_FORCE * p.jumpMul * 0.8;
+          p.grounded = false;
+          p.jumpsLeft--;
+          p.aiDodgeTimer = 25;
+        }
+        return;
+      }
+      p.shielding = false;
+      if (p.aiDodgeTimer > 0) p.aiDodgeTimer--;
+
+      // Grab if shielding opponent
+      if (closest.shielding && distX < 35 && distY < 20) {
+        doAttack(p, 'grab');
+        return;
+      }
+
+      // Pick up items
+      let nearItem = null;
+      for (const item of items) {
+        if (item.grounded && Math.abs(item.x - p.x) < 80 && Math.abs(item.y - p.y) < 60 && !p.item) {
+          nearItem = item;
+          break;
+        }
+      }
+      if (nearItem && !p.item) {
+        p.vx += (nearItem.x > p.x ? 1 : -1) * 0.5;
+        return;
+      }
+
+      // Combat range
+      if (distX < 45 && distY < 30) {
+        // Close range - combo
+        if (p.aiTimer <= 0) {
+          const r = Math.random();
+          if (closest.damage > 80 && r < 0.35) {
+            // Smash attack for KO
+            doAttack(p, 'smash');
+          } else if (r < 0.6) {
+            doAttack(p, 'jab');
+            p.aiComboStep = 1;
+          } else if (r < 0.8) {
+            doAttack(p, 'grab');
+          } else {
+            doSpecial(p);
+          }
+          p.aiTimer = 10 + Math.floor(Math.random() * 15);
+        }
+      } else if (distX < 150) {
+        // Approach
+        p.vx += (dx > 0 ? 1 : -1) * 0.4 * p.speed;
+
+        // Short hop aerial approach
+        if (p.grounded && Math.random() < 0.02 && distX < 100) {
+          p.vy = JUMP_FORCE * p.jumpMul * 0.7;
+          p.grounded = false;
+          p.jumpsLeft--;
+        }
+
+        // Use projectile at mid range
+        if (distX > 100 && Math.random() < 0.015 && p.specType === 'projectile') {
+          doSpecial(p);
+        }
+      } else {
+        // Far - approach or projectile
+        p.vx += (dx > 0 ? 1 : -1) * 0.3 * p.speed;
+        if (Math.random() < 0.02 && p.specType === 'projectile') {
+          doSpecial(p);
+        }
+      }
+
+      // Aerial attacks when above target
+      if (!p.grounded && distX < 40) {
+        if (dy > 0 && Math.random() < 0.06) doAttack(p, 'dAir');
+        else if (dy < 0 && Math.random() < 0.06) doAttack(p, 'upAir');
+        else if (Math.random() < 0.04) doAttack(p, 'aerial');
+      }
+
+      // Combo follow-up
+      if (p.aiComboStep > 0 && !p.attack && p.aiTimer <= 0) {
+        if (p.aiComboStep === 1 && distX < 50) {
+          doAttack(p, 'jab');
+          p.aiComboStep = 2;
+          p.aiTimer = 6;
+        } else if (p.aiComboStep === 2 && distX < 50) {
+          if (closest.damage > 60) doAttack(p, 'smash');
+          else doAttack(p, 'aerial');
+          p.aiComboStep = 0;
+          p.aiTimer = 15;
+        } else {
+          p.aiComboStep = 0;
+        }
+      }
+
+      // Jump to reach platforms
+      if (p.grounded && closest.y < p.y - 40 && Math.random() < 0.03) {
+        p.vy = JUMP_FORCE * p.jumpMul;
+        p.grounded = false;
+        p.jumpsLeft--;
+      }
+
+      // Drop through platform
+      if (p.grounded && closest.y > p.y + 30 && p.platform && !p.platform.isMain && Math.random() < 0.03) {
+        p.y += 12;
+        p.grounded = false;
+      }
+    }
+
+    function doAttack(p, type) {
+      if (p.attack || p.hitstun > 0 || p.grabbedBy !== null) return;
+      p.attack = ATTACKS[type];
+      p.attackFrame = 0;
+      p.attackType = type;
+      if (type === 'smash') p.smashCharge = 0;
+    }
+
+    function doSpecial(p) {
+      if (p.attack || p.hitstun > 0) return;
+      const ch = CHARACTERS[p.charIndex];
+      if (ch.specType === 'projectile') {
+        fireProjectile(p);
+        p.attack = { dmg: 0, kb: 0, start: 5, active: 0, end: 15, rangeX: 0, rangeY: 0 };
+        p.attackFrame = 0;
+        p.attackType = 'special';
+      } else if (ch.specType === 'dash') {
+        p.vx = p.facing * 14;
+        p.invincible = 8;
+        p.attack = { dmg: 10, kb: 5, start: 2, active: 6, end: 12, rangeX: 35, rangeY: 20 };
+        p.attackFrame = 0;
+        p.attackType = 'special';
+        for (let i = 0; i < 8; i++) spawnParticle(p.x + p.w/2, p.y + p.h/2, -p.facing * (1 + Math.random()*3), (Math.random()-0.5)*2, ch.specColor, 15, 3);
+      } else if (ch.specType === 'slam') {
+        if (p.grounded) {
+          p.vy = JUMP_FORCE * 1.2;
+          p.grounded = false;
+        } else {
+          p.vy = 12;
+          p.fastFall = true;
+        }
+        p.attack = { dmg: 16, kb: 9, start: 4, active: 6, end: 20, rangeX: 40, rangeY: 25 };
+        p.attackFrame = 0;
+        p.attackType = 'special';
+      }
+    }
+
+    function handlePlayerInput(p) {
+      if (!p.alive || p.respawnTimer > 0 || p.hitstun > 0 || p.grabbedBy !== null) return;
+
+      const left = keys['ArrowLeft'];
+      const right = keys['ArrowRight'];
+      const up = keys['ArrowUp'];
+      const down = keys['ArrowDown'];
+
+      // Shield
+      p.shielding = keys['s'] && p.grounded && !p.attack && p.shieldHP > 0;
+      if (p.shielding) {
+        p.shieldHP -= 0.3;
+        if (p.shieldHP <= 0) {
+          p.shielding = false;
+          p.hitstun = 40; // shield break stun
+          spawnParticle(p.x + p.w/2, p.y, 0, -3, '#fff', 30, 8);
+        }
+        return;
+      }
+      if (!p.shielding) p.shieldHP = Math.min(100, p.shieldHP + 0.15);
+
+      // Movement
+      if (left) {
+        p.vx -= (p.grounded ? MOVE_SPEED : AIR_SPEED) * p.speed * 0.3;
+        if (!p.attack) p.facing = -1;
+      }
+      if (right) {
+        p.vx += (p.grounded ? MOVE_SPEED : AIR_SPEED) * p.speed * 0.3;
+        if (!p.attack) p.facing = 1;
+      }
+
+      // Jump
+      if (up && p.jumpsLeft > 0 && !p.attack) {
+        const force = p.grounded ? JUMP_FORCE : DOUBLE_JUMP_FORCE;
+        p.vy = force * p.jumpMul;
+        p.jumpsLeft--;
+        p.grounded = false;
+        // Double jump particles
+        if (p.jumpsLeft === 0) {
+          for (let i = 0; i < 6; i++) {
+            spawnParticle(p.x + p.w/2, p.y + p.h, (Math.random()-0.5)*3, 1 + Math.random()*2, p.accentColor, 15, 2);
+          }
+        }
+      }
+
+      // Drop through platform
+      if (down && p.grounded && p.platform && !p.platform.isMain) {
+        p.y += 12;
+        p.grounded = false;
+      }
+
+      // Fast fall
+      if (down && !p.grounded && p.vy > 0) {
+        p.fastFall = true;
+      }
+
+      // Attacks
+      if (keys['z'] && !p.attack) {
+        if (!p.grounded) {
+          if (down) doAttack(p, 'dAir');
+          else if (up) doAttack(p, 'upAir');
+          else doAttack(p, 'aerial');
+        } else if (keys['ArrowLeft'] || keys['ArrowRight']) {
+          doAttack(p, 'smash');
+        } else {
+          doAttack(p, 'jab');
+        }
+      }
+
+      // Special
+      if (keys['x'] && !p.attack) {
+        doSpecial(p);
+      }
+
+      // Grab
+      if (keys['c'] && !p.attack) {
+        doAttack(p, 'grab');
+      }
+    }
+
+    function updatePlayer(p) {
+      if (!p.alive) return;
+
+      // Respawn
+      if (p.respawnTimer > 0) {
+        p.respawnTimer--;
+        if (p.respawnTimer <= 0) {
+          p.x = 250 + p.index * 30;
+          p.y = 50;
+          p.vx = 0;
+          p.vy = 0;
+          p.damage = 0;
+          p.invincible = 120;
+          p.hitstun = 0;
+          p.shielding = false;
+          p.shieldHP = 100;
+          p.attack = null;
+          p.attackFrame = 0;
+          p.grabbedBy = null;
+          p.grabbing = null;
+          p.item = null;
+          p.fastFall = false;
+        }
+        return;
+      }
+
+      // Hitlag
+      if (p.hitlag > 0) {
+        p.hitlag--;
+        return;
+      }
+
+      // Hitstun
+      if (p.hitstun > 0) {
+        p.hitstun--;
+        // DI: player can influence knockback direction
+        if (!p.isAI) {
+          if (keys['ArrowLeft']) p.vx -= DI_STRENGTH;
+          if (keys['ArrowRight']) p.vx += DI_STRENGTH;
+          if (keys['ArrowUp']) p.vy -= DI_STRENGTH;
+        } else {
+          // AI DI: try to survive
+          const cx = (STAGE_LEFT + STAGE_RIGHT) / 2;
+          const cy = STAGE_Y / 2;
+          if (p.x < cx) p.vx += DI_STRENGTH * 0.7;
+          else p.vx -= DI_STRENGTH * 0.7;
+          if (p.vy < 0) p.vy += DI_STRENGTH * 0.3;
+        }
+      }
+
+      // Grabbed state
+      if (p.grabbedBy !== null) {
+        const grabber = players[p.grabbedBy];
+        if (grabber && grabber.alive) {
+          p.x = grabber.x + grabber.facing * 25;
+          p.y = grabber.y;
+        }
+        return;
+      }
+
+      // Gravity
+      p.vy += GRAVITY;
+      if (p.fastFall && p.vy > 0) p.vy += 0.3;
+      if (p.vy > MAX_FALL) p.vy = MAX_FALL;
+
+      // Movement
+      p.x += p.vx;
+      p.y += p.vy;
+
+      // Friction
+      p.vx *= p.grounded ? GROUND_FRICTION : AIR_FRICTION;
+
+      // Clamp velocity
+      const maxH = p.grounded ? MOVE_SPEED * p.speed * 1.3 : AIR_SPEED * p.speed * 1.8;
+      if (Math.abs(p.vx) > maxH && p.hitstun <= 0) p.vx = Math.sign(p.vx) * maxH;
+
+      // Platform collision
+      p.grounded = false;
+      p.platform = null;
+      for (const plat of platforms) {
+        if (p.vy >= 0 && p.x + p.w > plat.x + 4 && p.x < plat.x + plat.w - 4 &&
+            p.y + p.h >= plat.y && p.y + p.h <= plat.y + 14) {
+          p.y = plat.y - p.h;
+          p.vy = 0;
+          p.grounded = true;
+          p.jumpsLeft = 2;
+          p.fastFall = false;
+          p.platform = plat;
+          break;
+        }
+      }
+
+      // Invincibility timer
+      if (p.invincible > 0) p.invincible--;
+
+      // Attack update
+      if (p.attack) {
+        p.attackFrame++;
+        const atk = p.attack;
+        const totalFrames = atk.start + atk.active + atk.end;
+
+        // Active frames - check hits
+        if (p.attackFrame >= atk.start && p.attackFrame < atk.start + atk.active) {
+          const hitX = p.x + (p.facing > 0 ? p.w : -atk.rangeX);
+          const hitY = p.y + p.h / 2 - atk.rangeY / 2;
+
+          // Special: dAir hitbox is below
+          let hx = hitX, hy = hitY;
+          if (p.attackType === 'dAir') {
+            hx = p.x + p.w/2 - atk.rangeX/2;
+            hy = p.y + p.h;
+          } else if (p.attackType === 'upAir') {
+            hx = p.x + p.w/2 - atk.rangeX/2;
+            hy = p.y - atk.rangeY;
+          }
+
+          for (const other of players) {
+            if (other.index === p.index || !other.alive || other.respawnTimer > 0) continue;
+            if (other.invincible > 0) continue;
+
+            if (rectsOverlap(hx, hy, atk.rangeX, atk.rangeY, other.x, other.y, other.w, other.h)) {
+              if (p.attackType === 'grab') {
+                if (!other.shielding) continue; // grab beats shield, but needs to connect
+                // Actually grab connects on anyone
+              }
+              if (p.attackType === 'grab') {
+                // Grab
+                p.grabbing = other.index;
+                other.grabbedBy = p.index;
+                other.vx = 0;
+                other.vy = 0;
+                // Throw after short time
+                setTimeout(() => {
+                  if (other.grabbedBy === p.index) {
+                    other.grabbedBy = null;
+                    p.grabbing = null;
+                    other.damage += 6;
+                    const throwDir = p.facing;
+                    applyKnockback(other, p, { kb: 5, dmg: 6 }, throwDir, -0.5, 1);
+                    spawnHitSparks(other.x + other.w/2, other.y + other.h/2, 6);
+                  }
+                }, 500);
+              } else {
+                // Normal hit
+                if (other.shielding) {
+                  other.shieldHP -= atk.dmg * 1.5;
+                  spawnParticle(other.x + other.w/2, other.y + other.h/2, 0, 0, '#8cf', 15, 6);
+                  if (other.shieldHP <= 0) {
+                    other.shielding = false;
+                    other.hitstun = 45;
+                  }
+                  continue;
+                }
+                const itemMul = p.item ? p.item.attackBoost : 1;
+                other.damage += atk.dmg * itemMul;
+                const dirX = p.facing;
+                const dirY = p.attackType === 'upAir' ? -1 : (p.attackType === 'dAir' ? 1 : -0.4);
+                applyKnockback(other, p, atk, dirX, dirY, itemMul);
+                spawnHitSparks(other.x + other.w/2, other.y + other.h/2, atk.dmg);
+
+                // Hitlag
+                p.hitlag = Math.min(Math.floor(atk.dmg * 0.4), 6);
+                other.hitlag = p.hitlag;
+              }
+            }
+          }
+        }
+
+        if (p.attackFrame >= totalFrames) {
+          p.attack = null;
+          p.attackFrame = 0;
+          p.attackType = null;
+        }
+      }
+
+      // Item pickup
+      if (!p.item) {
+        for (let i = items.length - 1; i >= 0; i--) {
+          const item = items[i];
+          if (item.grounded && rectsOverlap(p.x, p.y, p.w, p.h, item.x, item.y, item.w, item.h)) {
+            p.item = item;
+            p.itemTimer = item.duration;
+            items.splice(i, 1);
+            break;
+          }
+        }
+      }
+      // Item timer
+      if (p.item) {
+        p.itemTimer--;
+        if (p.itemTimer <= 0) {
+          if (p.item.explosive) {
+            // Bomb explodes
+            p.damage += 15;
+            applyKnockback(p, p, { kb: 7, dmg: 15 }, 0, -1, 1);
+            spawnKOExplosion(p.x + p.w/2, p.y + p.h/2, '#f80');
+            // Hit nearby
+            for (const other of players) {
+              if (other.index === p.index || !other.alive) continue;
+              const d = Math.hypot(other.x - p.x, other.y - p.y);
+              if (d < 80) {
+                other.damage += 20;
+                applyKnockback(other, p, { kb: 9, dmg: 20 }, other.x > p.x ? 1 : -1, -0.5, 1);
+              }
+            }
+          }
+          p.item = null;
+        }
+      }
+
+      // Blast zone KO
+      if (p.y > BLAST_BOTTOM || p.y < BLAST_TOP || p.x < BLAST_LEFT || p.x > BLAST_RIGHT) {
+        // KO!
+        spawnKOExplosion(
+          Math.max(10, Math.min(W-10, p.x + p.w/2)),
+          Math.max(10, Math.min(H-10, p.y + p.h/2)),
+          p.color
+        );
+        p.stocks--;
+        if (p.lastHitBy >= 0 && p.lastHitBy !== p.index) {
+          const killer = players[p.lastHitBy];
+          if (killer) killer.kos++;
+          if (p.lastHitBy !== 0 && p.index === 0) {
+            // Player died
+          } else if (p.lastHitBy === 0) {
+            score++;
+          }
+        }
+        if (p.stocks <= 0) {
+          p.alive = false;
+        } else {
+          p.respawnTimer = 90;
+        }
+        p.lastHitBy = -1;
+        updateHUD();
+        checkMatchEnd();
+      }
+
+      // Animation
+      p.animTimer++;
+      if (p.animTimer > 6) {
+        p.animTimer = 0;
+        p.animFrame = (p.animFrame + 1) % 4;
+      }
+    }
+
+    function checkMatchEnd() {
+      let aliveCount = 0;
+      let lastAlive = null;
+      for (const p of players) {
+        if (p.alive || p.stocks > 0) {
+          aliveCount++;
+          lastAlive = p;
+        }
+      }
+      if (aliveCount <= 1) {
+        matchOver = true;
+        gameState = 'over';
+        overlay.style.display = 'flex';
+        overlayTitle.textContent = lastAlive ? (lastAlive.index === 0 ? 'VICTORY!' : lastAlive.name + ' WINS!') : 'DRAW!';
+        overlayText.innerHTML = 'Your KOs: <span class="highlight">' + score + '</span><br><br>Click to play again';
+      }
+    }
+
+    function updateProjectiles() {
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const proj = projectiles[i];
+        proj.x += proj.vx;
+        proj.y += proj.vy;
+        // Volt thunder falls down
+        if (proj.vy < 0) proj.vy += 0.15;
+        if (proj.vy > 0 && Math.abs(proj.vx) > 1) proj.vy += 0.05;
+        proj.life--;
+
+        // Particle trail
+        if (frameCount % 2 === 0) {
+          spawnParticle(proj.x, proj.y, (Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5, proj.color, 10, 2);
+        }
+
+        // Hit players
+        for (const p of players) {
+          if (p.index === proj.owner || !p.alive || p.respawnTimer > 0 || p.invincible > 0) continue;
+          if (rectsOverlap(proj.x - proj.w/2, proj.y - proj.h/2, proj.w, proj.h, p.x, p.y, p.w, p.h)) {
+            if (p.shielding) {
+              p.shieldHP -= proj.dmg;
+              spawnParticle(p.x + p.w/2, p.y + p.h/2, 0, 0, '#8cf', 15, 6);
+            } else {
+              p.damage += proj.dmg;
+              const owner = players[proj.owner];
+              applyKnockback(p, owner || p, { kb: proj.kb, dmg: proj.dmg }, proj.vx > 0 ? 1 : -1, -0.3, 1);
+              spawnHitSparks(p.x + p.w/2, p.y + p.h/2, proj.dmg);
+            }
+            projectiles.splice(i, 1);
+            break;
+          }
+        }
+
+        // Out of bounds
+        if (proj.life <= 0 || proj.x < -20 || proj.x > W + 20 || proj.y < -20 || proj.y > H + 20) {
+          projectiles.splice(i, 1);
+        }
+      }
+    }
+
+    function updateItems() {
+      for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        if (!item.grounded) {
+          item.vy += 0.2;
+          item.y += item.vy;
+          // Land on platform
+          for (const plat of platforms) {
+            if (item.vy > 0 && item.y + item.h >= plat.y && item.y + item.h <= plat.y + 10 &&
+                item.x + item.w > plat.x && item.x < plat.x + plat.w) {
+              item.y = plat.y - item.h;
+              item.vy = 0;
+              item.grounded = true;
+              break;
+            }
+          }
+        }
+        item.life--;
+        if (item.life <= 0 || item.y > H + 20) {
+          items.splice(i, 1);
+        }
+      }
+    }
+
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const par = particles[i];
+        par.x += par.vx;
+        par.y += par.vy;
+        par.vx *= 0.96;
+        par.vy *= 0.96;
+        par.life--;
+        if (par.life <= 0) particles.splice(i, 1);
+      }
+    }
+
+    function updateStageHazard() {
+      stageHazardTimer--;
+      if (stageHazardTimer <= 0 && !hazardActive) {
+        // Warning
+        if (!hazardWarning) {
+          const side = Math.random() < 0.5 ? 'left' : 'right';
+          hazardWarning = { side, timer: 90 };
+        } else {
+          hazardWarning.timer--;
+          if (hazardWarning.timer <= 0) {
+            // Activate hazard
+            hazardActive = {
+              side: hazardWarning.side,
+              timer: 45,
+              x: hazardWarning.side === 'left' ? -20 : W + 20,
+              targetX: hazardWarning.side === 'left' ? W / 3 : W * 2 / 3,
+            };
+            hazardWarning = null;
+          }
+        }
+      }
+      if (hazardActive) {
+        hazardActive.timer--;
+        const progress = 1 - hazardActive.timer / 45;
+        const hx = hazardActive.side === 'left' ? -20 + progress * (hazardActive.targetX + 20) : W + 20 - progress * (W + 20 - hazardActive.targetX);
+        const hy = STAGE_Y - 10;
+
+        // Hit players
+        for (const p of players) {
+          if (!p.alive || p.respawnTimer > 0 || p.invincible > 0) continue;
+          if (Math.abs(p.x + p.w/2 - hx) < 40 && Math.abs(p.y + p.h - hy) < 50) {
+            p.damage += 12;
+            applyKnockback(p, p, { kb: 7, dmg: 12 },
+              hazardActive.side === 'left' ? 1 : -1, -0.6, 1);
+            spawnHitSparks(p.x + p.w/2, p.y + p.h/2, 12);
+          }
+        }
+
+        if (hazardActive.timer <= 0) {
+          hazardActive = null;
+          stageHazardTimer = 600 + Math.floor(Math.random() * 400);
+        }
+      }
+    }
+
+    // --- Drawing ---
+    function drawStage() {
+      // Background
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, H);
+
+      // Stars
+      ctx.fillStyle = '#ffffff15';
+      for (let i = 0; i < 40; i++) {
+        const sx = (i * 97 + frameCount * 0.1) % W;
+        const sy = (i * 53 + Math.sin(frameCount * 0.005 + i) * 5) % (STAGE_Y - 20);
+        ctx.fillRect(sx, sy, 1.5, 1.5);
+      }
+
+      // Blast zone indicators (subtle)
+      ctx.strokeStyle = '#f4830a';
+      ctx.setLineDash([4, 8]);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(BLAST_LEFT + 60, BLAST_TOP + 80, BLAST_RIGHT - BLAST_LEFT - 120, BLAST_BOTTOM - BLAST_TOP - 80);
+      ctx.setLineDash([]);
+
+      // Platforms
+      for (const plat of platforms) {
+        if (plat.isMain) {
+          // Main stage
+          const grad = ctx.createLinearGradient(plat.x, plat.y, plat.x, plat.y + plat.h + 80);
+          grad.addColorStop(0, '#2a2a4e');
+          grad.addColorStop(1, '#1a1a2e');
+          ctx.fillStyle = grad;
+          ctx.fillRect(plat.x, plat.y, plat.w, plat.h + 80);
+          // Top edge
+          ctx.fillStyle = THEME;
+          ctx.fillRect(plat.x, plat.y, plat.w, 3);
+          // Edge indicators
+          ctx.fillStyle = '#ff4488aa';
+          ctx.fillRect(plat.x, plat.y, 4, 12);
+          ctx.fillRect(plat.x + plat.w - 4, plat.y, 4, 12);
+        } else {
+          // Floating platform
+          ctx.fillStyle = '#2a2a4e';
+          ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+          ctx.fillStyle = '#f4888888';
+          ctx.fillRect(plat.x, plat.y, plat.w, 2);
+        }
+      }
+
+      // Hazard warning
+      if (hazardWarning) {
+        const flash = Math.sin(frameCount * 0.3) > 0;
+        if (flash) {
+          ctx.fillStyle = '#f00';
+          ctx.font = 'bold 14px Courier New';
+          ctx.textAlign = 'center';
+          const wx = hazardWarning.side === 'left' ? 60 : W - 60;
+          ctx.fillText('WARNING!', wx, STAGE_Y - 30);
+          ctx.fillStyle = '#f0000030';
+          ctx.fillRect(wx - 40, 0, 80, STAGE_Y);
+        }
+      }
+      if (hazardActive) {
+        const progress = 1 - hazardActive.timer / 45;
+        const hx = hazardActive.side === 'left' ? -20 + progress * (hazardActive.targetX + 20) : W + 20 - progress * (W + 20 - hazardActive.targetX);
+        // Draw hazard (energy wave)
+        ctx.fillStyle = '#f44';
+        ctx.shadowColor = '#f44';
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.arc(hx, STAGE_Y - 10, 25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ff8';
+        ctx.beginPath();
+        ctx.arc(hx, STAGE_Y - 10, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawPlayer(p) {
+      if (!p.alive || p.respawnTimer > 0) return;
+
+      // Invincibility flicker
+      if (p.invincible > 0 && frameCount % 4 < 2) return;
+
+      const cx = p.x + p.w / 2;
+      const cy = p.y + p.h / 2;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (p.facing < 0) ctx.scale(-1, 1);
+
+      // Body
+      const bodyColor = p.hitstun > 0 ? '#fff' : p.color;
+      ctx.fillStyle = bodyColor;
+      // Torso
+      ctx.fillRect(-10, -8, 20, 20);
+      // Head
+      ctx.fillRect(-8, -18, 16, 12);
+      // Eyes
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(1, -15, 5, 4);
+      ctx.fillStyle = '#111';
+      ctx.fillRect(3, -14, 2, 3);
+
+      // Arms
+      ctx.fillStyle = p.accentColor;
+      if (p.attack && p.attackFrame >= p.attack.start && p.attackFrame < p.attack.start + p.attack.active) {
+        // Attacking arm extended
+        ctx.fillRect(10, -6, 18, 6);
+        // Attack effect
+        if (p.attackType === 'smash') {
+          ctx.fillStyle = '#fff8';
+          ctx.fillRect(20, -10, 14, 14);
+        }
+      } else {
+        ctx.fillRect(10, -4, 8, 5);
+      }
+      // Back arm
+      ctx.fillRect(-14, -2, 6, 5);
+
+      // Legs
+      ctx.fillStyle = p.color;
+      const legOff = p.grounded ? Math.sin(p.animFrame * 0.8) * 3 : 4;
+      ctx.fillRect(-8, 12, 7, 8 + legOff);
+      ctx.fillRect(2, 12, 7, 8 - legOff);
+
+      // Item glow
+      if (p.item) {
+        ctx.fillStyle = p.item.color + '88';
+        ctx.fillRect(12, -12, p.item.w, p.item.h);
+        ctx.strokeStyle = p.item.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(12, -12, p.item.w, p.item.h);
+      }
+
+      // Shield
+      if (p.shielding) {
+        ctx.globalAlpha = 0.4 + (p.shieldHP / 100) * 0.3;
+        ctx.strokeStyle = '#8cf';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 24, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = '#8cf4';
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      ctx.restore();
+
+      // Damage percentage above character
+      ctx.fillStyle = p.damage > 100 ? '#f44' : (p.damage > 60 ? '#fa4' : '#fff');
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.floor(p.damage) + '%', cx, p.y - 6);
+
+      // Name tag
+      ctx.fillStyle = p.color;
+      ctx.font = '9px Courier New';
+      ctx.fillText(p.name + (p.isAI ? '' : ' (YOU)'), cx, p.y - 16);
+
+      // Attack hitbox visualization (debug-lite, subtle)
+      if (p.attack && p.attackFrame >= p.attack.start && p.attackFrame < p.attack.start + p.attack.active) {
+        const atk = p.attack;
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = '#fff';
+        if (p.attackType === 'dAir') {
+          ctx.fillRect(p.x + p.w/2 - atk.rangeX/2, p.y + p.h, atk.rangeX, atk.rangeY);
+        } else if (p.attackType === 'upAir') {
+          ctx.fillRect(p.x + p.w/2 - atk.rangeX/2, p.y - atk.rangeY, atk.rangeX, atk.rangeY);
+        } else {
+          const hitX = p.x + (p.facing > 0 ? p.w : -atk.rangeX);
+          ctx.fillRect(hitX, p.y + p.h/2 - atk.rangeY/2, atk.rangeX, atk.rangeY);
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawProjectiles() {
+      for (const proj of projectiles) {
+        ctx.fillStyle = proj.color;
+        ctx.shadowColor = proj.color;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(proj.x, proj.y, proj.w / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawItems() {
+      for (const item of items) {
+        // Glow
+        ctx.shadowColor = item.color;
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = item.color;
+        ctx.fillRect(item.x, item.y, item.w, item.h);
+        ctx.shadowBlur = 0;
+        // Outline
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(item.x, item.y, item.w, item.h);
+        // Label
+        ctx.fillStyle = '#fff';
+        ctx.font = '8px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.name, item.x + item.w/2, item.y - 4);
+      }
+    }
+
+    function drawParticles() {
+      for (const par of particles) {
+        const alpha = par.life / par.maxLife;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = par.color;
+        ctx.fillRect(par.x - par.size/2, par.y - par.size/2, par.size, par.size);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawHUD() {
+      // Stock display at bottom
+      const hudY = H - 30;
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'center';
+
+      for (let i = 0; i < players.length; i++) {
+        const p = players[i];
+        const hx = 80 + i * 140;
+
+        // Background panel
+        ctx.fillStyle = '#00000060';
+        ctx.fillRect(hx - 55, hudY - 12, 110, 28);
+
+        // Name
+        ctx.fillStyle = p.alive ? p.color : '#555';
+        ctx.fillText(p.name + (p.isAI ? '' : '(P1)'), hx, hudY);
+
+        // Stocks (circles)
+        for (let s = 0; s < 3; s++) {
+          ctx.fillStyle = s < p.stocks ? p.color : '#333';
+          ctx.beginPath();
+          ctx.arc(hx - 25 + s * 14, hudY + 10, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Damage
+        const dmgColor = p.damage > 100 ? '#f44' : (p.damage > 60 ? '#fa4' : '#fff');
+        ctx.fillStyle = p.alive ? dmgColor : '#555';
+        ctx.font = 'bold 11px Courier New';
+        ctx.fillText(Math.floor(p.damage) + '%', hx + 30, hudY + 12);
+        ctx.font = '10px Courier New';
+      }
+    }
+
+    function drawCountdown() {
+      if (countdownTimer > 0) {
+        const val = Math.ceil(countdownTimer / 60);
+        const progress = (countdownTimer % 60) / 60;
+        ctx.fillStyle = THEME;
+        ctx.font = 'bold ' + (40 + progress * 20) + 'px Courier New';
+        ctx.textAlign = 'center';
+        ctx.globalAlpha = 0.5 + progress * 0.5;
+        ctx.shadowColor = THEME;
+        ctx.shadowBlur = 20;
+        ctx.fillText(val > 0 ? val : 'GO!', W/2, H/2 - 20);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Main loop
+    function update() {
+      if (gameState !== 'playing') return;
+
+      frameCount++;
+
+      // Countdown
+      if (countdownTimer > 0) {
+        countdownTimer--;
+        return;
+      }
+
+      if (matchOver) return;
+
+      // Player input
+      handlePlayerInput(players[0]);
+
+      // AI
+      for (let i = 1; i < players.length; i++) {
+        updateAI(players[i]);
+      }
+
+      // Physics
+      for (const p of players) {
+        updatePlayer(p);
+      }
+
+      updateProjectiles();
+      updateItems();
+      updateParticles();
+
+      // Stage hazards
+      updateStageHazard();
+
+      // Item spawning
+      itemSpawnTimer--;
+      if (itemSpawnTimer <= 0) {
+        spawnItem();
+        itemSpawnTimer = 400 + Math.floor(Math.random() * 300);
+      }
+
+      // Screen shake decay
+      if (shakeTimer > 0) shakeTimer--;
+
+      updateHUD();
+    }
+
+    function draw() {
+      ctx.save();
+
+      // Screen shake
+      if (shakeTimer > 0) {
+        const sx = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
+        const sy = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
+        ctx.translate(sx, sy);
+      }
+
+      drawStage();
+
+      for (const p of players) {
+        drawPlayer(p);
+      }
+
+      drawProjectiles();
+      drawItems();
+      drawParticles();
+      drawHUD();
+      drawCountdown();
+
+      ctx.restore();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function gameLoop(timestamp) {
+      if (!lastTime) lastTime = timestamp;
+      const delta = timestamp - lastTime;
+      lastTime = timestamp;
+
+      update();
+      draw();
+    }
+
+    // Start
+    requestAnimationFrame(gameLoop);
+    draw();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

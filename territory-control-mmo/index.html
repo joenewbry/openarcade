@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Territory Control MMO - OpenArcade</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#1a1a2e; color:#e0e0e0; font-family:'Courier New',monospace; overflow:hidden; display:flex; justify-content:center; align-items:center; min-height:100vh; }
+#game-container { position:relative; }
+canvas#game { display:block; border:2px solid #c64; box-shadow:0 0 20px rgba(204,102,68,0.4); }
+#score-bar { position:absolute; top:0; left:0; right:0; height:32px; background:rgba(26,26,46,0.95); border-bottom:2px solid #c64; display:flex; align-items:center; justify-content:space-between; padding:0 12px; font-size:13px; z-index:10; }
+#score-bar .label { color:#c64; text-shadow:0 0 8px rgba(204,102,68,0.6); }
+#score-bar .val { color:#fff; }
+#back-link { position:absolute; top:6px; left:8px; color:#c64; text-decoration:none; font-size:13px; z-index:20; cursor:pointer; }
+#back-link:hover { text-shadow:0 0 8px rgba(204,102,68,0.8); }
+#overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(26,26,46,0.92); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:30; }
+#overlay.hidden { display:none; }
+#overlay h1 { color:#c64; font-size:28px; margin-bottom:10px; text-shadow:0 0 16px rgba(204,102,68,0.7); }
+#overlay h2 { color:#c64; font-size:22px; margin-bottom:8px; text-shadow:0 0 12px rgba(204,102,68,0.6); }
+#overlay p { color:#aaa; font-size:13px; margin:4px 0; max-width:460px; text-align:center; line-height:1.5; }
+#overlay button { margin-top:16px; padding:10px 32px; background:#c64; color:#fff; border:none; font-family:'Courier New',monospace; font-size:16px; cursor:pointer; text-shadow:0 0 4px rgba(255,255,255,0.3); box-shadow:0 0 12px rgba(204,102,68,0.5); }
+#overlay button:hover { background:#d87; box-shadow:0 0 20px rgba(204,102,68,0.8); }
+#ui-panel { position:absolute; bottom:0; left:0; right:0; height:110px; background:rgba(26,26,46,0.95); border-top:2px solid #c64; display:flex; z-index:10; font-size:11px; }
+#ui-panel.hidden { display:none; }
+#res-panel { width:140px; padding:6px 8px; border-right:1px solid #444; }
+#res-panel div { margin:2px 0; }
+#res-panel .rlbl { color:#888; }
+#res-panel .rval { color:#fff; font-weight:bold; }
+#info-panel { flex:1; padding:6px 8px; display:flex; flex-direction:column; }
+#info-panel .info-title { color:#c64; font-weight:bold; margin-bottom:3px; font-size:12px; }
+#info-panel .info-text { color:#ccc; font-size:11px; line-height:1.4; }
+#build-panel { width:240px; padding:4px 6px; border-left:1px solid #444; display:flex; flex-wrap:wrap; gap:3px; align-content:flex-start; }
+#build-panel button { padding:3px 6px; background:#2a2a4e; color:#ddd; border:1px solid #555; font-family:'Courier New',monospace; font-size:10px; cursor:pointer; flex:0 0 auto; }
+#build-panel button:hover { background:#3a3a5e; border-color:#c64; }
+#build-panel button.active { background:#c64; color:#fff; border-color:#fff; }
+#build-panel button:disabled { opacity:0.35; cursor:default; }
+#turn-info { position:absolute; top:36px; right:8px; color:#c64; font-size:12px; z-index:10; text-align:right; }
+#action-log { position:absolute; top:36px; left:8px; color:#aaa; font-size:10px; z-index:10; max-width:200px; pointer-events:none; }
+#action-log div { margin:1px 0; opacity:0.9; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="game" width="600" height="500"></canvas>
+  <a id="back-link" href="../">&#x2190; ARCADE</a>
+  <div id="score-bar">
+    <span><span class="label">TERRITORIES: </span><span class="val" id="sb-terr">0</span></span>
+    <span><span class="label">TURN: </span><span class="val" id="sb-turn">0/30</span></span>
+    <span><span class="label">SCORE: </span><span class="val" id="sb-score">0</span></span>
+  </div>
+  <div id="turn-info"></div>
+  <div id="action-log"></div>
+  <div id="ui-panel" class="hidden">
+    <div id="res-panel"></div>
+    <div id="info-panel"><div class="info-title">Select a territory</div><div class="info-text">Click a hex on the map to see details and take actions.</div></div>
+    <div id="build-panel"></div>
+  </div>
+  <div id="overlay">
+    <h1>TERRITORY CONTROL</h1>
+    <p>Lead your Empire faction to dominate the map! Claim territories, build structures, train troops, and conquer enemy lands.</p>
+    <p style="color:#c64;font-size:11px;margin-top:8px;">3 Factions | 30 Turns | Hex Map | Build & Conquer</p>
+    <p style="font-size:11px;margin-top:6px;">FARM=Food MINE=Ore FOREST=Wood PLAINS=Gold<br>Build outposts to claim, forts to defend, barracks for troops.<br>Click enemy neighbors to attack!</p>
+    <button id="start-btn">START GAME</button>
+  </div>
+</div>
+<script>
+// ============================================================
+// TERRITORY CONTROL MMO - OpenArcade
+// ============================================================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 600, H = 500;
+let gameState = 'menu';
+let score = 0;
+
+// --- Hex geometry ---
+const COLS = 20, ROWS = 15;
+const HEX_R = 16;
+const HEX_W = HEX_R * Math.sqrt(3);
+const HEX_H = HEX_R * 2;
+const MAP_OX = 18, MAP_OY = 50;
+
+// --- Factions ---
+const FACTIONS = [
+  { id:0, name:'Empire',  color:'#c64',   light:'#e97',   dark:'#844',   ai:false },
+  { id:1, name:'Dominion', color:'#48c',  light:'#6ae',   dark:'#247',   ai:true },
+  { id:2, name:'Horde',   color:'#4a4',   light:'#6d6',   dark:'#272',   ai:true }
+];
+
+// --- Territory types ---
+const TERRAIN_TYPES = ['plains','farm','mine','forest'];
+const TERRAIN_COLORS = { plains:'#8a7', farm:'#bd6', mine:'#998', forest:'#596' };
+const TERRAIN_PROD = { plains:{food:0,ore:0,wood:0,gold:2}, farm:{food:3,ore:0,wood:0,gold:0}, mine:{food:0,ore:3,wood:0,gold:0}, forest:{food:0,ore:0,wood:3,gold:0} };
+
+// --- Building defs ---
+const BUILDINGS = {
+  outpost:  { label:'Outpost',  cost:{food:2,ore:1,wood:2,gold:0}, desc:'Claim neutral territory', icon:'O' },
+  fort:     { label:'Fort',     cost:{food:0,ore:3,wood:3,gold:1}, desc:'Defense +5', icon:'F' },
+  barracks: { label:'Barracks', cost:{food:1,ore:2,wood:2,gold:1}, desc:'Train troops here', icon:'B' },
+  market:   { label:'Market',   cost:{food:0,ore:1,wood:2,gold:2}, desc:'+2 gold/turn', icon:'M' }
+};
+
+// --- Troop defs ---
+const TROOPS = {
+  infantry: { label:'Infantry', cost:{food:2,ore:1,wood:0,gold:1}, atk:3, def:3, icon:'I' },
+  cavalry:  { label:'Cavalry',  cost:{food:3,ore:0,wood:0,gold:2}, atk:5, def:2, icon:'C' },
+  siege:    { label:'Siege',    cost:{food:1,ore:3,wood:2,gold:2}, atk:7, def:1, icon:'S' }
+};
+
+// --- Game data ---
+let turn = 0;
+const MAX_TURNS = 30;
+let selectedHex = null;
+let actionMode = null; // 'attack', or null
+let hexes = [];
+let resources = [{},{},{}];
+let logs = [];
+let gameOverShown = false;
+let mapViewOffX = 0, mapViewOffY = 0;
+let hoverHex = null;
+
+// --- Hex class ---
+function makeHex(col, row) {
+  const odd = col & 1;
+  const x = MAP_OX + col * HEX_W * 0.75;
+  const y = MAP_OY + row * (HEX_H * 0.75) + (odd ? HEX_H * 0.375 : 0);
+  const tt = TERRAIN_TYPES[Math.floor(Math.random()*4)];
+  return {
+    col, row, x, y, terrain: tt,
+    owner: -1, // -1 = neutral
+    building: null,
+    troops: { infantry:0, cavalry:0, siege:0 },
+    isCapital: false,
+    defense: 0
+  };
+}
+
+function hexDist(a, b) {
+  // offset coords -> cube -> dist
+  function toCube(c, r) {
+    const x = c;
+    const z = r - (c - (c & 1)) / 2;
+    const y = -x - z;
+    return {x, y, z};
+  }
+  const ca = toCube(a.col, a.row);
+  const cb = toCube(b.col, b.row);
+  return Math.max(Math.abs(ca.x-cb.x), Math.abs(ca.y-cb.y), Math.abs(ca.z-cb.z));
+}
+
+function getNeighbors(hex) {
+  const c = hex.col, r = hex.row;
+  const odd = c & 1;
+  const dirs = odd
+    ? [[1,0],[1,1],[-1,0],[-1,1],[0,-1],[0,1]]
+    : [[1,-1],[1,0],[-1,-1],[-1,0],[0,-1],[0,1]];
+  const res = [];
+  for (const [dc, dr] of dirs) {
+    const nc = c+dc, nr = r+dr;
+    if (nc>=0 && nc<COLS && nr>=0 && nr<ROWS) {
+      res.push(hexes[nr*COLS+nc]);
+    }
+  }
+  return res;
+}
+
+function getTotalTroops(hex) {
+  return hex.troops.infantry + hex.troops.cavalry + hex.troops.siege;
+}
+function getAttackPower(hex) {
+  return hex.troops.infantry*3 + hex.troops.cavalry*5 + hex.troops.siege*7;
+}
+function getDefensePower(hex) {
+  let d = hex.troops.infantry*3 + hex.troops.cavalry*2 + hex.troops.siege*1;
+  d += hex.defense;
+  if (hex.isCapital) d += 5;
+  return d;
+}
+
+// --- Init game ---
+function initGame() {
+  hexes = [];
+  for (let r=0; r<ROWS; r++) {
+    for (let c=0; c<COLS; c++) {
+      hexes.push(makeHex(c, r));
+    }
+  }
+  // Place factions
+  const starts = [
+    [{col:2,row:2},{col:3,row:2},{col:2,row:3}],
+    [{col:17,row:2},{col:16,row:2},{col:17,row:3}],
+    [{col:9,row:12},{col:10,row:12},{col:9,row:11}]
+  ];
+  for (let f=0; f<3; f++) {
+    resources[f] = { food:10, ore:8, wood:8, gold:6 };
+    for (let i=0; i<starts[f].length; i++) {
+      const s = starts[f][i];
+      const h = hexes[s.row*COLS+s.col];
+      h.owner = f;
+      if (i === 0) {
+        h.isCapital = true;
+        h.building = 'barracks';
+        h.defense = 5;
+        h.troops.infantry = 3;
+      } else {
+        h.troops.infantry = 1;
+      }
+    }
+  }
+  turn = 1;
+  score = 0;
+  selectedHex = null;
+  actionMode = null;
+  logs = [];
+  gameOverShown = false;
+  addLog('Game started! You are the Empire.');
+  updateScore();
+}
+
+// --- Resources ---
+function collectResources(factionId) {
+  const r = resources[factionId];
+  for (const h of hexes) {
+    if (h.owner !== factionId) continue;
+    const prod = TERRAIN_PROD[h.terrain];
+    r.food += prod.food;
+    r.ore += prod.ore;
+    r.wood += prod.wood;
+    r.gold += prod.gold;
+    if (h.building === 'market') r.gold += 2;
+  }
+}
+
+function canAfford(factionId, cost) {
+  const r = resources[factionId];
+  return r.food >= cost.food && r.ore >= cost.ore && r.wood >= cost.wood && r.gold >= cost.gold;
+}
+
+function spendResources(factionId, cost) {
+  const r = resources[factionId];
+  r.food -= cost.food; r.ore -= cost.ore; r.wood -= cost.wood; r.gold -= cost.gold;
+}
+
+// --- Build ---
+function buildOnHex(hex, buildingKey) {
+  if (hex.owner < 0) return false;
+  const b = BUILDINGS[buildingKey];
+  if (!canAfford(hex.owner, b.cost)) return false;
+  if (hex.building && buildingKey !== 'outpost') return false;
+  spendResources(hex.owner, b.cost);
+  if (buildingKey === 'fort') {
+    hex.defense += 5;
+    hex.building = 'fort';
+  } else {
+    hex.building = buildingKey;
+  }
+  return true;
+}
+
+function claimWithOutpost(hex, factionId) {
+  if (hex.owner !== -1) return false;
+  // must be adjacent to owned territory
+  const nbrs = getNeighbors(hex);
+  const adj = nbrs.some(n => n.owner === factionId);
+  if (!adj) return false;
+  const cost = BUILDINGS.outpost.cost;
+  if (!canAfford(factionId, cost)) return false;
+  spendResources(factionId, cost);
+  hex.owner = factionId;
+  hex.building = 'outpost';
+  return true;
+}
+
+// --- Train ---
+function trainTroop(hex, troopKey) {
+  if (hex.owner < 0) return false;
+  if (hex.building !== 'barracks' && !hex.isCapital) return false;
+  const t = TROOPS[troopKey];
+  if (!canAfford(hex.owner, t.cost)) return false;
+  spendResources(hex.owner, t.cost);
+  hex.troops[troopKey]++;
+  return true;
+}
+
+// --- Attack ---
+function attackHex(attackerHex, defenderHex) {
+  if (attackerHex.owner < 0) return null;
+  if (defenderHex.owner === attackerHex.owner) return null;
+  if (getTotalTroops(attackerHex) === 0) return null;
+  // must be adjacent
+  const nbrs = getNeighbors(attackerHex);
+  if (!nbrs.includes(defenderHex)) return null;
+
+  const atkPow = getAttackPower(attackerHex);
+  const defPow = getDefensePower(defenderHex);
+  const atkRoll = atkPow * (0.7 + Math.random()*0.6);
+  const defRoll = defPow * (0.7 + Math.random()*0.6);
+
+  let result;
+  if (atkRoll > defRoll) {
+    // attacker wins
+    const lossRatio = Math.min(0.8, defPow / (atkPow + 1) * 0.6);
+    const surviving = {};
+    for (const k in attackerHex.troops) {
+      const lost = Math.ceil(attackerHex.troops[k] * lossRatio);
+      surviving[k] = Math.max(0, attackerHex.troops[k] - lost);
+    }
+    const oldOwner = defenderHex.owner;
+    defenderHex.owner = attackerHex.owner;
+    defenderHex.troops = { ...surviving };
+    defenderHex.defense = 0;
+    defenderHex.building = null;
+    defenderHex.isCapital = false;
+    attackerHex.troops = { infantry:0, cavalry:0, siege:0 };
+    result = { win:true, attacker:attackerHex.owner, defender:oldOwner };
+  } else {
+    // defender wins
+    const lossRatio = Math.min(0.9, atkPow / (defPow + 1) * 0.7);
+    for (const k in defenderHex.troops) {
+      const lost = Math.ceil(defenderHex.troops[k] * lossRatio);
+      defenderHex.troops[k] = Math.max(0, defenderHex.troops[k] - lost);
+    }
+    attackerHex.troops = { infantry:0, cavalry:0, siege:0 };
+    result = { win:false, attacker:attackerHex.owner, defender:defenderHex.owner };
+  }
+  return result;
+}
+
+// --- AI ---
+function aiFactionTurn(fid) {
+  collectResources(fid);
+  const owned = hexes.filter(h => h.owner === fid);
+  if (owned.length === 0) return;
+  const r = resources[fid];
+
+  // 1. Build barracks if none
+  const hasBarracks = owned.some(h => h.building === 'barracks' || h.isCapital);
+  if (!hasBarracks && owned.length > 0) {
+    const candidate = owned.find(h => !h.building && !h.isCapital);
+    if (candidate && canAfford(fid, BUILDINGS.barracks.cost)) {
+      buildOnHex(candidate, 'barracks');
+      addLog(FACTIONS[fid].name + ' built Barracks.');
+    }
+  }
+
+  // 2. Train troops on barracks/capital
+  const trainSites = owned.filter(h => h.building === 'barracks' || h.isCapital);
+  for (const site of trainSites) {
+    let trained = 0;
+    while (trained < 2 && canAfford(fid, TROOPS.infantry.cost)) {
+      trainTroop(site, 'infantry');
+      trained++;
+    }
+    if (canAfford(fid, TROOPS.cavalry.cost) && Math.random() > 0.4) {
+      trainTroop(site, 'cavalry');
+    }
+    if (canAfford(fid, TROOPS.siege.cost) && Math.random() > 0.6) {
+      trainTroop(site, 'siege');
+    }
+  }
+
+  // 3. Expand into neutral territories
+  for (const h of owned) {
+    const nbrs = getNeighbors(h);
+    for (const n of nbrs) {
+      if (n.owner === -1 && canAfford(fid, BUILDINGS.outpost.cost)) {
+        claimWithOutpost(n, fid);
+        addLog(FACTIONS[fid].name + ' claims territory.');
+        break;
+      }
+    }
+  }
+
+  // 4. Build forts on border territories
+  const borderHexes = owned.filter(h => {
+    const nbrs = getNeighbors(h);
+    return nbrs.some(n => n.owner !== -1 && n.owner !== fid);
+  });
+  for (const bh of borderHexes) {
+    if (!bh.building && canAfford(fid, BUILDINGS.fort.cost) && Math.random() > 0.5) {
+      buildOnHex(bh, 'fort');
+      addLog(FACTIONS[fid].name + ' built Fort.');
+      break;
+    }
+  }
+
+  // 5. Build markets for economy
+  if (Math.random() > 0.6) {
+    const marketCandidate = owned.find(h => !h.building && !h.isCapital && h.terrain === 'plains');
+    if (marketCandidate && canAfford(fid, BUILDINGS.market.cost)) {
+      buildOnHex(marketCandidate, 'market');
+    }
+  }
+
+  // 6. Coordinate attacks
+  // Find weakest adjacent enemy territory and attack with strongest hex
+  const attackCandidates = [];
+  for (const h of owned) {
+    if (getTotalTroops(h) < 2) continue;
+    const nbrs = getNeighbors(h);
+    for (const n of nbrs) {
+      if (n.owner !== -1 && n.owner !== fid) {
+        attackCandidates.push({ from:h, to:n, atkPow:getAttackPower(h), defPow:getDefensePower(n) });
+      }
+    }
+  }
+  // Sort by best ratio
+  attackCandidates.sort((a,b) => (b.atkPow/Math.max(1,b.defPow)) - (a.atkPow/Math.max(1,a.defPow)));
+
+  // Launch up to 2 coordinated attacks
+  let attacks = 0;
+  const attacked = new Set();
+  for (const ac of attackCandidates) {
+    if (attacks >= 2) break;
+    if (attacked.has(ac.to)) continue;
+    if (ac.atkPow < ac.defPow * 0.6) continue;
+    const result = attackHex(ac.from, ac.to);
+    if (result) {
+      attacked.add(ac.to);
+      attacks++;
+      if (result.win) {
+        addLog(FACTIONS[fid].name + ' conquered territory!');
+      } else {
+        addLog(FACTIONS[fid].name + ' attack repelled.');
+      }
+    }
+  }
+
+  // 7. Move troops toward front lines
+  for (const h of owned) {
+    if (getTotalTroops(h) === 0) continue;
+    const nbrs = getNeighbors(h);
+    const isBorder = nbrs.some(n => n.owner !== -1 && n.owner !== fid);
+    if (isBorder) continue; // already on border
+    // Find neighbor closer to enemy
+    const friendlyNbrs = nbrs.filter(n => n.owner === fid);
+    const borderNbr = friendlyNbrs.find(fn => {
+      const fnn = getNeighbors(fn);
+      return fnn.some(n2 => n2.owner !== -1 && n2.owner !== fid);
+    });
+    if (borderNbr) {
+      // Move troops
+      for (const k in h.troops) {
+        borderNbr.troops[k] += h.troops[k];
+        h.troops[k] = 0;
+      }
+    }
+  }
+}
+
+// --- Turn management ---
+function endPlayerTurn() {
+  if (gameState !== 'playing') return;
+  // Collect player resources
+  collectResources(0);
+  addLog('--- Turn ' + turn + ' ---');
+
+  // AI turns
+  aiFactionTurn(1);
+  aiFactionTurn(2);
+
+  turn++;
+  selectedHex = null;
+  actionMode = null;
+  updateScore();
+
+  if (turn > MAX_TURNS) {
+    endGame();
+  }
+}
+
+function updateScore() {
+  const counts = [0,0,0];
+  for (const h of hexes) {
+    if (h.owner >= 0) counts[h.owner]++;
+  }
+  score = counts[0];
+  document.getElementById('sb-terr').textContent = counts[0];
+  document.getElementById('sb-turn').textContent = Math.min(turn, MAX_TURNS) + '/' + MAX_TURNS;
+  document.getElementById('sb-score').textContent = score;
+}
+
+function endGame() {
+  gameState = 'gameover';
+  const counts = [0,0,0];
+  for (const h of hexes) {
+    if (h.owner >= 0) counts[h.owner]++;
+  }
+  let winner = 0;
+  if (counts[1] > counts[winner]) winner = 1;
+  if (counts[2] > counts[winner]) winner = 2;
+
+  const overlay = document.getElementById('overlay');
+  overlay.classList.remove('hidden');
+  overlay.innerHTML = `
+    <h2>GAME OVER</h2>
+    <p style="color:#c64;font-size:16px;">${FACTIONS[winner].name} ${winner===0?'WINS!':'wins.'}</p>
+    <p>${FACTIONS[0].name}: ${counts[0]} | ${FACTIONS[1].name}: ${counts[1]} | ${FACTIONS[2].name}: ${counts[2]}</p>
+    <p>Your Score: ${score} territories</p>
+    <button onclick="restartGame()">PLAY AGAIN</button>
+  `;
+}
+
+function restartGame() {
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('ui-panel').classList.remove('hidden');
+  initGame();
+  gameState = 'playing';
+}
+
+// --- Logging ---
+function addLog(msg) {
+  logs.unshift(msg);
+  if (logs.length > 6) logs.pop();
+  const el = document.getElementById('action-log');
+  el.innerHTML = logs.map(l => '<div>' + l + '</div>').join('');
+}
+
+// --- Drawing ---
+function drawHex(cx, cy, r, fill, stroke, lw) {
+  ctx.beginPath();
+  for (let i=0; i<6; i++) {
+    const angle = Math.PI/6 + i * Math.PI/3;
+    const px = cx + r * Math.cos(angle);
+    const py = cy + r * Math.sin(angle);
+    if (i===0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw||1; ctx.stroke(); }
+}
+
+function getHexColor(hex) {
+  if (hex.owner === -1) return TERRAIN_COLORS[hex.terrain];
+  const f = FACTIONS[hex.owner];
+  // Blend faction color with terrain
+  return f.color;
+}
+
+function draw() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw map area background
+  ctx.fillStyle = '#12122a';
+  ctx.fillRect(0, 34, W, H - 34 - 110);
+
+  const panelTop = H - 110;
+
+  // Draw hexes
+  for (const h of hexes) {
+    const hx = h.x + mapViewOffX;
+    const hy = h.y + mapViewOffY;
+    if (hx < -20 || hx > W+20 || hy < 30 || hy > panelTop+10) continue;
+
+    let fill = getHexColor(h);
+    let strokeColor = '#333';
+    let strokeW = 0.8;
+
+    if (h.owner >= 0) {
+      const f = FACTIONS[h.owner];
+      // lighter interior
+      fill = f.dark;
+      // brighter border for owned
+      strokeColor = f.color;
+      strokeW = 1.2;
+    } else {
+      fill = TERRAIN_COLORS[h.terrain];
+      strokeColor = '#2a2a4a';
+    }
+
+    // Hover highlight
+    if (h === hoverHex && h !== selectedHex) {
+      strokeColor = '#fff';
+      strokeW = 1.5;
+    }
+
+    // Selected
+    if (h === selectedHex) {
+      strokeColor = '#fff';
+      strokeW = 2.5;
+    }
+
+    // Attack target highlight
+    if (actionMode === 'attack' && selectedHex && h.owner !== -1 && h.owner !== 0) {
+      const nbrs = getNeighbors(selectedHex);
+      if (nbrs.includes(h)) {
+        strokeColor = '#f44';
+        strokeW = 2;
+      }
+    }
+
+    drawHex(hx, hy, HEX_R - 1, fill, strokeColor, strokeW);
+
+    // Capital marker
+    if (h.isCapital) {
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 8px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('★', hx, hy - 4);
+    }
+
+    // Building icon
+    if (h.building) {
+      const icon = BUILDINGS[h.building] ? BUILDINGS[h.building].icon : '?';
+      ctx.fillStyle = '#ddd';
+      ctx.font = '7px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(icon, hx, hy + (h.isCapital ? 5 : 1));
+    }
+
+    // Troop count
+    const tc = getTotalTroops(h);
+    if (tc > 0) {
+      ctx.fillStyle = h.owner >= 0 ? FACTIONS[h.owner].light : '#fff';
+      ctx.font = 'bold 7px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(tc, hx, hy + (h.building || h.isCapital ? 11 : 5));
+    }
+
+    // Terrain mini letter for neutral
+    if (h.owner === -1) {
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.font = '6px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(h.terrain[0].toUpperCase(), hx, hy + 3);
+    }
+  }
+
+  // Draw turn info
+  const ti = document.getElementById('turn-info');
+  const counts = [0,0,0];
+  for (const h of hexes) { if (h.owner>=0) counts[h.owner]++; }
+  ti.innerHTML = `<span style="color:${FACTIONS[0].color}">${FACTIONS[0].name}:${counts[0]}</span> | <span style="color:${FACTIONS[1].color}">${FACTIONS[1].name}:${counts[1]}</span> | <span style="color:${FACTIONS[2].color}">${FACTIONS[2].name}:${counts[2]}</span>`;
+
+  // Update resource panel
+  if (gameState === 'playing') {
+    const rp = document.getElementById('res-panel');
+    const r = resources[0];
+    rp.innerHTML = `
+      <div style="color:#c64;font-weight:bold;margin-bottom:4px;">RESOURCES</div>
+      <div><span class="rlbl">Food: </span><span class="rval">${r.food}</span></div>
+      <div><span class="rlbl">Ore:  </span><span class="rval">${r.ore}</span></div>
+      <div><span class="rlbl">Wood: </span><span class="rval">${r.wood}</span></div>
+      <div><span class="rlbl">Gold: </span><span class="rval">${r.gold}</span></div>
+      <div style="margin-top:6px;"><button onclick="endPlayerTurn()" style="padding:4px 10px;background:#c64;color:#fff;border:none;font-family:Courier New;cursor:pointer;font-size:11px;">END TURN</button></div>
+    `;
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// --- Hex hit test ---
+function hexAt(mx, my) {
+  let closest = null, minD = Infinity;
+  for (const h of hexes) {
+    const dx = mx - (h.x + mapViewOffX);
+    const dy = my - (h.y + mapViewOffY);
+    const d = dx*dx + dy*dy;
+    if (d < HEX_R * HEX_R && d < minD) {
+      minD = d;
+      closest = h;
+    }
+  }
+  return closest;
+}
+
+// --- Update info/build panels ---
+function updatePanels() {
+  const ip = document.getElementById('info-panel');
+  const bp = document.getElementById('build-panel');
+  bp.innerHTML = '';
+
+  if (!selectedHex) {
+    ip.innerHTML = '<div class="info-title">Select a territory</div><div class="info-text">Click a hex on the map.</div>';
+    return;
+  }
+
+  const h = selectedHex;
+  const ownerName = h.owner >= 0 ? FACTIONS[h.owner].name : 'Neutral';
+  const ownerColor = h.owner >= 0 ? FACTIONS[h.owner].color : '#888';
+
+  let info = `<div class="info-title" style="color:${ownerColor}">${ownerName} Territory (${h.col},${h.row})</div>`;
+  info += `<div class="info-text">`;
+  info += `Terrain: ${h.terrain} | `;
+  const prod = TERRAIN_PROD[h.terrain];
+  const prodStr = Object.entries(prod).filter(([,v])=>v>0).map(([k,v])=>`${k}:${v}`).join(' ');
+  info += `Produces: ${prodStr || 'none'}<br>`;
+  if (h.building) info += `Building: ${BUILDINGS[h.building]?.label || h.building}<br>`;
+  if (h.isCapital) info += `CAPITAL | `;
+  info += `Defense: ${getDefensePower(h)} | Troops: Inf:${h.troops.infantry} Cav:${h.troops.cavalry} Sge:${h.troops.siege}`;
+  info += `</div>`;
+  ip.innerHTML = info;
+
+  // Build panel
+  if (h.owner === 0 && gameState === 'playing') {
+    // Buildings
+    if (!h.building && !h.isCapital) {
+      for (const [key, b] of Object.entries(BUILDINGS)) {
+        if (key === 'outpost') continue;
+        const ok = canAfford(0, b.cost);
+        const costStr = Object.entries(b.cost).filter(([,v])=>v>0).map(([k,v])=>`${k[0].toUpperCase()}${v}`).join(' ');
+        const btn = document.createElement('button');
+        btn.textContent = `${b.label} (${costStr})`;
+        btn.disabled = !ok;
+        btn.title = b.desc;
+        btn.onclick = () => {
+          if (buildOnHex(h, key)) {
+            addLog('Built ' + b.label + '.');
+            updatePanels();
+          }
+        };
+        bp.appendChild(btn);
+      }
+    }
+
+    // Train troops (if barracks or capital)
+    if (h.building === 'barracks' || h.isCapital) {
+      for (const [key, t] of Object.entries(TROOPS)) {
+        const ok = canAfford(0, t.cost);
+        const costStr = Object.entries(t.cost).filter(([,v])=>v>0).map(([k,v])=>`${k[0].toUpperCase()}${v}`).join(' ');
+        const btn = document.createElement('button');
+        btn.textContent = `Train ${t.label} (${costStr})`;
+        btn.disabled = !ok;
+        btn.onclick = () => {
+          if (trainTroop(h, key)) {
+            addLog('Trained ' + t.label + '.');
+            updatePanels();
+          }
+        };
+        bp.appendChild(btn);
+      }
+    }
+
+    // Attack button if troops present
+    if (getTotalTroops(h) > 0) {
+      const atkBtn = document.createElement('button');
+      atkBtn.textContent = actionMode === 'attack' ? '[ ATTACKING ]' : 'ATTACK';
+      atkBtn.style.background = actionMode === 'attack' ? '#c44' : '#633';
+      atkBtn.style.color = '#fff';
+      atkBtn.onclick = () => {
+        actionMode = actionMode === 'attack' ? null : 'attack';
+        updatePanels();
+      };
+      bp.appendChild(atkBtn);
+    }
+  }
+
+  // Claim neutral with outpost
+  if (h.owner === -1 && gameState === 'playing') {
+    const nbrs = getNeighbors(h);
+    const adj = nbrs.some(n => n.owner === 0);
+    if (adj) {
+      const ok = canAfford(0, BUILDINGS.outpost.cost);
+      const costStr = Object.entries(BUILDINGS.outpost.cost).filter(([,v])=>v>0).map(([k,v])=>`${k[0].toUpperCase()}${v}`).join(' ');
+      const btn = document.createElement('button');
+      btn.textContent = `Claim (Outpost: ${costStr})`;
+      btn.disabled = !ok;
+      btn.onclick = () => {
+        if (claimWithOutpost(h, 0)) {
+          addLog('Claimed territory!');
+          updateScore();
+          updatePanels();
+        }
+      };
+      bp.appendChild(btn);
+    }
+  }
+}
+
+// --- Input ---
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (W / rect.width);
+  const my = (e.clientY - rect.top) * (H / rect.height);
+  hoverHex = hexAt(mx, my);
+});
+
+canvas.addEventListener('click', (e) => {
+  if (gameState !== 'playing') return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (W / rect.width);
+  const my = (e.clientY - rect.top) * (H / rect.height);
+  const clicked = hexAt(mx, my);
+  if (!clicked) return;
+
+  // Attack mode
+  if (actionMode === 'attack' && selectedHex && selectedHex.owner === 0) {
+    if (clicked.owner !== -1 && clicked.owner !== 0) {
+      const nbrs = getNeighbors(selectedHex);
+      if (nbrs.includes(clicked)) {
+        const result = attackHex(selectedHex, clicked);
+        if (result) {
+          if (result.win) {
+            addLog('Victory! Territory conquered!');
+          } else {
+            addLog('Attack failed! Troops lost.');
+          }
+          actionMode = null;
+          updateScore();
+          selectedHex = clicked;
+          updatePanels();
+          return;
+        }
+      }
+    }
+    actionMode = null;
+  }
+
+  selectedHex = clicked;
+  actionMode = null;
+  updatePanels();
+});
+
+// --- Start ---
+document.getElementById('start-btn').addEventListener('click', () => {
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('ui-panel').classList.remove('hidden');
+  initGame();
+  gameState = 'playing';
+});
+
+draw();
+
+// Recorder stub
+try { const s = document.createElement('script'); s.src = '../recorder.js'; document.body.appendChild(s); } catch(e) {}
+</script>
+</body>
+</html>
