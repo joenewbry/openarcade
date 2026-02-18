@@ -147,6 +147,7 @@
     let particles = [];
     let countdownTimer = 0;
     let raceFinished = false;
+      raceEndTimer = 0;
     let raceEndTimer = 0;
     let finishOrder = [];
     let keys = {};
@@ -259,6 +260,7 @@
       particles = [];
       finishOrder = [];
       raceFinished = false;
+      raceEndTimer = 0;
       countdownTimer = 180; // 3 seconds
 
       // Place item boxes
@@ -631,12 +633,9 @@
       }
       // Auto-finish remaining after leader finishes + delay
       if (finishOrder.length > 0 && !raceFinished) {
-        let allDone = true;
-        for (const k of karts) {
-          if (!k.finished) {
-            allDone = false;
-            // Check if enough time passed to auto-finish stragglers
-          }
+        raceEndTimer++;
+        if (raceEndTimer > 300) { // 5 seconds after first finish
+          endRace();
         }
       }
     }

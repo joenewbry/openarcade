@@ -75,14 +75,14 @@
     <div>CPU: <span id="aiScore">0</span></div>
   </div>
   <div class="controls-info">
-    Q/W=Left Arm | O/P=Right Arm | A/S=Left Leg | K/L=Right Leg
+    Q/W=Left Arm Up/Dn &bull; O/P=Right Arm Up/Dn &bull; A/S=Left Leg &bull; K/L=Right Leg
   </div>
   <div style="position: relative; display: inline-block;">
     <canvas id="game" width="500" height="400"></canvas>
     <div class="overlay" id="overlay" style="width:500px;height:400px;">
       <h2 id="overlayTitle">WRESTLING PHYSICS</h2>
       <p id="overlayText">Press any key to start</p>
-      <p style="font-size:0.75rem;color:#888;margin-top:12px;">QWOP-style limb controls. Pin or ring-out your opponent!</p>
+      <p style="font-size:0.75rem;color:#888;margin-top:12px;">QWOP-style limb controls &mdash; Pin or ring-out your opponent!</p>
     </div>
   </div>
 
@@ -101,99 +101,65 @@
     let score = 0;
     let aiScoreVal = 0;
     let round = 1;
-    let maxRounds = 3;
+    const maxRounds = 3;
     let roundTimer = 0;
     let pinTimer = 0;
-    let pinTarget = null; // 'player' or 'ai'
-    let pinCount = 0;
+    let pinTarget = null;
     let matchMessage = '';
-    let matchMessageTimer = 0;
+    let matchMsgTimer = 0;
     let shakeTimer = 0;
     let shakeX = 0, shakeY = 0;
+    let comboText = [];  // floating text effects
 
-    // Ring dimensions
-    const RING_LEFT = 60;
-    const RING_RIGHT = 440;
-    const RING_TOP = 140;
-    const MAT_Y = 320; // mat/floor level
-    const ROPE_Y1 = 160;
-    const ROPE_Y2 = 210;
-    const ROPE_Y3 = 260;
-    const GRAVITY = 0.35;
-    const FRICTION = 0.92;
-    const JOINT_RADIUS = 5;
-    const LIMB_THICK = 3;
+    // Ring geometry
+    const RING_L = 55, RING_R = 445;
+    const MAT_Y = 310;
+    const ROPE_YS = [155, 200, 248];
+    const GRAVITY = 0.38;
+    const FRICTION = 0.93;
 
-    // Keys
+    // Input
     const keys = {};
     document.addEventListener('keydown', e => {
-      keys[e.key.toLowerCase()] = true;
-      if (gameState === 'waiting' || gameState === 'roundEnd' || gameState === 'matchEnd') {
-        if (gameState === 'waiting') {
-          startMatch();
-        } else if (gameState === 'roundEnd') {
-          startRound();
-        } else if (gameState === 'matchEnd') {
-          score = 0;
-          aiScoreVal = 0;
-          round = 1;
-          scoreEl.textContent = '0';
-          aiScoreEl.textContent = '0';
-          startMatch();
-        }
-      }
+      const k = e.key.toLowerCase();
+      keys[k] = true;
+      if (gameState === 'waiting') startMatch();
+      else if (gameState === 'roundEnd') startRound();
+      else if (gameState === 'matchEnd') { score = 0; aiScoreVal = 0; round = 1; scoreEl.textContent = '0'; aiScoreEl.textContent = '0'; startMatch(); }
     });
     document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-    // Ragdoll wrestler: a set of points connected by constraints
-    // Points: head, neck, shoulderL, shoulderR, elbowL, elbowR, handL, handR,
-    //         hip, kneeL, kneeR, footL, footR
-    function createWrestler(x, facing, color, outlineColor) {
-      const f = facing; // 1 = right, -1 = left
-      const pts = {
-        head:     { x: x, y: MAT_Y - 110, vx: 0, vy: 0, r: 10, mass: 2 },
-        neck:     { x: x, y: MAT_Y - 95, vx: 0, vy: 0, r: 4, mass: 1 },
-        shoulderL:{ x: x - 12*f, y: MAT_Y - 90, vx: 0, vy: 0, r: 5, mass: 1.5 },
-        shoulderR:{ x: x + 12*f, y: MAT_Y - 90, vx: 0, vy: 0, r: 5, mass: 1.5 },
-        elbowL:   { x: x - 24*f, y: MAT_Y - 78, vx: 0, vy: 0, r: 4, mass: 1 },
-        elbowR:   { x: x + 24*f, y: MAT_Y - 78, vx: 0, vy: 0, r: 4, mass: 1 },
-        handL:    { x: x - 34*f, y: MAT_Y - 68, vx: 0, vy: 0, r: 4, mass: 0.8 },
-        handR:    { x: x + 34*f, y: MAT_Y - 68, vx: 0, vy: 0, r: 4, mass: 0.8 },
-        hip:      { x: x, y: MAT_Y - 55, vx: 0, vy: 0, r: 6, mass: 3 },
-        kneeL:    { x: x - 8*f, y: MAT_Y - 30, vx: 0, vy: 0, r: 4, mass: 1.2 },
-        kneeR:    { x: x + 8*f, y: MAT_Y - 30, vx: 0, vy: 0, r: 4, mass: 1.2 },
-        footL:    { x: x - 12*f, y: MAT_Y - 5, vx: 0, vy: 0, r: 5, mass: 1, grounded: false },
-        footR:    { x: x + 12*f, y: MAT_Y - 5, vx: 0, vy: 0, r: 5, mass: 1, grounded: false }
+    // --- RAGDOLL ---
+    function pt(x, y, r, mass) { return { x, y, ox: x, oy: y, vx: 0, vy: 0, r: r || 4, mass: mass || 1 }; }
+
+    function createWrestler(x, face, col, outline, trunksCol) {
+      const f = face;
+      const p = {
+        head:  pt(x, MAT_Y - 108, 11, 2.5),
+        neck:  pt(x, MAT_Y - 93, 3, 1),
+        shlL:  pt(x - 14*f, MAT_Y - 88, 5, 1.5),
+        shlR:  pt(x + 14*f, MAT_Y - 88, 5, 1.5),
+        elbL:  pt(x - 26*f, MAT_Y - 75, 4, 1),
+        elbR:  pt(x + 26*f, MAT_Y - 75, 4, 1),
+        hndL:  pt(x - 36*f, MAT_Y - 64, 5, 0.7),
+        hndR:  pt(x + 36*f, MAT_Y - 64, 5, 0.7),
+        hip:   pt(x, MAT_Y - 52, 7, 4),
+        knL:   pt(x - 8*f, MAT_Y - 28, 4, 1.3),
+        knR:   pt(x + 8*f, MAT_Y - 28, 4, 1.3),
+        ftL:   pt(x - 14*f, MAT_Y - 5, 5, 1.2),
+        ftR:   pt(x + 14*f, MAT_Y - 5, 5, 1.2),
       };
-      // Constraints: [pointA, pointB, restLength]
       const bones = [
-        ['head', 'neck', 15],
-        ['neck', 'shoulderL', 14],
-        ['neck', 'shoulderR', 14],
-        ['shoulderL', 'elbowL', 18],
-        ['shoulderR', 'elbowR', 18],
-        ['elbowL', 'handL', 16],
-        ['elbowR', 'handR', 16],
-        ['neck', 'hip', 40],
-        ['hip', 'kneeL', 26],
-        ['hip', 'kneeR', 26],
-        ['kneeL', 'footL', 24],
-        ['kneeR', 'footR', 24],
-        // Stiffening
-        ['shoulderL', 'shoulderR', 24],
-        ['shoulderL', 'hip', 42],
-        ['shoulderR', 'hip', 42],
-        ['head', 'hip', 55],
+        ['head','neck',15], ['neck','shlL',16], ['neck','shlR',16],
+        ['shlL','elbL',18], ['shlR','elbR',18],
+        ['elbL','hndL',16], ['elbR','hndR',16],
+        ['neck','hip',41],
+        ['hip','knL',26], ['hip','knR',26],
+        ['knL','ftL',25], ['knR','ftR',25],
+        // structural
+        ['shlL','shlR',28], ['shlL','hip',44], ['shlR','hip',44], ['head','hip',56],
       ];
-      return {
-        pts, bones, facing: f, color, outlineColor,
-        // Limb motor targets (angle offsets applied as forces)
-        motors: { armL: 0, armR: 0, legL: 0, legR: 0 },
-        grabbing: false, // whether this wrestler is grabbing the other
-        pinned: false,
-        onMat: false,
-        shouldersOnMat: 0, // frames both shoulders touch mat
-      };
+      return { pts: p, bones, face: f, col, outline, trunksCol, motors: {aL:0,aR:0,lL:0,lR:0}, grabbing: false };
     }
 
     let player, ai;
@@ -201,630 +167,658 @@
     function startMatch() {
       gameState = 'playing';
       round = 1;
-      score = 0;
-      aiScoreVal = 0;
-      scoreEl.textContent = '0';
-      aiScoreEl.textContent = '0';
-      updateRoundInfo();
+      updateRound();
       overlay.style.display = 'none';
-      startRound();
+      initRound();
     }
 
     function startRound() {
       gameState = 'playing';
       overlay.style.display = 'none';
-      player = createWrestler(180, 1, '#4af', '#28d');
-      ai = createWrestler(320, -1, '#f44', '#c22');
-      pinTimer = 0;
-      pinTarget = null;
-      pinCount = 0;
-      roundTimer = 0;
-      matchMessage = '';
-      matchMessageTimer = 0;
-      updateRoundInfo();
+      initRound();
     }
 
-    function updateRoundInfo() {
-      roundInfoEl.textContent = `Round ${round}/${maxRounds}`;
+    function initRound() {
+      player = createWrestler(170, 1, '#4af', '#28d', '#24a');
+      ai = createWrestler(330, -1, '#f55', '#c22', '#c22');
+      pinTimer = 0; pinTarget = null; roundTimer = 0;
+      matchMessage = ''; matchMsgTimer = 0; comboText = [];
+      aiTimer = 0;
+      updateRound();
     }
 
-    // Physics
-    function applyGravity(w) {
-      for (const k in w.pts) {
-        const p = w.pts[k];
-        p.vy += GRAVITY;
-      }
+    function updateRound() { roundInfoEl.textContent = `Round ${round}/${maxRounds}`; }
+
+    // --- PHYSICS ENGINE ---
+    function applyGrav(w) {
+      for (const k in w.pts) { w.pts[k].vy += GRAVITY; }
     }
 
     function applyMotors(w) {
-      const m = w.motors;
-      const f = w.facing;
-      const str = 2.8; // motor strength
-
-      // Left arm: Q=up, W=down -> applies force to elbowL and handL
-      if (m.armL !== 0) {
-        const dir = m.armL; // -1 up, 1 down
-        w.pts.elbowL.vy += dir * str * 1.2;
-        w.pts.elbowL.vx -= f * str * 0.5;
-        w.pts.handL.vy += dir * str * 1.5;
-        w.pts.handL.vx -= f * str * 0.3;
+      const m = w.motors, f = w.face, s = 3.2;
+      // Arms swing from shoulder. Up = -1, Down = +1
+      if (m.aL) {
+        w.pts.elbL.vy += m.aL * s * 1.3;
+        w.pts.elbL.vx -= f * s * 0.7;
+        w.pts.hndL.vy += m.aL * s * 1.6;
+        w.pts.hndL.vx -= f * s * 0.4;
       }
-      // Right arm: O=up, P=down
-      if (m.armR !== 0) {
-        const dir = m.armR;
-        w.pts.elbowR.vy += dir * str * 1.2;
-        w.pts.elbowR.vx += f * str * 0.5;
-        w.pts.handR.vy += dir * str * 1.5;
-        w.pts.handR.vx += f * str * 0.3;
+      if (m.aR) {
+        w.pts.elbR.vy += m.aR * s * 1.3;
+        w.pts.elbR.vx += f * s * 0.7;
+        w.pts.hndR.vy += m.aR * s * 1.6;
+        w.pts.hndR.vx += f * s * 0.4;
       }
-      // Left leg: A=up, S=down
-      if (m.legL !== 0) {
-        const dir = m.legL;
-        w.pts.kneeL.vy += dir * str * 1.0;
-        w.pts.kneeL.vx -= f * str * 0.6;
-        w.pts.footL.vy += dir * str * 1.4;
-        w.pts.footL.vx -= f * str * 0.4;
-        // Moving legs pushes the body
-        w.pts.hip.vx += f * str * 0.15 * -dir;
-      }
-      // Right leg: K=up, L=down
-      if (m.legR !== 0) {
-        const dir = m.legR;
-        w.pts.kneeR.vy += dir * str * 1.0;
-        w.pts.kneeR.vx += f * str * 0.6;
-        w.pts.footR.vy += dir * str * 1.4;
-        w.pts.footR.vx += f * str * 0.4;
-        w.pts.hip.vx += f * str * 0.15 * -dir;
-      }
-    }
-
-    function solveConstraints(w) {
-      for (let iter = 0; iter < 5; iter++) {
-        for (const [a, b, len] of w.bones) {
-          const pa = w.pts[a];
-          const pb = w.pts[b];
-          const dx = pb.x - pa.x;
-          const dy = pb.y - pa.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const diff = (dist - len) / dist;
-          const totalMass = pa.mass + pb.mass;
-          const ratioA = pb.mass / totalMass;
-          const ratioB = pa.mass / totalMass;
-          pa.x += dx * diff * ratioA * 0.5;
-          pa.y += dy * diff * ratioA * 0.5;
-          pb.x -= dx * diff * ratioB * 0.5;
-          pb.y -= dy * diff * ratioB * 0.5;
+      // Legs: when foot is grounded and pushed down, it propels the body forward
+      // Up lifts knee, down stomps/pushes
+      if (m.lL) {
+        const grounded = w.pts.ftL.y + w.pts.ftL.r >= MAT_Y - 2;
+        w.pts.knL.vy += m.lL * s * 0.9;
+        w.pts.knL.vx -= f * s * 0.5;
+        w.pts.ftL.vy += m.lL * s * 1.3;
+        w.pts.ftL.vx -= f * s * 0.3;
+        // Ground reaction: pushing down on grounded foot moves body
+        if (grounded && m.lL > 0) {
+          w.pts.hip.vx += f * 1.8;
+          w.pts.hip.vy -= 0.5;
         }
-        // Floor collision
-        for (const k in w.pts) {
-          const p = w.pts[k];
-          if (p.y + p.r > MAT_Y) {
-            p.y = MAT_Y - p.r;
-            p.vy *= -0.3;
-            p.vx *= 0.85;
-            if (k === 'footL' || k === 'footR') p.grounded = true;
-          }
+        if (m.lL < 0) { // lifting leg = slight backward lean
+          w.pts.hip.vx -= f * 0.3;
+        }
+      }
+      if (m.lR) {
+        const grounded = w.pts.ftR.y + w.pts.ftR.r >= MAT_Y - 2;
+        w.pts.knR.vy += m.lR * s * 0.9;
+        w.pts.knR.vx += f * s * 0.5;
+        w.pts.ftR.vy += m.lR * s * 1.3;
+        w.pts.ftR.vx += f * s * 0.3;
+        if (grounded && m.lR > 0) {
+          w.pts.hip.vx += f * 1.8;
+          w.pts.hip.vy -= 0.5;
+        }
+        if (m.lR < 0) {
+          w.pts.hip.vx -= f * 0.3;
         }
       }
     }
 
-    function updatePoints(w) {
+    function integrate(w) {
       for (const k in w.pts) {
         const p = w.pts[k];
         p.vx *= FRICTION;
         p.vy *= FRICTION;
         p.x += p.vx;
         p.y += p.vy;
-        p.grounded = false;
       }
     }
 
-    function dist(a, b) {
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      return Math.sqrt(dx * dx + dy * dy);
-    }
-
-    // Check if wrestler's hands overlap with opponent's body
-    function checkGrab(attacker, defender) {
-      const hands = [attacker.pts.handL, attacker.pts.handR];
-      const bodyParts = ['head', 'neck', 'shoulderL', 'shoulderR', 'hip'];
-      for (const hand of hands) {
-        for (const part of bodyParts) {
-          const bp = defender.pts[part];
-          if (dist(hand, bp) < hand.r + bp.r + 8) {
-            return { hand, bodyPart: bp, partName: part };
+    function solveBones(w) {
+      for (let it = 0; it < 6; it++) {
+        for (const [a, b, len] of w.bones) {
+          const pa = w.pts[a], pb = w.pts[b];
+          let dx = pb.x - pa.x, dy = pb.y - pa.y;
+          const d = Math.sqrt(dx*dx + dy*dy) || 0.01;
+          const diff = (d - len) / d;
+          const tm = pa.mass + pb.mass;
+          const rA = pb.mass / tm, rB = pa.mass / tm;
+          pa.x += dx * diff * rA * 0.5;
+          pa.y += dy * diff * rA * 0.5;
+          pb.x -= dx * diff * rB * 0.5;
+          pb.y -= dy * diff * rB * 0.5;
+        }
+        // Floor
+        for (const k in w.pts) {
+          const p = w.pts[k];
+          if (p.y + p.r > MAT_Y) {
+            p.y = MAT_Y - p.r;
+            p.vy *= -0.25;
+            p.vx *= 0.82;
+          }
+          // Ceiling
+          if (p.y - p.r < 120) {
+            p.y = 120 + p.r;
+            p.vy = Math.abs(p.vy) * 0.3;
           }
         }
       }
-      return null;
     }
 
-    function applyGrabForces(attacker, defender) {
-      const grab = checkGrab(attacker, defender);
-      if (grab) {
-        attacker.grabbing = true;
-        // Pull opponent toward grabbing hand
-        const dx = grab.hand.x - grab.bodyPart.x;
-        const dy = grab.hand.y - grab.bodyPart.y;
-        const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = 0.8;
-        grab.bodyPart.vx += (dx / d) * force;
-        grab.bodyPart.vy += (dy / d) * force;
-        grab.hand.vx -= (dx / d) * force * 0.3;
-        grab.hand.vy -= (dy / d) * force * 0.3;
-      } else {
-        attacker.grabbing = false;
-      }
-    }
+    function pdist(a, b) { const dx = a.x-b.x, dy = a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
 
-    // Body-body collision (push apart)
-    function collideWrestlers(a, b) {
-      const partsA = ['head', 'shoulderL', 'shoulderR', 'hip'];
-      const partsB = ['head', 'shoulderL', 'shoulderR', 'hip'];
+    // Body collision between two wrestlers
+    function collide(a, b) {
+      const partsA = ['head','shlL','shlR','hip','knL','knR'];
+      const partsB = ['head','shlL','shlR','hip','knL','knR'];
       for (const ka of partsA) {
         for (const kb of partsB) {
-          const pa = a.pts[ka];
-          const pb = b.pts[kb];
-          const dx = pb.x - pa.x;
-          const dy = pb.y - pa.y;
-          const d = Math.sqrt(dx * dx + dy * dy) || 1;
-          const minDist = pa.r + pb.r + 4;
-          if (d < minDist) {
-            const push = (minDist - d) / d * 0.5;
-            pa.x -= dx * push * 0.5;
-            pa.y -= dy * push * 0.5;
-            pb.x += dx * push * 0.5;
-            pb.y += dy * push * 0.5;
-            pa.vx -= dx * push * 0.15;
-            pa.vy -= dy * push * 0.15;
-            pb.vx += dx * push * 0.15;
-            pb.vy += dy * push * 0.15;
+          const pa = a.pts[ka], pb = b.pts[kb];
+          let dx = pb.x - pa.x, dy = pb.y - pa.y;
+          const d = Math.sqrt(dx*dx+dy*dy) || 1;
+          const minD = pa.r + pb.r + 3;
+          if (d < minD) {
+            const push = (minD - d) / d * 0.45;
+            pa.x -= dx * push * 0.5; pa.y -= dy * push * 0.5;
+            pb.x += dx * push * 0.5; pb.y += dy * push * 0.5;
+            pa.vx -= dx * push * 0.12; pa.vy -= dy * push * 0.12;
+            pb.vx += dx * push * 0.12; pb.vy += dy * push * 0.12;
           }
         }
       }
     }
 
-    // Check pin: both shoulders on mat
-    function checkShouldersOnMat(w) {
-      const sl = w.pts.shoulderL;
-      const sr = w.pts.shoulderR;
-      const threshold = 12;
-      return (MAT_Y - sl.y - sl.r < threshold) && (MAT_Y - sr.y - sr.r < threshold);
+    // Grab: hands near opponent body parts
+    function applyGrab(atk, def) {
+      let grabbed = false;
+      for (const hk of ['hndL','hndR']) {
+        const hand = atk.pts[hk];
+        for (const bk of ['head','neck','shlL','shlR','hip']) {
+          const bp = def.pts[bk];
+          const d = pdist(hand, bp);
+          if (d < hand.r + bp.r + 10) {
+            grabbed = true;
+            const dx = hand.x - bp.x, dy = hand.y - bp.y;
+            const dd = Math.sqrt(dx*dx+dy*dy) || 1;
+            const f = 0.9;
+            bp.vx += (dx/dd) * f;
+            bp.vy += (dy/dd) * f;
+            hand.vx -= (dx/dd) * f * 0.25;
+            hand.vy -= (dy/dd) * f * 0.25;
+          }
+        }
+      }
+      atk.grabbing = grabbed;
     }
 
-    // Check ring-out
-    function checkRingOut(w) {
-      const hip = w.pts.hip;
-      return hip.x < RING_LEFT - 20 || hip.x > RING_RIGHT + 20;
+    // Uprighting force (weak, allows flopping)
+    function upright(w) {
+      const h = w.pts.head, hip = w.pts.hip;
+      if (h.y > hip.y) {
+        h.vy -= 1.0;
+        hip.vy += 0.4;
+      }
+      // Try to keep hip above feet center
+      const fmx = (w.pts.ftL.x + w.pts.ftR.x) / 2;
+      const dx = hip.x - fmx;
+      hip.vx -= dx * 0.008;
     }
 
-    // AI control
+    function shouldersDown(w) {
+      const sl = w.pts.shlL, sr = w.pts.shlR;
+      return (MAT_Y - sl.y - sl.r < 14) && (MAT_Y - sr.y - sr.r < 14);
+    }
+
+    function isRingOut(w) {
+      return w.pts.hip.x < RING_L - 25 || w.pts.hip.x > RING_R + 25;
+    }
+
+    // --- AI ---
     let aiTimer = 0;
-    let aiAction = { armL: 0, armR: 0, legL: 0, legR: 0 };
+    let aiAct = { aL: 0, aR: 0, lL: 0, lR: 0 };
+    let aiPhase = 'approach'; // approach, attack, recover, flee
 
     function updateAI() {
       aiTimer++;
-      
-      // Change actions periodically with some randomness
-      if (aiTimer % 8 === 0) {
-        const playerHip = player.pts.hip;
-        const aiHip = ai.pts.hip;
-        const dx = playerHip.x - aiHip.x;
-        const distToPlayer = Math.abs(dx);
+      const pH = player.pts.hip, aH = ai.pts.hip;
+      const dx = pH.x - aH.x;
+      const dist = Math.abs(dx);
 
-        // Movement: walk toward player using legs
-        if (distToPlayer > 50) {
-          // Alternate legs to walk
-          if (aiTimer % 16 < 8) {
-            aiAction.legL = dx > 0 ? 1 : -1;
-            aiAction.legR = 0;
-          } else {
-            aiAction.legR = dx > 0 ? 1 : -1;
-            aiAction.legL = 0;
-          }
-        } else {
-          // Close: try to grab and push down
-          // Pump arms to grab
-          if (aiTimer % 16 < 8) {
-            aiAction.armL = -1; // up
-            aiAction.armR = 1;  // down (push)
-          } else {
-            aiAction.armL = 1;
-            aiAction.armR = -1;
-          }
-          // Legs: ground and push
-          aiAction.legL = Math.random() > 0.5 ? 1 : -1;
-          aiAction.legR = Math.random() > 0.5 ? 1 : -1;
+      // Decide phase
+      if (shouldersDown(ai)) {
+        aiPhase = 'recover';
+      } else if (aH.x < RING_L + 50 || aH.x > RING_R - 50) {
+        aiPhase = 'flee';
+      } else if (dist > 60) {
+        aiPhase = 'approach';
+      } else {
+        aiPhase = 'attack';
+      }
+
+      if (aiTimer % 6 === 0) {
+        switch (aiPhase) {
+          case 'approach':
+            // Walk toward player: alternate legs like QWOP
+            if (aiTimer % 24 < 12) {
+              aiAct.lL = -1; aiAct.lR = 1; // lift left, push right
+            } else {
+              aiAct.lL = 1; aiAct.lR = -1; // push left, lift right
+            }
+            // Arms up ready to grab
+            aiAct.aL = -1; aiAct.aR = -1;
+            break;
+
+          case 'attack':
+            // Close quarters: pump arms to push opponent down
+            if (aiTimer % 12 < 6) {
+              aiAct.aL = 1; aiAct.aR = -1;
+            } else {
+              aiAct.aL = -1; aiAct.aR = 1;
+            }
+            // Legs: brace and push
+            aiAct.lL = (Math.random() > 0.4) ? 1 : -1;
+            aiAct.lR = (Math.random() > 0.4) ? 1 : -1;
+            // Sometimes lunge
+            if (Math.random() < 0.08) {
+              aiAct.aL = 1; aiAct.aR = 1; // both arms down = push
+              aiAct.lL = 1; aiAct.lR = 1;
+            }
+            break;
+
+          case 'recover':
+            // Flail to get up
+            aiAct.aL = (Math.random() > 0.3) ? -1 : 1;
+            aiAct.aR = (Math.random() > 0.3) ? -1 : 1;
+            aiAct.lL = (Math.random() > 0.3) ? -1 : 1;
+            aiAct.lR = (Math.random() > 0.3) ? -1 : 1;
+            break;
+
+          case 'flee':
+            // Move toward center
+            const toCenter = 250 - aH.x;
+            if (toCenter > 0) {
+              // Need to go right (face is -1 for AI, so this is backward)
+              if (aiTimer % 24 < 12) { aiAct.lL = 1; aiAct.lR = -1; }
+              else { aiAct.lL = -1; aiAct.lR = 1; }
+            } else {
+              if (aiTimer % 24 < 12) { aiAct.lL = -1; aiAct.lR = 1; }
+              else { aiAct.lL = 1; aiAct.lR = -1; }
+            }
+            aiAct.aL = -1; aiAct.aR = -1;
+            break;
         }
 
-        // If being pinned, flail wildly
-        if (checkShouldersOnMat(ai)) {
-          aiAction.armL = Math.random() > 0.3 ? -1 : 1;
-          aiAction.armR = Math.random() > 0.3 ? -1 : 1;
-          aiAction.legL = Math.random() > 0.3 ? -1 : 1;
-          aiAction.legR = Math.random() > 0.3 ? -1 : 1;
-        }
-
-        // If near edge, try to move toward center
-        if (aiHip.x < RING_LEFT + 40) {
-          aiAction.legL = 1; aiAction.legR = -1;
-        } else if (aiHip.x > RING_RIGHT - 40) {
-          aiAction.legL = -1; aiAction.legR = 1;
-        }
-
-        // Add some chaos / comedy
-        if (Math.random() < 0.15) {
-          aiAction.armL = (Math.random() > 0.5) ? -1 : 1;
-          aiAction.armR = (Math.random() > 0.5) ? -1 : 1;
-          aiAction.legL = (Math.random() > 0.5) ? -1 : 1;
-          aiAction.legR = (Math.random() > 0.5) ? -1 : 1;
+        // Random comedy flail (15% chance)
+        if (Math.random() < 0.12 && aiPhase !== 'recover') {
+          aiAct.aL = (Math.random() > 0.5) ? -1 : 1;
+          aiAct.aR = (Math.random() > 0.5) ? -1 : 1;
+          aiAct.lL = (Math.random() > 0.5) ? -1 : 1;
+          aiAct.lR = (Math.random() > 0.5) ? -1 : 1;
         }
       }
 
-      ai.motors.armL = aiAction.armL;
-      ai.motors.armR = aiAction.armR;
-      ai.motors.legL = aiAction.legL;
-      ai.motors.legR = aiAction.legR;
+      ai.motors.aL = aiAct.aL;
+      ai.motors.aR = aiAct.aR;
+      ai.motors.lL = aiAct.lL;
+      ai.motors.lR = aiAct.lR;
     }
 
-    function handlePlayerInput() {
-      player.motors.armL = keys['q'] ? -1 : (keys['w'] ? 1 : 0);
-      player.motors.armR = keys['o'] ? -1 : (keys['p'] ? 1 : 0);
-      player.motors.legL = keys['a'] ? -1 : (keys['s'] ? 1 : 0);
-      player.motors.legR = keys['k'] ? -1 : (keys['l'] ? 1 : 0);
+    function handleInput() {
+      player.motors.aL = keys['q'] ? -1 : (keys['w'] ? 1 : 0);
+      player.motors.aR = keys['o'] ? -1 : (keys['p'] ? 1 : 0);
+      player.motors.lL = keys['a'] ? -1 : (keys['s'] ? 1 : 0);
+      player.motors.lR = keys['k'] ? -1 : (keys['l'] ? 1 : 0);
     }
 
     // --- DRAWING ---
     function drawRing() {
-      // Mat
-      ctx.fillStyle = '#3a2820';
-      ctx.fillRect(RING_LEFT - 10, MAT_Y, RING_RIGHT - RING_LEFT + 20, 60);
+      // Arena floor/apron
+      ctx.fillStyle = '#2a1a14';
+      ctx.fillRect(RING_L - 15, MAT_Y, RING_R - RING_L + 30, 80);
 
-      // Mat surface
-      ctx.fillStyle = '#5a3a2a';
-      ctx.fillRect(RING_LEFT, MAT_Y - 2, RING_RIGHT - RING_LEFT, 4);
+      // Mat top surface
+      const matGrad = ctx.createLinearGradient(RING_L, MAT_Y - 3, RING_R, MAT_Y - 3);
+      matGrad.addColorStop(0, '#5a3828');
+      matGrad.addColorStop(0.5, '#6a4430');
+      matGrad.addColorStop(1, '#5a3828');
+      ctx.fillStyle = matGrad;
+      ctx.fillRect(RING_L, MAT_Y - 3, RING_R - RING_L, 6);
 
-      // Ring posts
-      ctx.fillStyle = '#888';
-      ctx.fillRect(RING_LEFT - 6, RING_TOP, 8, MAT_Y - RING_TOP);
-      ctx.fillRect(RING_RIGHT - 2, RING_TOP, 8, MAT_Y - RING_TOP);
+      // Center circle on mat
+      ctx.strokeStyle = 'rgba(255,136,34,0.2)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(250, MAT_Y, 40, Math.PI, 0);
+      ctx.stroke();
 
-      // Post tops (turnbuckles)
+      // Posts
+      ctx.fillStyle = '#777';
+      ctx.fillRect(RING_L - 5, 135, 7, MAT_Y - 135);
+      ctx.fillRect(RING_R - 2, 135, 7, MAT_Y - 135);
+
+      // Turnbuckle pads
       ctx.fillStyle = '#f82';
-      ctx.beginPath();
-      ctx.arc(RING_LEFT - 2, RING_TOP, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(RING_RIGHT + 2, RING_TOP, 6, 0, Math.PI * 2);
-      ctx.fill();
+      for (const x of [RING_L - 2, RING_R + 2]) {
+        ctx.beginPath(); ctx.arc(x, 138, 7, 0, Math.PI * 2); ctx.fill();
+      }
 
-      // Ropes
-      ctx.strokeStyle = '#f82';
-      ctx.lineWidth = 2;
-      for (const ry of [ROPE_Y1, ROPE_Y2, ROPE_Y3]) {
+      // Ropes with slight sag
+      ctx.lineWidth = 2.5;
+      for (const ry of ROPE_YS) {
+        ctx.strokeStyle = ry === ROPE_YS[0] ? '#f82' : (ry === ROPE_YS[1] ? '#e72' : '#d62');
         ctx.beginPath();
-        ctx.moveTo(RING_LEFT - 2, ry);
-        ctx.lineTo(RING_RIGHT + 2, ry);
+        ctx.moveTo(RING_L - 2, ry);
+        ctx.quadraticCurveTo(250, ry + 3, RING_R + 2, ry);
         ctx.stroke();
       }
 
-      // Mat pattern (X pattern for wrestling)
-      ctx.strokeStyle = 'rgba(255,136,34,0.15)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(RING_LEFT + 20, MAT_Y - 1);
-      ctx.lineTo(250, MAT_Y - 50);
-      ctx.lineTo(RING_RIGHT - 20, MAT_Y - 1);
-      ctx.stroke();
-
-      // Audience silhouettes
-      ctx.fillStyle = '#0d0d1a';
-      for (let i = 0; i < 20; i++) {
-        const ax = 25 + i * 24;
-        const ay = 80 + Math.sin(i * 1.3) * 8;
-        ctx.beginPath();
-        ctx.arc(ax, ay, 8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillRect(ax - 5, ay + 8, 10, 12);
+      // Audience (stylized)
+      for (let row = 0; row < 3; row++) {
+        for (let i = 0; i < 22; i++) {
+          const ax = 12 + i * 23 + row * 8;
+          const ay = 50 + row * 22 + Math.sin(i * 1.7 + row) * 5;
+          const bright = 15 + Math.floor(Math.random() * 0.3) * 10;
+          ctx.fillStyle = `rgb(${bright},${bright},${bright + 8})`;
+          ctx.beginPath(); ctx.arc(ax, ay, 5, 0, Math.PI * 2); ctx.fill();
+          ctx.fillRect(ax - 3, ay + 5, 6, 7);
+        }
       }
 
-      // Crowd glow
-      ctx.fillStyle = 'rgba(255,136,34,0.05)';
-      ctx.fillRect(0, 40, W, 70);
+      // Spotlight glow
+      const spot = ctx.createRadialGradient(250, MAT_Y - 80, 10, 250, MAT_Y - 80, 220);
+      spot.addColorStop(0, 'rgba(255,136,34,0.07)');
+      spot.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = spot;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    function drawLimb(pa, pb, col, thick) {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = thick;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
     }
 
     function drawWrestler(w) {
       const p = w.pts;
-      ctx.strokeStyle = w.outlineColor;
-      ctx.lineWidth = LIMB_THICK + 2;
-      ctx.lineCap = 'round';
-
-      // Draw limb connections (shadow/outline)
-      const limbs = [
-        ['neck', 'shoulderL'], ['neck', 'shoulderR'],
-        ['shoulderL', 'elbowL'], ['shoulderR', 'elbowR'],
-        ['elbowL', 'handL'], ['elbowR', 'handR'],
-        ['neck', 'hip'],
-        ['hip', 'kneeL'], ['hip', 'kneeR'],
-        ['kneeL', 'footL'], ['kneeR', 'footR'],
-      ];
-      for (const [a, b] of limbs) {
-        ctx.beginPath();
-        ctx.moveTo(p[a].x, p[a].y);
-        ctx.lineTo(p[b].x, p[b].y);
-        ctx.stroke();
-      }
-
-      // Draw limbs (main color)
-      ctx.strokeStyle = w.color;
-      ctx.lineWidth = LIMB_THICK;
-      for (const [a, b] of limbs) {
-        ctx.beginPath();
-        ctx.moveTo(p[a].x, p[a].y);
-        ctx.lineTo(p[b].x, p[b].y);
-        ctx.stroke();
-      }
-
-      // Torso fill
-      ctx.fillStyle = w.color;
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
       ctx.beginPath();
-      ctx.moveTo(p.shoulderL.x, p.shoulderL.y);
-      ctx.lineTo(p.shoulderR.x, p.shoulderR.y);
-      ctx.lineTo(p.hip.x + 6 * w.facing, p.hip.y);
-      ctx.lineTo(p.hip.x - 6 * w.facing, p.hip.y);
+      ctx.ellipse(p.hip.x, MAT_Y + 2, 20, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Limb pairs: outline then color
+      const limbs = [
+        [p.neck,p.shlL],[p.neck,p.shlR],[p.shlL,p.elbL],[p.shlR,p.elbR],
+        [p.elbL,p.hndL],[p.elbR,p.hndR],[p.neck,p.hip],
+        [p.hip,p.knL],[p.hip,p.knR],[p.knL,p.ftL],[p.knR,p.ftR]
+      ];
+      // Outline
+      for (const [a,b] of limbs) drawLimb(a, b, w.outline, 6);
+      // Color
+      for (const [a,b] of limbs) drawLimb(a, b, w.col, 4);
+
+      // Trunks (shorts)
+      ctx.fillStyle = w.trunksCol;
+      ctx.beginPath();
+      ctx.moveTo(p.shlL.x, p.hip.y - 8);
+      ctx.lineTo(p.shlR.x, p.hip.y - 8);
+      ctx.lineTo(p.knR.x, p.knR.y - 4);
+      ctx.lineTo(p.knL.x, p.knL.y - 4);
       ctx.closePath();
       ctx.fill();
 
-      // Draw joints
+      // Torso fill
+      ctx.fillStyle = w.col;
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.moveTo(p.shlL.x, p.shlL.y);
+      ctx.lineTo(p.shlR.x, p.shlR.y);
+      ctx.lineTo(p.hip.x + 8, p.hip.y);
+      ctx.lineTo(p.hip.x - 8, p.hip.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Joints
       for (const k in p) {
         const pt = p[k];
-        ctx.fillStyle = (k === 'handL' || k === 'handR') ? '#fff' : w.color;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
-        ctx.fill();
-        // Joint outline
-        ctx.strokeStyle = w.outlineColor;
+        const isHand = (k === 'hndL' || k === 'hndR');
+        ctx.fillStyle = isHand ? '#ffe0c0' : w.col;
+        ctx.strokeStyle = w.outline;
         ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+
+      // Boots
+      for (const fk of ['ftL','ftR']) {
+        ctx.fillStyle = w.col === '#4af' ? '#26c' : '#a11';
+        ctx.beginPath(); ctx.arc(p[fk].x, p[fk].y, p[fk].r + 1, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = w.outline; ctx.lineWidth = 1; ctx.stroke();
+      }
+
+      // Head: skin color + mask
+      ctx.fillStyle = '#ffe0c0';
+      ctx.beginPath(); ctx.arc(p.head.x, p.head.y, p.head.r, 0, Math.PI * 2); ctx.fill();
+      // Mask top
+      ctx.fillStyle = w.col;
+      ctx.beginPath();
+      ctx.arc(p.head.x, p.head.y - 1, p.head.r - 1, Math.PI + 0.4, -0.4);
+      ctx.closePath();
+      ctx.fill();
+      // Eyes
+      const eyeF = w.face;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(p.head.x + eyeF*2 - 2, p.head.y - 1, 2, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.head.x + eyeF*2 + 3, p.head.y - 1, 2, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath(); ctx.arc(p.head.x + eyeF*2 - 1.5, p.head.y - 1, 0.8, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.head.x + eyeF*2 + 3.5, p.head.y - 1, 0.8, 0, Math.PI*2); ctx.fill();
+      // Mouth (changes with effort)
+      const effort = Math.abs(w.motors.aL) + Math.abs(w.motors.aR) + Math.abs(w.motors.lL) + Math.abs(w.motors.lR);
+      if (effort > 2) {
+        // Yelling
+        ctx.fillStyle = '#300';
+        ctx.beginPath(); ctx.ellipse(p.head.x + eyeF*2, p.head.y + 4, 3, 2, 0, 0, Math.PI*2); ctx.fill();
+      } else {
+        ctx.strokeStyle = '#300';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(p.head.x + eyeF*2 - 2, p.head.y + 4);
+        ctx.lineTo(p.head.x + eyeF*2 + 2, p.head.y + 4);
         ctx.stroke();
       }
 
-      // Head details
-      ctx.fillStyle = '#fff';
-      const eyeOff = w.facing * 3;
-      // Eyes
-      ctx.beginPath();
-      ctx.arc(p.head.x + eyeOff - 2, p.head.y - 2, 1.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(p.head.x + eyeOff + 3, p.head.y - 2, 1.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Wrestling mask/headband
-      ctx.strokeStyle = w.color === '#4af' ? '#29f' : '#d22';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(p.head.x, p.head.y - 2, p.head.r - 1, Math.PI + 0.3, -0.3);
-      ctx.stroke();
-
-      // Grab indicator
+      // Grab sparks
       if (w.grabbing) {
         ctx.strokeStyle = '#ff0';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([3, 3]);
-        for (const hk of ['handL', 'handR']) {
-          ctx.beginPath();
-          ctx.arc(p[hk].x, p[hk].y, p[hk].r + 6, 0, Math.PI * 2);
-          ctx.stroke();
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 3]);
+        for (const hk of ['hndL','hndR']) {
+          ctx.beginPath(); ctx.arc(p[hk].x, p[hk].y, p[hk].r + 7, 0, Math.PI*2); ctx.stroke();
         }
         ctx.setLineDash([]);
-      }
-    }
-
-    function drawPinIndicator() {
-      if (pinTarget && pinTimer > 0) {
-        const w = pinTarget === 'ai' ? ai : player;
-        const sx = (w.pts.shoulderL.x + w.pts.shoulderR.x) / 2;
-        const sy = Math.min(w.pts.shoulderL.y, w.pts.shoulderR.y) - 25;
-
-        // Pin count display
-        const seconds = Math.floor(pinTimer / 60);
-        const progress = pinTimer / 180; // 3 seconds = 180 frames
-
-        ctx.fillStyle = '#f82';
-        ctx.font = 'bold 16px Courier New';
-        ctx.textAlign = 'center';
-        ctx.fillText(`PIN! ${(pinTimer / 60).toFixed(1)}s`, sx, sy);
-
-        // Progress bar
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(sx - 30, sy + 5, 60, 8);
-        ctx.fillStyle = '#f82';
-        ctx.fillRect(sx - 30, sy + 5, 60 * progress, 8);
-
-        // Flashing border
-        if (Math.floor(pinTimer / 8) % 2 === 0) {
-          ctx.strokeStyle = '#f82';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(sx - 35, sy - 15, 70, 35);
+        // Spark particles
+        if (roundTimer % 4 === 0) {
+          for (const hk of ['hndL','hndR']) {
+            comboText.push({ x: p[hk].x + (Math.random()-0.5)*10, y: p[hk].y - 5, t: 15, txt: '*', col: '#ff0', sz: 10 });
+          }
         }
       }
     }
 
-    function drawKeyGuide() {
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.fillRect(5, H - 55, 200, 50);
-      ctx.fillRect(W - 205, H - 55, 200, 50);
+    function drawPin() {
+      if (!pinTarget || pinTimer <= 0) return;
+      const w = pinTarget === 'ai' ? ai : player;
+      const cx = (w.pts.shlL.x + w.pts.shlR.x) / 2;
+      const cy = Math.min(w.pts.shlL.y, w.pts.shlR.y) - 30;
+      const progress = pinTimer / 180;
+      const secs = (pinTimer / 60).toFixed(1);
 
-      ctx.font = '9px Courier New';
+      // Background
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(cx - 40, cy - 8, 80, 32);
+
+      // Text
+      ctx.fillStyle = '#f82';
+      ctx.font = 'bold 14px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(`PIN ${secs}s`, cx, cy + 6);
+
+      // Bar
+      ctx.fillStyle = '#333';
+      ctx.fillRect(cx - 35, cy + 12, 70, 6);
+      ctx.fillStyle = progress < 0.5 ? '#f82' : (progress < 0.8 ? '#fa2' : '#f22');
+      ctx.fillRect(cx - 35, cy + 12, 70 * progress, 6);
+
+      // Flash
+      if (Math.floor(pinTimer / 6) % 2 === 0) {
+        ctx.strokeStyle = '#f82';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(cx - 42, cy - 10, 84, 36);
+      }
+
+      // Big count numbers
+      const count = Math.floor(pinTimer / 60) + 1;
+      if (pinTimer % 60 < 20) {
+        ctx.fillStyle = `rgba(255,136,34,${1 - (pinTimer % 60)/20})`;
+        ctx.font = 'bold 48px Courier New';
+        ctx.fillText(count.toString(), 250, 200);
+      }
+    }
+
+    function drawHUD() {
+      // Key guide boxes at bottom
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(3, H - 52, 155, 49);
+      ctx.fillRect(W - 158, H - 52, 155, 49);
+
+      ctx.font = '8px Courier New';
       ctx.textAlign = 'left';
 
-      // Player controls
+      // Player keys with active highlighting
+      const plKeys = [
+        ['Q', 'W', 'L.Arm', player.motors.aL],
+        ['O', 'P', 'R.Arm', player.motors.aR],
+        ['A', 'S', 'L.Leg', player.motors.lL],
+        ['K', 'L', 'R.Leg', player.motors.lR],
+      ];
       ctx.fillStyle = '#4af';
-      ctx.fillText('YOU (Blue)', 10, H - 43);
-      ctx.fillStyle = '#888';
-      ctx.fillText('Q/W: L.Arm Up/Dn', 10, H - 31);
-      ctx.fillText('O/P: R.Arm Up/Dn', 10, H - 20);
-      ctx.fillText('A/S: L.Leg Up/Dn', 10, H - 9);
+      ctx.fillText('YOU', 8, H - 40);
+      for (let i = 0; i < plKeys.length; i++) {
+        const [u, d, label, val] = plKeys[i];
+        const y = H - 30 + i * 9;
+        ctx.fillStyle = val === -1 ? '#4f4' : (val === 1 ? '#f44' : '#555');
+        ctx.fillText(`${u}/${d}: ${label}`, 8, y);
+      }
 
+      // Right side: scoring info
       ctx.textAlign = 'right';
-      ctx.fillStyle = '#f44';
-      ctx.fillText('CPU (Red)', W - 10, H - 43);
-      ctx.fillStyle = '#888';
-      ctx.fillText('K/L: R.Leg Up/Dn', W - 10, H - 31);
-      ctx.fillText('Pin=3s shoulders down', W - 10, H - 20);
-      ctx.fillText('Ring-out=fall off edge', W - 10, H - 9);
+      ctx.fillStyle = '#f55';
+      ctx.fillText('CPU', W - 8, H - 40);
+      ctx.fillStyle = '#777';
+      ctx.fillText('Pin = 3s shoulders', W - 8, H - 30);
+      ctx.fillText('Ring-out = off edge', W - 8, H - 21);
+      ctx.fillText('Best of 3 rounds', W - 8, H - 12);
     }
 
-    function drawMessage() {
-      if (matchMessageTimer > 0) {
-        const alpha = Math.min(1, matchMessageTimer / 30);
-        ctx.fillStyle = `rgba(255,136,34,${alpha})`;
-        ctx.font = 'bold 24px Courier New';
+    function drawFloatingText() {
+      for (let i = comboText.length - 1; i >= 0; i--) {
+        const t = comboText[i];
+        t.y -= 0.8;
+        t.t--;
+        if (t.t <= 0) { comboText.splice(i, 1); continue; }
+        ctx.fillStyle = t.col;
+        ctx.globalAlpha = Math.min(1, t.t / 10);
+        ctx.font = `bold ${t.sz}px Courier New`;
         ctx.textAlign = 'center';
-        ctx.fillText(matchMessage, W / 2, 130);
-        ctx.strokeStyle = `rgba(0,0,0,${alpha})`;
-        ctx.lineWidth = 1;
-        ctx.strokeText(matchMessage, W / 2, 130);
+        ctx.fillText(t.txt, t.x, t.y);
+        ctx.globalAlpha = 1;
       }
     }
 
-    // --- GAME LOOP ---
+    function drawMsg() {
+      if (matchMsgTimer <= 0) return;
+      const a = Math.min(1, matchMsgTimer / 30);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#f82';
+      ctx.font = 'bold 22px Courier New';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#f82';
+      ctx.shadowBlur = 15;
+      ctx.fillText(matchMessage, 250, 135);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    // --- UPDATE ---
     function update() {
       if (gameState !== 'playing') return;
-
       roundTimer++;
 
-      // Player input
-      handlePlayerInput();
-
-      // AI
+      handleInput();
       updateAI();
 
-      // Apply motors
-      applyMotors(player);
-      applyMotors(ai);
-
-      // Physics
-      applyGravity(player);
-      applyGravity(ai);
-      updatePoints(player);
-      updatePoints(ai);
-      solveConstraints(player);
-      solveConstraints(ai);
-
-      // Wrestler collision
-      collideWrestlers(player, ai);
-
-      // Grab mechanics
-      applyGrabForces(player, ai);
-      applyGrabForces(ai, player);
-
-      // Keep wrestlers somewhat upright (weak force)
       for (const w of [player, ai]) {
-        const headAboveHip = w.pts.head.y < w.pts.hip.y;
-        if (!headAboveHip) {
-          w.pts.head.vy -= 0.8;
-          w.pts.hip.vy += 0.3;
-        }
-        // Gentle centering of balance
-        const hipX = w.pts.hip.x;
-        const footMidX = (w.pts.footL.x + w.pts.footR.x) / 2;
-        const diff = hipX - footMidX;
-        w.pts.hip.vx -= diff * 0.005;
+        applyMotors(w);
+        applyGrav(w);
+        integrate(w);
+        solveBones(w);
+        upright(w);
       }
+      collide(player, ai);
+      applyGrab(player, ai);
+      applyGrab(ai, player);
 
-      // Check pin conditions
-      const playerPinned = checkShouldersOnMat(player);
-      const aiPinned = checkShouldersOnMat(ai);
+      // Pin logic
+      const pDown = shouldersDown(player);
+      const aDown = shouldersDown(ai);
 
-      if (aiPinned && !playerPinned) {
-        if (pinTarget === 'ai') {
-          pinTimer++;
-        } else {
-          pinTarget = 'ai';
-          pinTimer = 1;
-        }
-      } else if (playerPinned && !aiPinned) {
-        if (pinTarget === 'player') {
-          pinTimer++;
-        } else {
-          pinTarget = 'player';
-          pinTimer = 1;
-        }
+      if (aDown && !pDown) {
+        if (pinTarget === 'ai') pinTimer++;
+        else { pinTarget = 'ai'; pinTimer = 1; }
+      } else if (pDown && !aDown) {
+        if (pinTarget === 'player') pinTimer++;
+        else { pinTarget = 'player'; pinTimer = 1; }
       } else {
-        pinTimer = Math.max(0, pinTimer - 2);
+        pinTimer = Math.max(0, pinTimer - 3);
         if (pinTimer <= 0) pinTarget = null;
       }
 
-      // Pin success (3 seconds = 180 frames at 60fps)
       if (pinTimer >= 180) {
         if (pinTarget === 'ai') {
-          score++;
-          scoreEl.textContent = score;
+          score++; scoreEl.textContent = score;
           matchMessage = 'PIN! You score!';
+          comboText.push({ x: 250, y: 180, t: 60, txt: 'PINFALL!', col: '#f82', sz: 28 });
         } else {
-          aiScoreVal++;
-          aiScoreEl.textContent = aiScoreVal;
+          aiScoreVal++; aiScoreEl.textContent = aiScoreVal;
           matchMessage = 'PIN! CPU scores!';
+          comboText.push({ x: 250, y: 180, t: 60, txt: 'PINFALL!', col: '#f55', sz: 28 });
         }
-        matchMessageTimer = 120;
-        shakeTimer = 15;
-        endRound();
-        return;
+        matchMsgTimer = 90; shakeTimer = 15;
+        endRound(); return;
       }
 
-      // Ring out check
-      if (checkRingOut(player)) {
-        aiScoreVal++;
-        aiScoreEl.textContent = aiScoreVal;
+      // Ring out
+      if (isRingOut(player)) {
+        aiScoreVal++; aiScoreEl.textContent = aiScoreVal;
         matchMessage = 'RING OUT! CPU scores!';
-        matchMessageTimer = 120;
-        shakeTimer = 20;
-        endRound();
-        return;
+        comboText.push({ x: 250, y: 180, t: 60, txt: 'RING OUT!', col: '#f55', sz: 28 });
+        matchMsgTimer = 90; shakeTimer = 20;
+        endRound(); return;
       }
-      if (checkRingOut(ai)) {
-        score++;
-        scoreEl.textContent = score;
+      if (isRingOut(ai)) {
+        score++; scoreEl.textContent = score;
         matchMessage = 'RING OUT! You score!';
-        matchMessageTimer = 120;
-        shakeTimer = 20;
-        endRound();
-        return;
+        comboText.push({ x: 250, y: 180, t: 60, txt: 'RING OUT!', col: '#f82', sz: 28 });
+        matchMsgTimer = 90; shakeTimer = 20;
+        endRound(); return;
       }
 
-      // Message timer
-      if (matchMessageTimer > 0) matchMessageTimer--;
+      if (matchMsgTimer > 0) matchMsgTimer--;
 
-      // Shake timer
+      // Screen shake
       if (shakeTimer > 0) {
         shakeTimer--;
-        shakeX = (Math.random() - 0.5) * shakeTimer * 0.8;
-        shakeY = (Math.random() - 0.5) * shakeTimer * 0.8;
-      } else {
-        shakeX = 0;
-        shakeY = 0;
-      }
+        shakeX = (Math.random()-0.5) * shakeTimer;
+        shakeY = (Math.random()-0.5) * shakeTimer * 0.6;
+      } else { shakeX = 0; shakeY = 0; }
     }
 
     function endRound() {
-      pinTimer = 0;
-      pinTarget = null;
+      pinTimer = 0; pinTarget = null;
 
       if (round >= maxRounds || score >= 2 || aiScoreVal >= 2) {
-        // Match over
         gameState = 'matchEnd';
         overlay.style.display = 'flex';
         if (score > aiScoreVal) {
-          overlayTitle.textContent = 'YOU WIN!';
-          overlayText.textContent = `${score} - ${aiScoreVal}. Press any key to rematch`;
+          overlayTitle.textContent = 'CHAMPION!';
+          overlayText.textContent = `You win ${score}-${aiScoreVal}! Press any key to rematch`;
         } else if (aiScoreVal > score) {
-          overlayTitle.textContent = 'CPU WINS!';
-          overlayText.textContent = `${score} - ${aiScoreVal}. Press any key to rematch`;
+          overlayTitle.textContent = 'DEFEATED!';
+          overlayText.textContent = `CPU wins ${aiScoreVal}-${score}. Press any key to rematch`;
         } else {
           overlayTitle.textContent = 'DRAW!';
-          overlayText.textContent = `${score} - ${aiScoreVal}. Press any key to rematch`;
+          overlayText.textContent = `${score}-${aiScoreVal}. Press any key to rematch`;
         }
       } else {
         round++;
@@ -839,32 +833,20 @@
       ctx.save();
       ctx.translate(shakeX, shakeY);
 
-      // Background
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(-10, -10, W + 20, H + 20);
-
-      // Arena lighting
-      const grad = ctx.createRadialGradient(W/2, MAT_Y - 60, 20, W/2, MAT_Y - 60, 250);
-      grad.addColorStop(0, 'rgba(255,136,34,0.08)');
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, W, H);
 
       drawRing();
 
       if (player && ai) {
         drawWrestler(player);
         drawWrestler(ai);
-        drawPinIndicator();
+        drawPin();
       }
 
-      drawKeyGuide();
-      drawMessage();
-
-      // Title if waiting
-      if (gameState === 'waiting') {
-        // drawn by overlay
-      }
+      drawFloatingText();
+      drawHUD();
+      drawMsg();
 
       ctx.restore();
     }
@@ -875,16 +857,8 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // Initialize
     function getGameState() {
-      return {
-        gameState,
-        score,
-        aiScore: aiScoreVal,
-        round,
-        pinTimer,
-        pinTarget
-      };
+      return { gameState, score, aiScore: aiScoreVal, round, pinTimer, pinTarget };
     }
 
     gameLoop();

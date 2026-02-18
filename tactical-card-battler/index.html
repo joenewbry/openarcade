@@ -880,6 +880,7 @@
     function gameLoop() {
       if (gameState === 'playing') {
         if (logTimer > 0) draw();
+        updateGameData();
       }
       requestAnimationFrame(gameLoop);
     }

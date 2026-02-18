@@ -932,6 +932,7 @@
         accumulator -= step;
       }
       render();
+      updateGameData();
       if (gameState === 'playing') {
         requestAnimationFrame(gameLoop);
       } else if (gameState === 'gameover') {

@@ -95,43 +95,47 @@
     let playerTotalScore = 0;
     let currentLevel = 0;
 
-    // Split screen: left = player (0..299), right = AI (300..599)
+    // Split screen layout
     const SPLIT = 300;
     const HALF_W = 300;
-    const GROUND_Y = 300;
-    const GRAVITY = 0.35;
-    const SUB_STEPS = 4;
-    const BEAM_BREAK_FORCE = 280;
+    const GROUND_Y = 280;
+    const GRAVITY = 0.25;
+    const SUB_STEPS = 6;
+    const BEAM_STRENGTH = 3.5; // max stress ratio before break
 
-    // Level definitions: gap width, budget, truck weight
+    // Level definitions
     const LEVELS = [
-      { gap: 80,  budget: 500, truckWeight: 12, name: 'Easy Creek' },
-      { gap: 110, budget: 600, truckWeight: 14, name: 'River Crossing' },
-      { gap: 140, budget: 700, truckWeight: 16, name: 'Canyon Pass' },
-      { gap: 170, budget: 850, truckWeight: 18, name: 'Deep Gorge' },
-      { gap: 200, budget: 1000, truckWeight: 20, name: 'Grand Chasm' }
+      { gap: 80,  budget: 400, truckWeight: 8,  name: 'Easy Creek' },
+      { gap: 110, budget: 520, truckWeight: 10, name: 'River Crossing' },
+      { gap: 140, budget: 660, truckWeight: 12, name: 'Canyon Pass' },
+      { gap: 170, budget: 820, truckWeight: 14, name: 'Deep Gorge' },
+      { gap: 200, budget: 1000, truckWeight: 16, name: 'Grand Chasm' }
     ];
 
-    // Node / beam structures for player and AI
+    // Player state
     let playerNodes, playerBeams, playerBudgetUsed;
     let aiNodes, aiBeams, aiBudgetUsed;
     let selectedNode = null;
     let hoverNode = null;
+    let mousePos = { x: 0, y: 0 };
     let currentBudget = 0;
 
     // Physics sim state
     let simPlayer, simAI;
     let truckPlayer, truckAI;
-    let testPhase = ''; // 'simulating', 'done'
+    let testPhase = '';
     let testTimer = 0;
-    let playerBridgeFailed, aiBridgeFailed;
     let playerTruckDist, aiTruckDist;
 
     // Level geometry
-    let gapLeft, gapRight, gapDepth;
+    let gapLeft, gapRight;
+    const GAP_DEPTH = 85;
+
+    // Particles for visual flair
+    let particles = [];
 
     // ==============================
-    // NODE / BEAM HELPERS
+    // UTILITIES
     // ==============================
     function dist(a, b) {
       return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
@@ -146,14 +150,20 @@
       return { n1, n2, restLength: len, broken: false, stress: 0 };
     }
 
-    function beamLength(b) {
-      return dist(b.n1, b.n2);
-    }
-
     function totalBeamCost(beams) {
       let total = 0;
       for (const b of beams) total += b.restLength;
       return Math.round(total);
+    }
+
+    function addParticle(x, y, color) {
+      particles.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 4,
+        vy: -Math.random() * 3 - 1,
+        life: 30 + Math.random() * 20,
+        color
+      });
     }
 
     // ==============================
@@ -165,37 +175,42 @@
       currentBudget = lvl.budget;
       gapLeft = Math.round((HALF_W - lvl.gap) / 2);
       gapRight = gapLeft + lvl.gap;
-      gapDepth = 90;
 
-      // Create anchor nodes on each side for player
+      // Create anchor nodes for player
       playerNodes = [];
       playerBeams = [];
       playerBudgetUsed = 0;
 
-      // Left side anchors
-      const anchorSpacing = 20;
-      for (let i = 0; i <= 2; i++) {
-        playerNodes.push(createNode(gapLeft - i * anchorSpacing, GROUND_Y, true));
-      }
-      playerNodes.push(createNode(gapLeft, GROUND_Y - 30, true));
+      createAnchors(playerNodes, lvl.gap);
 
-      // Right side anchors
-      for (let i = 0; i <= 2; i++) {
-        playerNodes.push(createNode(gapRight + i * anchorSpacing, GROUND_Y, true));
-      }
-      playerNodes.push(createNode(gapRight, GROUND_Y - 30, true));
-
-      // AI gets same anchors
-      aiNodes = playerNodes.map(n => createNode(n.x, n.y, n.fixed));
+      // AI gets same starting anchors
+      aiNodes = [];
       aiBeams = [];
       aiBudgetUsed = 0;
+      createAnchors(aiNodes, lvl.gap);
 
       selectedNode = null;
       hoverNode = null;
       testPhase = '';
+      particles = [];
 
       levelEl.textContent = levelIdx + 1;
       budgetEl.textContent = currentBudget;
+    }
+
+    function createAnchors(nodes, gap) {
+      // Left side: 3 anchors on ground + 1 elevated
+      const spacing = 18;
+      for (let i = 0; i <= 2; i++) {
+        nodes.push(createNode(gapLeft - i * spacing, GROUND_Y, true));
+      }
+      nodes.push(createNode(gapLeft, GROUND_Y - 28, true));
+
+      // Right side: 3 anchors on ground + 1 elevated
+      for (let i = 0; i <= 2; i++) {
+        nodes.push(createNode(gapRight + i * spacing, GROUND_Y, true));
+      }
+      nodes.push(createNode(gapRight, GROUND_Y - 28, true));
     }
 
     // ==============================
@@ -205,126 +220,79 @@
       const lvl = LEVELS[currentLevel];
       const budget = lvl.budget;
 
-      // AI builds triangular truss across the gap
-      const numSegments = Math.max(3, Math.ceil(lvl.gap / 30));
-      const segWidth = lvl.gap / numSegments;
-      const trussHeight = Math.min(35, segWidth * 0.9);
+      // AI builds optimized triangular truss
+      const numSeg = Math.max(3, Math.ceil(lvl.gap / 28));
+      const segW = lvl.gap / numSeg;
+      const trussH = Math.min(32, segW * 0.85);
 
-      // Bottom chord nodes across gap
-      const bottomNodes = [];
-      const topNodes = [];
+      // Create bottom and top chord nodes
+      const bottom = [];
+      const top = [];
 
-      for (let i = 0; i <= numSegments; i++) {
-        const x = gapLeft + i * segWidth;
-        const bottomNode = findOrCreateAINode(x, GROUND_Y);
-        bottomNodes.push(bottomNode);
-        if (i > 0 && i < numSegments) {
-          const topNode = findOrCreateAINode(x, GROUND_Y - trussHeight);
-          topNodes.push(topNode);
-        } else {
-          topNodes.push(null);
+      for (let i = 0; i <= numSeg; i++) {
+        const x = gapLeft + i * segW;
+        bottom.push(findOrAddAINode(x, GROUND_Y));
+      }
+      for (let i = 1; i < numSeg; i++) {
+        const x = gapLeft + i * segW;
+        top.push(findOrAddAINode(x, GROUND_Y - trussH));
+      }
+
+      let cost = 0;
+      const maxB = budget * 0.93;
+
+      function tryBeam(n1, n2) {
+        if (!n1 || !n2) return;
+        for (const b of aiBeams) {
+          if ((b.n1 === n1 && b.n2 === n2) || (b.n1 === n2 && b.n2 === n1)) return;
+        }
+        const c = dist(n1, n2);
+        if (cost + c <= maxB) {
+          aiBeams.push(createBeam(n1, n2));
+          cost += c;
         }
       }
 
-      let beamCost = 0;
-      const maxBudget = budget * 0.95;
+      // Bottom chord (road deck)
+      for (let i = 0; i < numSeg; i++) tryBeam(bottom[i], bottom[i + 1]);
 
-      // Bottom chord
-      for (let i = 0; i < numSegments; i++) {
-        const cost = dist(bottomNodes[i], bottomNodes[i + 1]);
-        if (beamCost + cost <= maxBudget) {
-          addAIBeam(bottomNodes[i], bottomNodes[i + 1]);
-          beamCost += cost;
+      // Top chord
+      for (let i = 0; i < top.length - 1; i++) tryBeam(top[i], top[i + 1]);
+
+      // Diagonals: Warren truss pattern (alternating V shapes)
+      for (let i = 0; i < numSeg; i++) {
+        if (i < top.length) {
+          tryBeam(bottom[i], top[i]); // left side of V
+          tryBeam(top[i], bottom[i + 1]); // right side of V
         }
       }
 
-      // Diagonals and verticals for triangle pattern
-      for (let i = 0; i < numSegments; i++) {
-        // Rising diagonal
-        if (topNodes[i + 1]) {
-          const cost = dist(bottomNodes[i], topNodes[i + 1]);
-          if (beamCost + cost <= maxBudget) {
-            addAIBeam(bottomNodes[i], topNodes[i + 1]);
-            beamCost += cost;
-          }
-        }
-        // Falling diagonal
-        if (topNodes[i]) {
-          const cost = dist(topNodes[i], bottomNodes[i + 1]);
-          if (beamCost + cost <= maxBudget) {
-            addAIBeam(topNodes[i], bottomNodes[i + 1]);
-            beamCost += cost;
-          }
-        }
-        // Top chord
-        if (topNodes[i] && topNodes[i + 1]) {
-          const cost = dist(topNodes[i], topNodes[i + 1]);
-          if (beamCost + cost <= maxBudget) {
-            addAIBeam(topNodes[i], topNodes[i + 1]);
-            beamCost += cost;
-          }
-        }
-      }
-
-      // Connect anchors to first/last bottom chord nodes
+      // Connect anchors to first/last road nodes
       const leftAnchors = aiNodes.filter(n => n.fixed && n.x <= gapLeft);
       const rightAnchors = aiNodes.filter(n => n.fixed && n.x >= gapRight);
+
       for (const a of leftAnchors) {
-        if (a !== bottomNodes[0]) {
-          const cost = dist(a, bottomNodes[0]);
-          if (beamCost + cost <= maxBudget) {
-            addAIBeam(a, bottomNodes[0]);
-            beamCost += cost;
-          }
-        }
-        // Connect to first top node if exists
-        if (topNodes[1]) {
-          const cost = dist(a, topNodes[1]);
-          if (beamCost + cost <= maxBudget && a.y < GROUND_Y) {
-            addAIBeam(a, topNodes[1]);
-            beamCost += cost;
-          }
-        }
+        tryBeam(a, bottom[0]);
+        if (a.y < GROUND_Y && top.length > 0) tryBeam(a, top[0]);
       }
       for (const a of rightAnchors) {
-        if (a !== bottomNodes[numSegments]) {
-          const cost = dist(a, bottomNodes[numSegments]);
-          if (beamCost + cost <= maxBudget) {
-            addAIBeam(a, bottomNodes[numSegments]);
-            beamCost += cost;
-          }
-        }
-        if (topNodes[numSegments - 1]) {
-          const cost = dist(a, topNodes[numSegments - 1]);
-          if (beamCost + cost <= maxBudget && a.y < GROUND_Y) {
-            addAIBeam(a, topNodes[numSegments - 1]);
-            beamCost += cost;
-          }
-        }
+        tryBeam(a, bottom[numSeg]);
+        if (a.y < GROUND_Y && top.length > 0) tryBeam(a, top[top.length - 1]);
       }
 
       aiBudgetUsed = totalBeamCost(aiBeams);
     }
 
-    function findOrCreateAINode(x, y) {
+    function findOrAddAINode(x, y) {
       for (const n of aiNodes) {
         if (Math.abs(n.x - x) < 1 && Math.abs(n.y - y) < 1) return n;
       }
       const n = createNode(x, y, false);
-      // Fix nodes at ground level on solid ground
-      if (Math.abs(y - GROUND_Y) < 1 && (x <= gapLeft || x >= gapRight)) {
+      if (Math.abs(y - GROUND_Y) < 2 && (x <= gapLeft + 1 || x >= gapRight - 1)) {
         n.fixed = true;
       }
       aiNodes.push(n);
       return n;
-    }
-
-    function addAIBeam(n1, n2) {
-      // Check duplicate
-      for (const b of aiBeams) {
-        if ((b.n1 === n1 && b.n2 === n2) || (b.n1 === n2 && b.n2 === n1)) return;
-      }
-      aiBeams.push(createBeam(n1, n2));
     }
 
     // ==============================
@@ -333,8 +301,7 @@
     function cloneForSim(nodes, beams) {
       const simNodes = nodes.map(n => ({
         x: n.x, y: n.y, ox: n.x, oy: n.y,
-        vx: 0, vy: 0, fixed: n.fixed,
-        mass: 1
+        vx: 0, vy: 0, fixed: n.fixed
       }));
       const simBeams = beams.map(b => ({
         i1: nodes.indexOf(b.n1),
@@ -347,19 +314,18 @@
     }
 
     function createTruck(startX) {
-      const lvl = LEVELS[currentLevel];
       return {
-        x: startX - 20,
-        y: GROUND_Y - 12,
-        width: 28,
-        height: 12,
-        vx: 0.6,
+        x: startX,
+        y: GROUND_Y - 14,
+        width: 30,
+        height: 14,
+        vx: 0,
         vy: 0,
-        weight: lvl.truckWeight,
-        onGround: true,
+        weight: LEVELS[currentLevel].truckWeight,
+        onBridge: false,
         fallen: false,
-        maxX: startX - 20,
-        wheelBase: 20
+        crossed: false,
+        maxX: startX
       };
     }
 
@@ -369,140 +335,163 @@
       const dt = 1.0 / SUB_STEPS;
 
       for (let sub = 0; sub < SUB_STEPS; sub++) {
-        // Apply gravity to non-fixed nodes
+        // Gravity
         for (const n of nodes) {
           if (!n.fixed) {
             n.vy += GRAVITY * dt;
           }
         }
 
-        // Beam constraints (Verlet-like spring)
+        // Beam constraints (spring-like)
         for (const b of beams) {
           if (b.broken) continue;
           const n1 = nodes[b.i1];
           const n2 = nodes[b.i2];
           const dx = n2.x - n1.x;
           const dy = n2.y - n1.y;
-          const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const diff = d - b.restLength;
-          const force = diff * 0.4;
-          const nx = dx / d;
-          const ny = dy / d;
+          const d = Math.sqrt(dx * dx + dy * dy) || 0.001;
+          const stretch = (d - b.restLength) / b.restLength;
+          b.stress = Math.abs(stretch);
 
-          b.stress = Math.abs(diff) / b.restLength;
-
-          if (Math.abs(force) > BEAM_BREAK_FORCE * dt) {
+          // Break if overstressed
+          if (b.stress > BEAM_STRENGTH) {
             b.broken = true;
+            // Spawn particles at break point
+            const mx = (n1.x + n2.x) / 2;
+            const my = (n1.y + n2.y) / 2;
+            for (let p = 0; p < 5; p++) addParticle(mx, my, '#f94');
             continue;
           }
 
-          if (!n1.fixed) {
-            n1.vx += nx * force * dt;
-            n1.vy += ny * force * dt;
-          }
-          if (!n2.fixed) {
-            n2.vx -= nx * force * dt;
-            n2.vy -= ny * force * dt;
-          }
+          const force = stretch * 0.5;
+          const fx = (dx / d) * force;
+          const fy = (dy / d) * force;
+
+          if (!n1.fixed) { n1.vx += fx * dt; n1.vy += fy * dt; }
+          if (!n2.fixed) { n2.vx -= fx * dt; n2.vy -= fy * dt; }
         }
 
-        // Apply truck weight to nearby bridge nodes
-        if (truck && !truck.fallen) {
-          const truckCenterX = truck.x + truck.width / 2;
-          // Find the two closest non-fixed nodes beneath truck
-          let closestBelow = [];
+        // Truck load on bridge nodes
+        if (truck && !truck.fallen && !truck.crossed) {
+          const cx = truck.x + truck.width / 2;
+          let totalW = 0;
+          let loadNodes = [];
           for (let i = 0; i < nodes.length; i++) {
             const n = nodes[i];
-            if (n.fixed) continue;
-            const horizDist = Math.abs(n.x - truckCenterX);
-            if (horizDist < truck.wheelBase) {
-              closestBelow.push({ node: n, dist: horizDist });
+            if (n.fixed && n.y >= GROUND_Y) continue;
+            const hd = Math.abs(n.x - cx);
+            if (hd < truck.width * 0.8 && n.y <= GROUND_Y + 10) {
+              const w = 1.0 / (hd + 5);
+              loadNodes.push({ node: n, w });
+              totalW += w;
             }
           }
-          closestBelow.sort((a, b) => a.dist - b.dist);
-          const weightNodes = closestBelow.slice(0, 4);
-          if (weightNodes.length > 0) {
-            const weightPer = (truck.weight * dt) / weightNodes.length;
-            for (const wn of weightNodes) {
-              wn.node.vy += weightPer * dt;
+          if (totalW > 0) {
+            for (const ln of loadNodes) {
+              if (!ln.node.fixed) {
+                ln.node.vy += (truck.weight * dt * (ln.w / totalW)) * 0.03;
+              }
             }
           }
         }
 
-        // Integrate positions
+        // Integrate
         for (const n of nodes) {
           if (n.fixed) continue;
-          n.vx *= 0.98;
-          n.vy *= 0.98;
+          n.vx *= 0.97;
+          n.vy *= 0.97;
           n.x += n.vx * dt;
           n.y += n.vy * dt;
 
-          // Cliff walls collision
+          // Floor collision on solid ground
           if (n.y > GROUND_Y && (n.x <= gapLeft || n.x >= gapRight)) {
             n.y = GROUND_Y;
+            n.vy = 0;
+            if (Math.abs(n.vx) < 0.1) n.vx = 0;
+          }
+          // Clamp to not go too far down
+          if (n.y > GROUND_Y + GAP_DEPTH + 20) {
+            n.y = GROUND_Y + GAP_DEPTH + 20;
             n.vy = 0;
           }
         }
       }
 
-      // Truck movement
-      if (truck && !truck.fallen) {
+      // === Truck physics (outside sub-steps for stability) ===
+      if (truck && !truck.fallen && !truck.crossed) {
+        // Accelerate truck forward
+        truck.vx = Math.min(truck.vx + 0.015, 1.0);
         truck.x += truck.vx;
 
-        // Find surface height at truck position
+        // Find support surface under truck
         const frontX = truck.x + truck.width;
         const backX = truck.x;
+        const midX = truck.x + truck.width / 2;
 
-        // On solid ground?
+        // On solid ground
         if (frontX <= gapLeft || backX >= gapRight) {
           truck.y = GROUND_Y - truck.height;
           truck.vy = 0;
-          truck.onGround = true;
+          truck.onBridge = false;
+          if (backX >= gapRight + 20) {
+            truck.crossed = true;
+            truck.vx = 0;
+          }
         } else {
-          // Find bridge surface under truck
-          let supportY = GROUND_Y + gapDepth;
-          let hasSupport = false;
+          // Over gap - find bridge support
+          let bestY = GROUND_Y + GAP_DEPTH + 50;
+          let foundSupport = false;
+
           for (const b of beams) {
             if (b.broken) continue;
             const n1 = nodes[b.i1];
             const n2 = nodes[b.i2];
-            // Check if beam spans under truck
-            const bMinX = Math.min(n1.x, n2.x);
-            const bMaxX = Math.max(n1.x, n2.x);
-            const truckMidX = truck.x + truck.width / 2;
-            if (bMinX <= truckMidX && bMaxX >= truckMidX && Math.abs(n1.y - n2.y) < 40) {
-              const t = (truckMidX - n1.x) / ((n2.x - n1.x) || 0.01);
-              if (t >= -0.1 && t <= 1.1) {
+            const minBX = Math.min(n1.x, n2.x);
+            const maxBX = Math.max(n1.x, n2.x);
+
+            // Check front and back wheel + middle
+            for (const checkX of [backX + 4, midX, frontX - 4]) {
+              if (checkX >= minBX - 2 && checkX <= maxBX + 2) {
+                const span = n2.x - n1.x;
+                if (Math.abs(span) < 1) continue;
+                const t = Math.max(0, Math.min(1, (checkX - n1.x) / span));
                 const beamY = n1.y + t * (n2.y - n1.y);
-                if (beamY < supportY && beamY >= GROUND_Y - 60) {
-                  supportY = beamY;
-                  hasSupport = true;
+                if (beamY < bestY && beamY >= GROUND_Y - 60 && beamY <= GROUND_Y + 30) {
+                  bestY = beamY;
+                  foundSupport = true;
                 }
               }
             }
           }
 
-          if (hasSupport && supportY - truck.height < truck.y + 8) {
-            truck.y = supportY - truck.height;
-            truck.vy = 0;
-            truck.onGround = true;
-          } else {
-            truck.vy += GRAVITY;
-            truck.y += truck.vy;
-            truck.onGround = false;
+          // Also check if partially on solid ground
+          if (backX < gapLeft) {
+            bestY = Math.min(bestY, GROUND_Y);
+            foundSupport = true;
+          }
+          if (frontX > gapRight) {
+            bestY = Math.min(bestY, GROUND_Y);
+            foundSupport = true;
           }
 
-          if (truck.y > GROUND_Y + gapDepth) {
+          if (foundSupport && bestY - truck.height <= truck.y + 5) {
+            truck.y = bestY - truck.height;
+            truck.vy = 0;
+            truck.onBridge = true;
+          } else {
+            // Falling
+            truck.vy += GRAVITY * 1.5;
+            truck.y += truck.vy;
+            truck.onBridge = false;
+          }
+
+          if (truck.y > GROUND_Y + GAP_DEPTH) {
             truck.fallen = true;
+            for (let p = 0; p < 12; p++) addParticle(truck.x + truck.width / 2, truck.y, '#f44');
           }
         }
 
         truck.maxX = Math.max(truck.maxX, truck.x);
-
-        // Check if crossed
-        if (truck.x > gapRight + 30) {
-          truck.vx = 0;
-        }
       }
     }
 
@@ -511,10 +500,12 @@
     // ==============================
     function getNodeAt(x, y, nodes, radius) {
       radius = radius || 12;
+      let best = null, bestD = radius;
       for (const n of nodes) {
-        if (dist({ x, y }, n) < radius) return n;
+        const d = dist({ x, y }, n);
+        if (d < bestD) { bestD = d; best = n; }
       }
-      return null;
+      return best;
     }
 
     function canvasToLocal(e) {
@@ -526,9 +517,9 @@
     }
 
     canvas.addEventListener('mousemove', function(e) {
-      if (gameState !== 'building') return;
       const pos = canvasToLocal(e);
-      // Only allow interaction on player side (left half)
+      mousePos = pos;
+      if (gameState !== 'building') { hoverNode = null; return; }
       if (pos.x >= SPLIT) { hoverNode = null; return; }
       hoverNode = getNodeAt(pos.x, pos.y, playerNodes, 14);
     });
@@ -546,38 +537,47 @@
 
       const pos = canvasToLocal(e);
 
-      // Check test button
-      if (pos.x >= 105 && pos.x <= 195 && pos.y >= 365 && pos.y <= 390) {
+      // TEST button
+      if (pos.x >= 110 && pos.x <= 200 && pos.y >= 360 && pos.y <= 388) {
         if (playerBeams.length > 0) {
           startTest();
         }
         return;
       }
 
-      // Check undo button
-      if (pos.x >= 210 && pos.x <= 280 && pos.y >= 365 && pos.y <= 390) {
+      // UNDO button
+      if (pos.x >= 210 && pos.x <= 280 && pos.y >= 360 && pos.y <= 388) {
         if (playerBeams.length > 0) {
-          const removed = playerBeams.pop();
+          playerBeams.pop();
           playerBudgetUsed = totalBeamCost(playerBeams);
-          // Remove orphaned free nodes
           cleanOrphanNodes(playerNodes, playerBeams);
           budgetEl.textContent = currentBudget - playerBudgetUsed;
         }
         return;
       }
 
+      // CLEAR button
+      if (pos.x >= 15 && pos.x <= 95 && pos.y >= 360 && pos.y <= 388) {
+        playerBeams = [];
+        playerBudgetUsed = 0;
+        cleanOrphanNodes(playerNodes, playerBeams);
+        budgetEl.textContent = currentBudget;
+        selectedNode = null;
+        return;
+      }
+
+      // Only interact on player side
       if (pos.x >= SPLIT) return;
 
       const clicked = getNodeAt(pos.x, pos.y, playerNodes, 14);
       if (clicked) {
         if (selectedNode && selectedNode !== clicked) {
-          // Check if beam already exists
+          // Try to connect
           let exists = false;
           for (const b of playerBeams) {
             if ((b.n1 === selectedNode && b.n2 === clicked) ||
                 (b.n1 === clicked && b.n2 === selectedNode)) {
-              exists = true;
-              break;
+              exists = true; break;
             }
           }
           if (!exists) {
@@ -589,18 +589,24 @@
             }
           }
           selectedNode = null;
+        } else if (selectedNode === clicked) {
+          selectedNode = null; // deselect
         } else {
           selectedNode = clicked;
         }
       } else {
-        // Create new node at click position, but only over the gap
-        if (pos.x > gapLeft - 10 && pos.x < gapRight + 10 &&
-            pos.y > GROUND_Y - 70 && pos.y < GROUND_Y + 20) {
+        // Create new node in buildable area
+        const buildMinX = gapLeft - 5;
+        const buildMaxX = gapRight + 5;
+        const buildMinY = GROUND_Y - 65;
+        const buildMaxY = GROUND_Y + 8;
+        if (pos.x >= buildMinX && pos.x <= buildMaxX &&
+            pos.y >= buildMinY && pos.y <= buildMaxY) {
           const newNode = createNode(pos.x, pos.y, false);
-          // Fix if on solid ground
-          if (Math.abs(pos.y - GROUND_Y) < 8 && (pos.x <= gapLeft || pos.x >= gapRight)) {
-            newNode.fixed = true;
+          // Snap to ground if close and on solid surface
+          if (Math.abs(pos.y - GROUND_Y) < 8 && (pos.x <= gapLeft + 2 || pos.x >= gapRight - 2)) {
             newNode.y = GROUND_Y;
+            newNode.fixed = true;
           }
           playerNodes.push(newNode);
           if (selectedNode) {
@@ -610,18 +616,21 @@
               playerBudgetUsed = totalBeamCost(playerBeams);
               budgetEl.textContent = currentBudget - Math.round(playerBudgetUsed);
             }
-            selectedNode = newNode;
-          } else {
-            selectedNode = newNode;
           }
+          selectedNode = newNode;
         } else {
           selectedNode = null;
         }
       }
     });
 
+    // Right-click to deselect
+    canvas.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      selectedNode = null;
+    });
+
     function cleanOrphanNodes(nodes, beams) {
-      // Don't remove fixed/anchor nodes
       for (let i = nodes.length - 1; i >= 0; i--) {
         if (nodes[i].fixed) continue;
         let used = false;
@@ -636,19 +645,11 @@
     // TEST PHASE
     // ==============================
     function startTest() {
-      // AI builds its bridge now
       aiBuild();
-
-      // Clone for physics
       simPlayer = cloneForSim(playerNodes, playerBeams);
       simAI = cloneForSim(aiNodes, aiBeams);
-
-      truckPlayer = createTruck(10);
-      truckAI = createTruck(10);
-      playerBridgeFailed = false;
-      aiBridgeFailed = false;
-      playerTruckDist = 0;
-      aiTruckDist = 0;
+      truckPlayer = createTruck(5);
+      truckAI = createTruck(5);
       testTimer = 0;
       testPhase = 'simulating';
       gameState = 'testing';
@@ -657,11 +658,12 @@
     // ==============================
     // SCORING
     // ==============================
-    function calcScore(truckDist, budgetUsed, crossed) {
+    function calcScore(truck, budgetUsed) {
       const budgetRemain = currentBudget - budgetUsed;
-      const distScore = Math.round(truckDist);
-      const bonus = crossed ? 500 : 0;
-      return Math.max(0, Math.round(budgetRemain * 0.5) + distScore + bonus);
+      const distPercent = Math.min(1, (truck.maxX - 5) / (gapRight + 25));
+      const distScore = Math.round(distPercent * 300);
+      const bonus = truck.crossed ? 500 : 0;
+      return Math.max(0, Math.round(budgetRemain * 0.3) + distScore + bonus);
     }
 
     // ==============================
@@ -692,19 +694,20 @@
     }
 
     function showLevelComplete(pScore, aScore) {
-      const crossed = truckPlayer.x > gapRight + 10;
-      const aiCrossed = truckAI.x > gapRight + 10;
       playerTotalScore += pScore;
       aiTotalScore += aScore;
       playerScoreEl.textContent = playerTotalScore;
       aiScoreEl.textContent = aiTotalScore;
       gameState = 'levelComplete';
       overlay.style.display = 'flex';
-      overlayTitle.textContent = crossed ? 'BRIDGE HELD!' : 'BRIDGE COLLAPSED!';
-      overlayText.innerHTML = 'You: ' + pScore + ' pts' + (crossed ? ' [CROSSED]' : '') +
-        '<br>AI: ' + aScore + ' pts' + (aiCrossed ? ' [CROSSED]' : '') +
+      const pCrossed = truckPlayer.crossed;
+      const aCrossed = truckAI.crossed;
+      overlayTitle.textContent = pCrossed ? 'BRIDGE HELD!' : 'BRIDGE COLLAPSED!';
+      overlayText.innerHTML =
+        'You: ' + pScore + ' pts' + (pCrossed ? ' [CROSSED]' : ' [FELL]') +
+        '<br>AI: ' + aScore + ' pts' + (aCrossed ? ' [CROSSED]' : ' [FELL]') +
         '<br><br>' + (currentLevel < LEVELS.length - 1 ? 'Click for next level' : 'Click for final results');
-      overlayDetail.textContent = 'Level ' + (currentLevel + 1) + ' / ' + LEVELS.length;
+      overlayDetail.textContent = LEVELS[currentLevel].name + ' complete';
     }
 
     function showGameOver() {
@@ -720,254 +723,383 @@
     // ==============================
     // DRAWING
     // ==============================
-    function drawGround(offsetX) {
-      ctx.save();
-      ctx.beginPath();
-      // Left cliff
-      ctx.rect(offsetX, GROUND_Y, gapLeft, H - GROUND_Y);
-      ctx.fillStyle = '#3a2a1a';
-      ctx.fill();
-      // Right cliff
-      ctx.beginPath();
-      ctx.rect(offsetX + gapRight, GROUND_Y, HALF_W - gapRight, H - GROUND_Y);
-      ctx.fill();
-      // Cliff faces
-      ctx.fillStyle = '#5a4030';
-      ctx.fillRect(offsetX + gapLeft - 3, GROUND_Y, 3, gapDepth);
-      ctx.fillRect(offsetX + gapRight, GROUND_Y, 3, gapDepth);
-      // Ground surface
-      ctx.fillStyle = '#4a7a3a';
-      ctx.fillRect(offsetX, GROUND_Y - 3, gapLeft, 6);
-      ctx.fillRect(offsetX + gapRight, GROUND_Y - 3, HALF_W - gapRight, 6);
-      // Abyss bottom
-      ctx.fillStyle = '#1a1018';
-      ctx.fillRect(offsetX + gapLeft, GROUND_Y + gapDepth - 5, gapRight - gapLeft, 10);
-      // Water in gap
-      ctx.fillStyle = 'rgba(40, 80, 140, 0.4)';
-      ctx.fillRect(offsetX + gapLeft, GROUND_Y + gapDepth - 12, gapRight - gapLeft, 15);
-      ctx.restore();
+    function drawSky(ox) {
+      // Gradient sky
+      const grad = ctx.createLinearGradient(ox, 0, ox, GROUND_Y);
+      grad.addColorStop(0, '#0a0a1a');
+      grad.addColorStop(1, '#1a1a2e');
+      ctx.fillStyle = grad;
+      ctx.fillRect(ox, 0, HALF_W, GROUND_Y);
     }
 
-    function drawNodes(nodes, offsetX, isPlayer) {
+    function drawGround(ox) {
+      // Left cliff
+      ctx.fillStyle = '#3a2a1a';
+      ctx.fillRect(ox, GROUND_Y, gapLeft, H - GROUND_Y);
+      // Right cliff
+      ctx.fillRect(ox + gapRight, GROUND_Y, HALF_W - gapRight, H - GROUND_Y);
+      // Cliff faces (side walls of gap)
+      ctx.fillStyle = '#5a4030';
+      ctx.fillRect(ox + gapLeft, GROUND_Y, 2, GAP_DEPTH);
+      ctx.fillRect(ox + gapRight - 2, GROUND_Y, 2, GAP_DEPTH);
+      // Grass
+      ctx.fillStyle = '#4a7a3a';
+      ctx.fillRect(ox, GROUND_Y - 3, gapLeft + 1, 5);
+      ctx.fillRect(ox + gapRight - 1, GROUND_Y - 3, HALF_W - gapRight + 1, 5);
+      // Water at bottom
+      const waterY = GROUND_Y + GAP_DEPTH - 10;
+      ctx.fillStyle = 'rgba(30, 70, 130, 0.5)';
+      ctx.fillRect(ox + gapLeft, waterY, gapRight - gapLeft, 15);
+      // Depth darkness
+      ctx.fillStyle = '#0a0810';
+      ctx.fillRect(ox + gapLeft, GROUND_Y + GAP_DEPTH + 5, gapRight - gapLeft, H);
+      // Anchor markers (small orange/blue triangles)
+    }
+
+    function drawAnchors(nodes, ox, color) {
+      ctx.fillStyle = color;
       for (const n of nodes) {
+        if (!n.fixed) continue;
         ctx.beginPath();
-        ctx.arc(offsetX + n.x, n.y, n.fixed ? 5 : 4, 0, Math.PI * 2);
-        if (n.fixed) {
-          ctx.fillStyle = '#888';
-        } else {
-          ctx.fillStyle = isPlayer ? '#f94' : '#4af';
-        }
+        ctx.arc(ox + n.x, n.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // Pin cross
+        ctx.beginPath();
+        ctx.moveTo(ox + n.x - 3, n.y);
+        ctx.lineTo(ox + n.x + 3, n.y);
+        ctx.moveTo(ox + n.x, n.y - 3);
+        ctx.lineTo(ox + n.x, n.y + 3);
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    function drawBuildBeams(beams, ox, color) {
+      for (const b of beams) {
+        ctx.beginPath();
+        ctx.moveTo(ox + b.n1.x, b.n1.y);
+        ctx.lineTo(ox + b.n2.x, b.n2.y);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        // Length label
+        const mx = ox + (b.n1.x + b.n2.x) / 2;
+        const my = (b.n1.y + b.n2.y) / 2;
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '8px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(Math.round(b.restLength), mx, my - 4);
+      }
+    }
+
+    function drawBuildNodes(nodes, ox, isPlayer) {
+      for (const n of nodes) {
+        if (n.fixed) continue;
+        ctx.beginPath();
+        ctx.arc(ox + n.x, n.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = isPlayer ? '#f94' : '#4af';
         ctx.fill();
         ctx.strokeStyle = '#222';
         ctx.lineWidth = 1;
         ctx.stroke();
-
-        // Highlight selected
-        if (isPlayer && n === selectedNode) {
-          ctx.beginPath();
-          ctx.arc(offsetX + n.x, n.y, 8, 0, Math.PI * 2);
-          ctx.strokeStyle = '#ff0';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-        }
-        // Highlight hover
-        if (isPlayer && n === hoverNode && n !== selectedNode) {
-          ctx.beginPath();
-          ctx.arc(offsetX + n.x, n.y, 8, 0, Math.PI * 2);
-          ctx.strokeStyle = 'rgba(255,153,68,0.5)';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
       }
-    }
-
-    function drawBeams(beams, nodes, offsetX, color) {
-      for (const b of beams) {
-        if (b.broken) continue;
+      // Selected glow
+      if (isPlayer && selectedNode) {
         ctx.beginPath();
-        ctx.moveTo(offsetX + b.n1.x, b.n1.y);
-        ctx.lineTo(offsetX + b.n2.x, b.n2.y);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
+        ctx.arc(ox + selectedNode.x, selectedNode.y, 10, 0, Math.PI * 2);
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // Hover glow
+      if (isPlayer && hoverNode && hoverNode !== selectedNode) {
+        ctx.beginPath();
+        ctx.arc(ox + hoverNode.x, hoverNode.y, 9, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,153,68,0.5)';
+        ctx.lineWidth = 1.5;
         ctx.stroke();
       }
     }
 
-    function drawSimBeams(sim, offsetX, baseColor) {
+    function drawPreviewLine() {
+      if (!selectedNode || gameState !== 'building') return;
+      const targetNode = hoverNode;
+      const tx = targetNode ? targetNode.x : mousePos.x;
+      const ty = targetNode ? targetNode.y : mousePos.y;
+      if (mousePos.x >= SPLIT) return;
+
+      ctx.beginPath();
+      ctx.moveTo(selectedNode.x, selectedNode.y);
+      ctx.lineTo(tx, ty);
+      ctx.strokeStyle = 'rgba(255,153,68,0.35)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Cost preview
+      const previewLen = Math.round(dist(selectedNode, { x: tx, y: ty }));
+      const mx = (selectedNode.x + tx) / 2;
+      const my = (selectedNode.y + ty) / 2;
+      const overBudget = playerBudgetUsed + previewLen > currentBudget;
+      ctx.fillStyle = overBudget ? '#f44' : 'rgba(255,153,68,0.7)';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText((overBudget ? 'OVER ' : '-') + previewLen, mx, my - 7);
+    }
+
+    function drawSimBeams(sim, ox) {
+      // Active beams colored by stress
       for (const b of sim.beams) {
         if (b.broken) continue;
         const n1 = sim.nodes[b.i1];
         const n2 = sim.nodes[b.i2];
-        // Color by stress
-        let r = 255, g = 153, bl = 68;
-        if (b.stress > 0.05) {
-          r = Math.min(255, 150 + b.stress * 800);
-          g = Math.max(0, 153 - b.stress * 600);
-          bl = Math.max(0, 68 - b.stress * 400);
+        const stress = Math.min(1, b.stress / BEAM_STRENGTH);
+        // Green -> Yellow -> Red
+        let r, g;
+        if (stress < 0.5) {
+          r = Math.round(255 * stress * 2);
+          g = 200;
+        } else {
+          r = 255;
+          g = Math.round(200 * (1 - (stress - 0.5) * 2));
         }
         ctx.beginPath();
-        ctx.moveTo(offsetX + n1.x, n1.y);
-        ctx.lineTo(offsetX + n2.x, n2.y);
-        ctx.strokeStyle = 'rgb(' + Math.round(r) + ',' + Math.round(g) + ',' + Math.round(bl) + ')';
+        ctx.moveTo(ox + n1.x, n1.y);
+        ctx.lineTo(ox + n2.x, n2.y);
+        ctx.strokeStyle = 'rgb(' + r + ',' + g + ',40)';
         ctx.lineWidth = 3;
         ctx.stroke();
       }
-      // Draw broken beams faintly
+      // Broken beams
       for (const b of sim.beams) {
         if (!b.broken) continue;
         const n1 = sim.nodes[b.i1];
         const n2 = sim.nodes[b.i2];
         ctx.beginPath();
-        ctx.moveTo(offsetX + n1.x, n1.y);
-        ctx.lineTo(offsetX + n2.x, n2.y);
-        ctx.strokeStyle = 'rgba(255,0,0,0.3)';
+        ctx.moveTo(ox + n1.x, n1.y);
+        ctx.lineTo(ox + n2.x, n2.y);
+        ctx.strokeStyle = 'rgba(255,60,60,0.25)';
         ctx.lineWidth = 1;
         ctx.stroke();
       }
     }
 
-    function drawSimNodes(sim, offsetX) {
+    function drawSimNodes(sim, ox) {
       for (const n of sim.nodes) {
         ctx.beginPath();
-        ctx.arc(offsetX + n.x, n.y, n.fixed ? 4 : 3, 0, Math.PI * 2);
-        ctx.fillStyle = n.fixed ? '#888' : '#ddd';
+        ctx.arc(ox + n.x, n.y, n.fixed ? 5 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = n.fixed ? '#888' : '#ccc';
         ctx.fill();
       }
     }
 
-    function drawTruck(truck, offsetX, color) {
+    function drawTruck(truck, ox, color) {
       if (!truck) return;
-      const tx = offsetX + truck.x;
+      const tx = ox + truck.x;
       const ty = truck.y;
+      if (ty > H + 20) return; // off screen
+
+      ctx.save();
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(tx + 2, ty + 2, truck.width, truck.height);
+
       // Body
       ctx.fillStyle = color;
       ctx.fillRect(tx, ty, truck.width, truck.height);
-      // Cab
-      ctx.fillStyle = color;
-      ctx.fillRect(tx + truck.width - 10, ty - 6, 10, 6);
+
+      // Cab (slightly darker)
+      ctx.fillStyle = shadeColor(color, -30);
+      ctx.fillRect(tx + truck.width - 11, ty - 7, 11, 7);
+
+      // Windshield
+      ctx.fillStyle = 'rgba(150,200,255,0.5)';
+      ctx.fillRect(tx + truck.width - 10, ty - 6, 3, 5);
+
       // Wheels
-      ctx.fillStyle = '#222';
+      ctx.fillStyle = '#111';
       ctx.beginPath();
-      ctx.arc(tx + 5, ty + truck.height, 3, 0, Math.PI * 2);
+      ctx.arc(tx + 6, ty + truck.height + 1, 3.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(tx + truck.width - 5, ty + truck.height, 3, 0, Math.PI * 2);
+      ctx.arc(tx + truck.width - 6, ty + truck.height + 1, 3.5, 0, Math.PI * 2);
       ctx.fill();
+
+      // Hub caps
+      ctx.fillStyle = '#555';
+      ctx.beginPath();
+      ctx.arc(tx + 6, ty + truck.height + 1, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(tx + truck.width - 6, ty + truck.height + 1, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
       // Weight label
-      ctx.fillStyle = '#fff';
-      ctx.font = '7px Courier New';
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 7px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText(LEVELS[currentLevel].truckWeight + 't', tx + truck.width / 2, ty + 9);
+      ctx.fillText(truck.weight + 't', tx + truck.width / 2 - 3, ty + truck.height - 3);
+
+      ctx.restore();
     }
 
-    function drawPreviewLine() {
-      if (gameState !== 'building' || !selectedNode) return;
-      if (hoverNode && hoverNode !== selectedNode) {
-        ctx.beginPath();
-        ctx.moveTo(selectedNode.x, selectedNode.y);
-        ctx.lineTo(hoverNode.x, hoverNode.y);
-        ctx.strokeStyle = 'rgba(255,153,68,0.4)';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 4]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        // Show cost preview
-        const previewLen = Math.round(dist(selectedNode, hoverNode));
-        const midX = (selectedNode.x + hoverNode.x) / 2;
-        const midY = (selectedNode.y + hoverNode.y) / 2;
-        ctx.fillStyle = 'rgba(255,153,68,0.7)';
-        ctx.font = '10px Courier New';
-        ctx.textAlign = 'center';
-        ctx.fillText('-' + previewLen, midX, midY - 6);
-      }
+    function shadeColor(hex, amount) {
+      let r = parseInt(hex.slice(1, 3) || 'ff', 16);
+      let g = parseInt(hex.slice(3, 5) || '99', 16);
+      let b = parseInt(hex.slice(5, 7) || '44', 16);
+      // Handle shorthand
+      if (hex === '#f94') { r = 255; g = 153; b = 68; }
+      if (hex === '#4af') { r = 68; g = 170; b = 255; }
+      r = Math.max(0, Math.min(255, r + amount));
+      g = Math.max(0, Math.min(255, g + amount));
+      b = Math.max(0, Math.min(255, b + amount));
+      return 'rgb(' + r + ',' + g + ',' + b + ')';
     }
 
-    function drawButton(x, y, w, h, text, highlight) {
-      ctx.fillStyle = highlight ? '#f94' : 'rgba(255,153,68,0.2)';
+    function drawButton(x, y, w, h, text, enabled) {
+      ctx.fillStyle = enabled ? 'rgba(255,153,68,0.15)' : 'rgba(80,80,80,0.1)';
       ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = '#f94';
+      ctx.strokeStyle = enabled ? '#f94' : '#555';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = highlight ? '#1a1a2e' : '#f94';
+      ctx.fillStyle = enabled ? '#f94' : '#666';
       ctx.font = 'bold 11px Courier New';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, x + w / 2, y + h / 2);
     }
 
-    function drawHUD(offsetX, label, budgetUsed, isPlayer) {
-      ctx.fillStyle = isPlayer ? '#f94' : '#4af';
+    function drawHUD(ox, label, budgetUsed, color, side) {
+      ctx.fillStyle = color;
       ctx.font = 'bold 12px Courier New';
       ctx.textAlign = 'left';
-      ctx.fillText(label, offsetX + 8, 16);
+      ctx.fillText(label, ox + 8, 16);
+
       ctx.font = '10px Courier New';
-      ctx.fillStyle = '#aaa';
-      ctx.fillText('Used: ' + Math.round(budgetUsed) + '/' + currentBudget, offsetX + 8, 30);
+      const remain = currentBudget - Math.round(budgetUsed);
+      ctx.fillStyle = remain < 50 ? '#f44' : '#aaa';
+      ctx.fillText('Budget: ' + remain + '/' + currentBudget, ox + 8, 30);
 
       if (gameState === 'testing') {
-        const truck = isPlayer ? truckPlayer : truckAI;
-        const sim = isPlayer ? simPlayer : simAI;
+        const truck = side === 'player' ? truckPlayer : truckAI;
         if (truck) {
-          const progress = Math.min(100, Math.round((truck.maxX - 10) / (gapRight + 30) * 100));
-          ctx.fillStyle = truck.fallen ? '#f44' : '#4f4';
-          ctx.fillText(truck.fallen ? 'FALLEN' : 'Progress: ' + progress + '%', offsetX + 8, 44);
+          const progress = Math.min(100, Math.max(0,
+            Math.round(((truck.maxX - 5) / (gapRight + 25)) * 100)));
+          ctx.fillStyle = truck.fallen ? '#f44' : truck.crossed ? '#4f4' : '#ff4';
+          const status = truck.fallen ? 'FELL!' : truck.crossed ? 'CROSSED!' : progress + '%';
+          ctx.fillText('Truck: ' + status, ox + 8, 44);
         }
       }
+    }
+
+    function drawBuildZone(ox) {
+      // Faint outline showing where player can build
+      ctx.strokeStyle = 'rgba(255,153,68,0.1)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 6]);
+      ctx.strokeRect(ox + gapLeft - 5, GROUND_Y - 65, gapRight - gapLeft + 10, 73);
+      ctx.setLineDash([]);
+    }
+
+    function drawParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.1;
+        p.life--;
+        if (p.life <= 0) { particles.splice(i, 1); continue; }
+        ctx.globalAlpha = p.life / 50;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+      }
+      ctx.globalAlpha = 1;
     }
 
     function draw() {
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
 
-      // Divider
+      // Divider line
       ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(SPLIT, 0);
       ctx.lineTo(SPLIT, H);
       ctx.stroke();
 
+      // Divider label
+      ctx.fillStyle = '#444';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.save();
+      ctx.translate(SPLIT, H / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('VS', 0, -4);
+      ctx.restore();
+
       if (gameState === 'building') {
-        // Player side
+        // ---- PLAYER SIDE ----
+        drawSky(0);
         drawGround(0);
-        drawBeams(playerBeams, playerNodes, 0, '#f94');
+        drawBuildZone(0);
+        drawBuildBeams(playerBeams, 0, '#f94');
         drawPreviewLine();
-        drawNodes(playerNodes, 0, true);
-        drawHUD(0, 'YOU - ' + LEVELS[currentLevel].name, playerBudgetUsed, true);
+        drawAnchors(playerNodes, 0, '#f94');
+        drawBuildNodes(playerNodes, 0, true);
+        drawHUD(0, 'YOU - ' + LEVELS[currentLevel].name, playerBudgetUsed, '#f94', 'player');
 
         // Buttons
-        drawButton(105, 365, 90, 25, 'TEST', playerBeams.length > 0);
-        drawButton(210, 365, 70, 25, 'UNDO', playerBeams.length > 0);
+        drawButton(15, 360, 80, 28, 'CLEAR', playerBeams.length > 0);
+        drawButton(110, 360, 90, 28, 'TEST!', playerBeams.length > 0);
+        drawButton(210, 360, 70, 28, 'UNDO', playerBeams.length > 0);
 
-        // AI side (show building progress bar while player builds)
+        // ---- AI SIDE (placeholder during build) ----
+        drawSky(SPLIT);
         drawGround(SPLIT);
-        drawHUD(SPLIT, 'AI - Building...', 0, false);
-        // Show "AI will build on test" text
+        drawAnchors(aiNodes, SPLIT, '#4af');
+        drawHUD(SPLIT, 'AI', 0, '#4af', 'ai');
+
+        // AI waiting text
         ctx.fillStyle = '#4af';
-        ctx.font = '10px Courier New';
+        ctx.font = '11px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('AI builds when you click TEST', SPLIT + HALF_W / 2, GROUND_Y - 30);
+        ctx.fillText('AI builds on TEST', SPLIT + HALF_W / 2, GROUND_Y - 40);
+        ctx.fillStyle = '#555';
+        ctx.font = '9px Courier New';
+        ctx.fillText('Triangular truss optimizer', SPLIT + HALF_W / 2, GROUND_Y - 25);
 
         // Instructions
-        ctx.fillStyle = '#666';
+        ctx.fillStyle = '#555';
         ctx.font = '9px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('Click nodes to connect | Click empty to create node', HALF_W / 2, H - 8);
+        ctx.fillText('Click anchors/nodes to connect  |  Click gap area for new node', HALF_W / 2, H - 6);
 
       } else if (gameState === 'testing') {
-        // Player sim
+        // ---- PLAYER SIM ----
+        drawSky(0);
         drawGround(0);
-        drawSimBeams(simPlayer, 0, '#f94');
+        drawSimBeams(simPlayer, 0);
         drawSimNodes(simPlayer, 0);
         drawTruck(truckPlayer, 0, '#f94');
-        drawHUD(0, 'YOU', playerBudgetUsed, true);
+        drawHUD(0, 'YOU', playerBudgetUsed, '#f94', 'player');
 
-        // AI sim
+        // ---- AI SIM ----
+        drawSky(SPLIT);
         drawGround(SPLIT);
-        drawSimBeams(simAI, SPLIT, '#4af');
+        drawSimBeams(simAI, SPLIT);
         drawSimNodes(simAI, SPLIT);
         drawTruck(truckAI, SPLIT, '#4af');
-        drawHUD(SPLIT, 'AI', aiBudgetUsed, false);
+        drawHUD(SPLIT, 'AI', aiBudgetUsed, '#4af', 'ai');
+
+        drawParticles();
       }
     }
 
@@ -978,25 +1110,25 @@
       if (gameState === 'testing' && testPhase === 'simulating') {
         testTimer++;
 
-        // Run physics
         simStep(simPlayer, truckPlayer);
         simStep(simAI, truckAI);
 
-        // Check completion (truck crossed, fell, or timeout)
-        const playerDone = truckPlayer.fallen || truckPlayer.x > gapRight + 40 || testTimer > 600;
-        const aiDone = truckAI.fallen || truckAI.x > gapRight + 40 || testTimer > 600;
+        const pDone = truckPlayer.fallen || truckPlayer.crossed || testTimer > 500;
+        const aDone = truckAI.fallen || truckAI.crossed || testTimer > 500;
 
-        if (playerDone && aiDone) {
+        if (pDone && aDone) {
           testPhase = 'done';
-          const playerCrossed = truckPlayer.x > gapRight + 10;
-          const aiCrossed = truckAI.x > gapRight + 10;
-          playerTruckDist = truckPlayer.maxX;
-          aiTruckDist = truckAI.maxX;
+          const pScore = calcScore(truckPlayer, playerBudgetUsed);
+          const aScore = calcScore(truckAI, aiBudgetUsed);
+          setTimeout(() => showLevelComplete(pScore, aScore), 1000);
+        }
+      }
 
-          const pScore = calcScore(playerTruckDist, playerBudgetUsed, playerCrossed);
-          const aScore = calcScore(aiTruckDist, aiBudgetUsed, aiCrossed);
-
-          setTimeout(() => showLevelComplete(pScore, aScore), 800);
+      // Update particles even when paused
+      if (particles.length > 0 && gameState !== 'testing') {
+        for (let i = particles.length - 1; i >= 0; i--) {
+          particles[i].life--;
+          if (particles[i].life <= 0) particles.splice(i, 1);
         }
       }
     }
@@ -1007,11 +1139,13 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // Init
+    // ==============================
+    // INIT
+    // ==============================
     gameState = 'waiting';
     overlay.style.display = 'flex';
     overlayTitle.textContent = 'BRIDGE BUILDING RACE';
-    overlayText.innerHTML = 'Build bridges under budget<br>Race your truck across vs AI';
+    overlayText.innerHTML = 'Physics-based bridge construction<br>Build under budget, then test with a truck!<br><br>5 levels of increasing difficulty<br>Split-screen vs AI engineer';
     overlayDetail.textContent = 'Click to Start';
 
     gameLoop();

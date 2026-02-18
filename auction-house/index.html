@@ -90,7 +90,6 @@
     bestEl.textContent = '$' + bestScore;
 
     const GOLD = '#fa0';
-    const GOLD_DIM = '#b70';
     const GOLD_GLOW = 'rgba(255,170,0,';
     const BG = '#1a1a2e';
     const PANEL = '#16213e';
@@ -130,14 +129,14 @@
       { name: 'Old Money', strategy: 'steady', color: '#cc8', riskTol: 0.85, bluffChance: 0.08 }
     ];
 
+    // Game state
     let players = [];
     let currentItem = null;
     let currentBid = 0;
-    let currentBidder = -1;
+    let currentBidder = -1; // who placed the current highest bid
     let round = 0;
     let totalRounds = 12;
-    let auctionPhase = 'idle';
-    let passedPlayers = new Set();
+    let auctionPhase = 'idle'; // 'showing','bidding','sold','results'
     let animTimer = 0;
     let bidButtons = [];
     let messageLog = [];
@@ -145,7 +144,6 @@
     let allItems = [];
     let sparkles = [];
     let hoverBtn = -1;
-    let aiTurnQueue = [];
     let showItemTimer = 0;
     let bidIncrement = 100;
     let playerBidAmount = 0;
@@ -153,7 +151,13 @@
     let gaveled = false;
     let gavelTimer = 0;
     let gavelCount = 0;
-    let revealTimer = 0;
+
+    // Turn-based bidding: track who has responded to the current bid
+    // When someone bids, everyone else needs to respond (bid or pass)
+    let respondedToBid = new Set(); // players who have responded to current highest bid
+    let waitingForHuman = false;
+    let aiActionTimer = 0; // delay before next AI acts
+    let nextAiIdx = -1; // which AI acts next
 
     function rand(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
 
@@ -207,82 +211,96 @@
       currentItem = allItems[round];
       currentBid = currentItem.startBid;
       currentBidder = -1;
-      passedPlayers = new Set();
       auctionPhase = 'showing';
-      showItemTimer = 80;
+      showItemTimer = 75;
       gaveled = false; gavelTimer = 0; gavelCount = 0;
       for (const p of players) p.passed = false;
+      respondedToBid = new Set();
+      waitingForHuman = false;
+      nextAiIdx = -1;
+      aiActionTimer = 0;
       bidIncrement = currentBid < 300 ? 50 : (currentBid < 1000 ? 100 : 150);
       playerBidAmount = currentBid + bidIncrement;
       buildBidButtons();
-      addMessage('Item ' + (round + 1) + '/' + totalRounds + ': ' + currentItem.name);
+      addMessage('Lot ' + (round + 1) + '/' + totalRounds + ': ' + currentItem.name);
       round++;
     }
 
     function buildBidButtons() {
       bidButtons = [
-        { x: 400, y: 400, w: 85, h: 32, label: 'BID', action: 'bid' },
-        { x: 500, y: 400, w: 85, h: 32, label: 'PASS', action: 'pass' }
+        { x: 400, y: 398, w: 85, h: 30, label: 'BID', action: 'bid' },
+        { x: 500, y: 398, w: 85, h: 30, label: 'PASS', action: 'pass' }
       ];
       quickBidButtons = [];
       const increments = [50, 100, 250, 500];
       for (let i = 0; i < increments.length; i++) {
         quickBidButtons.push({
-          x: 400 + i * 47, y: 360, w: 43, h: 24,
+          x: 400 + i * 47, y: 365, w: 43, h: 22,
           label: '+' + increments[i], value: increments[i]
         });
       }
     }
 
     function addMessage(msg) {
-      messageLog.unshift({ text: msg, time: 200 });
-      if (messageLog.length > 6) messageLog.pop();
+      messageLog.unshift({ text: msg, time: 240 });
+      if (messageLog.length > 8) messageLog.pop();
+    }
+
+    // After someone bids, schedule responses from everyone who hasn't responded
+    function scheduleResponses() {
+      // Find next AI that needs to respond
+      waitingForHuman = false;
+      nextAiIdx = -1;
+      // Check if human needs to respond
+      if (!players[0].passed && !respondedToBid.has(0) && currentBidder !== 0) {
+        waitingForHuman = true;
+      }
+      // Find an AI to respond
+      for (let i = 1; i < players.length; i++) {
+        if (!players[i].passed && !respondedToBid.has(i) && currentBidder !== i) {
+          nextAiIdx = i;
+          aiActionTimer = rand(20, 45);
+          return;
+        }
+      }
+      // No AI needs to respond; if human doesn't either, check end
+      if (!waitingForHuman) {
+        checkAuctionEnd();
+      }
     }
 
     function playerBid() {
       if (auctionPhase !== 'bidding' || players[0].passed) return;
       if (playerBidAmount > players[0].budget) return;
-      if (playerBidAmount <= currentBid && currentBidder !== -1) return;
+      if (currentBidder !== -1 && playerBidAmount <= currentBid) return;
       currentBid = playerBidAmount;
       currentBidder = 0;
       addMessage('You bid $' + currentBid);
-      for (let i = 1; i < players.length; i++) {
-        if (!players[i].passed) passedPlayers.delete(i);
-      }
-      passedPlayers.clear();
-      passedPlayers.add(0);
+      // New bid: everyone else must respond
+      respondedToBid = new Set();
+      respondedToBid.add(0);
       playerBidAmount = currentBid + bidIncrement;
       gaveled = false; gavelCount = 0;
-      triggerAIResponses();
+      waitingForHuman = false;
+      scheduleResponses();
     }
 
     function playerPass() {
       if (auctionPhase !== 'bidding' || players[0].passed) return;
       players[0].passed = true;
-      passedPlayers.add(0);
+      respondedToBid.add(0);
       addMessage('You pass');
-      checkAuctionEnd();
-    }
-
-    function triggerAIResponses() {
-      aiTurnQueue = [];
-      const aiIndices = [];
-      for (let i = 1; i < players.length; i++) {
-        if (!players[i].passed) aiIndices.push(i);
-      }
-      aiIndices.sort(() => Math.random() - 0.5);
-      let delay = 25;
-      for (const idx of aiIndices) {
-        aiTurnQueue.push({ idx, delay });
-        delay += rand(18, 45);
-      }
+      waitingForHuman = false;
+      scheduleResponses();
     }
 
     function aiDecide(idx) {
       const ai = players[idx];
       if (ai.passed || ai.budget < currentBid + bidIncrement) {
-        ai.passed = true; passedPlayers.add(idx);
+        ai.passed = true;
+        respondedToBid.add(idx);
         addMessage(ai.name + ' passes');
+        scheduleResponses();
         return;
       }
       const item = currentItem;
@@ -294,7 +312,10 @@
         case 'aggressive': maxWilling = estValue * (1.1 + Math.random() * 0.3); break;
         case 'conservative': maxWilling = estValue * (0.6 + Math.random() * 0.2); break;
         case 'value-hunter':
-          if (currentBid > estValue * 0.7) { ai.passed = true; passedPlayers.add(idx); addMessage(ai.name + ' passes'); return; }
+          if (currentBid > estValue * 0.7) {
+            ai.passed = true; respondedToBid.add(idx);
+            addMessage(ai.name + ' passes'); scheduleResponses(); return;
+          }
           maxWilling = estValue * 0.85; break;
         case 'bluffer':
           if (Math.random() < ai.bluffChance) maxWilling = estValue * (1.5 + Math.random());
@@ -311,26 +332,33 @@
         currentBid = nextBid;
         currentBidder = idx;
         addMessage(ai.name + ' bids $' + currentBid);
-        for (let j = 0; j < players.length; j++) {
-          if (j !== idx && !players[j].passed) passedPlayers.delete(j);
-        }
-        passedPlayers.add(idx);
+        // New bid: reset responses
+        respondedToBid = new Set();
+        respondedToBid.add(idx);
         playerBidAmount = Math.max(playerBidAmount, currentBid + bidIncrement);
         gaveled = false; gavelCount = 0;
+        scheduleResponses();
       } else {
-        ai.passed = true; passedPlayers.add(idx);
+        ai.passed = true;
+        respondedToBid.add(idx);
         addMessage(ai.name + ' passes');
+        scheduleResponses();
       }
     }
 
     function checkAuctionEnd() {
-      let allOthersPassed = true;
-      for (let i = 0; i < players.length; i++) {
-        if (i !== currentBidder && !players[i].passed) { allOthersPassed = false; break; }
-      }
-      if (allOthersPassed && currentBidder >= 0) {
-        if (!gaveled) { gaveled = true; gavelTimer = 50; gavelCount = 0; }
-      } else if (currentBidder === -1) {
+      // Everyone has responded to current bid
+      if (currentBidder >= 0) {
+        // All others have either passed permanently or responded
+        let allDone = true;
+        for (let i = 0; i < players.length; i++) {
+          if (i !== currentBidder && !players[i].passed) { allDone = false; break; }
+        }
+        if (allDone) {
+          if (!gaveled) { gaveled = true; gavelTimer = 45; gavelCount = 0; }
+        }
+      } else {
+        // No one bid at all
         let anyActive = false;
         for (let i = 0; i < players.length; i++) { if (!players[i].passed) { anyActive = true; break; } }
         if (!anyActive) {
@@ -353,7 +381,7 @@
         addMessage('You won ' + currentItem.name + ' for $' + price + '!');
         for (let i = 0; i < 15; i++) {
           sparkles.push({
-            x: 200 + Math.random() * 200, y: 100 + Math.random() * 80,
+            x: 200 + Math.random() * 200, y: 80 + Math.random() * 80,
             vx: (Math.random() - 0.5) * 4, vy: -Math.random() * 3 - 1,
             life: rand(30, 60), maxLife: 60
           });
@@ -361,7 +389,7 @@
       } else {
         addMessage(players[winner].name + ' wins ' + currentItem.name + ' for $' + price);
       }
-      auctionPhase = 'sold'; soldAnim = 80;
+      auctionPhase = 'sold'; soldAnim = 85;
     }
 
     function showResults() {
@@ -382,14 +410,10 @@
     }
 
     // === Drawing ===
-
     function drawIcon(cx, cy, size, type, color) {
       ctx.save();
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = 1.5;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 6;
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = 1.5; ctx.shadowColor = color; ctx.shadowBlur = 6;
       switch (type) {
         case 'art':
           ctx.strokeRect(cx - size, cy - size * 0.8, size * 2, size * 1.6);
@@ -410,8 +434,7 @@
           ctx.lineTo(cx + size * 0.6, cy + size);
           ctx.lineTo(cx + size * 0.5, cy + size * 0.5);
           ctx.quadraticCurveTo(cx + size * 0.8, cy - size * 0.3, cx + size * 0.3, cy - size);
-          ctx.closePath();
-          ctx.stroke();
+          ctx.closePath(); ctx.stroke();
           break;
         case 'jewel':
           ctx.beginPath();
@@ -420,21 +443,16 @@
           ctx.lineTo(cx + size * 0.6, cy + size);
           ctx.lineTo(cx - size * 0.6, cy + size);
           ctx.lineTo(cx - size, cy - size * 0.2);
-          ctx.closePath();
-          ctx.stroke();
+          ctx.closePath(); ctx.stroke();
           ctx.beginPath();
-          ctx.moveTo(cx - size, cy - size * 0.2);
-          ctx.lineTo(cx + size, cy - size * 0.2);
-          ctx.moveTo(cx - size * 0.5, cy - size * 0.2);
-          ctx.lineTo(cx, cy + size);
-          ctx.moveTo(cx + size * 0.5, cy - size * 0.2);
-          ctx.lineTo(cx, cy + size);
+          ctx.moveTo(cx - size, cy - size * 0.2); ctx.lineTo(cx + size, cy - size * 0.2);
+          ctx.moveTo(cx - size * 0.5, cy - size * 0.2); ctx.lineTo(cx, cy + size);
+          ctx.moveTo(cx + size * 0.5, cy - size * 0.2); ctx.lineTo(cx, cy + size);
           ctx.stroke();
           break;
         case 'book':
           ctx.beginPath();
-          ctx.moveTo(cx, cy - size * 0.8);
-          ctx.lineTo(cx, cy + size * 0.8);
+          ctx.moveTo(cx, cy - size * 0.8); ctx.lineTo(cx, cy + size * 0.8);
           ctx.moveTo(cx, cy - size * 0.8);
           ctx.quadraticCurveTo(cx - size, cy - size * 0.6, cx - size, cy + size * 0.6);
           ctx.lineTo(cx, cy + size * 0.8);
@@ -451,13 +469,10 @@
           ctx.lineTo(cx + size * 0.4, cy + size * 0.7);
           ctx.quadraticCurveTo(cx + size * 0.5, cy - size * 0.3, cx + size * 0.15, cy - size * 0.5);
           ctx.lineTo(cx + size * 0.15, cy - size);
-          ctx.closePath();
-          ctx.stroke();
+          ctx.closePath(); ctx.stroke();
           break;
         case 'sculpture':
-          ctx.beginPath();
-          ctx.arc(cx, cy - size * 0.4, size * 0.45, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.beginPath(); ctx.arc(cx, cy - size * 0.4, size * 0.45, 0, Math.PI * 2); ctx.stroke();
           ctx.beginPath();
           ctx.moveTo(cx - size * 0.6, cy + size);
           ctx.quadraticCurveTo(cx - size * 0.4, cy + size * 0.15, cx - size * 0.25, cy + size * 0.15);
@@ -468,17 +483,18 @@
         case 'watch':
           ctx.beginPath(); ctx.arc(cx, cy, size * 0.75, 0, Math.PI * 2); ctx.stroke();
           ctx.beginPath(); ctx.arc(cx, cy, size * 0.6, 0, Math.PI * 2); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - size * 0.45); ctx.moveTo(cx, cy); ctx.lineTo(cx + size * 0.3, cy); ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - size * 0.45);
+          ctx.moveTo(cx, cy); ctx.lineTo(cx + size * 0.3, cy);
+          ctx.stroke();
           ctx.beginPath(); ctx.moveTo(cx, cy - size * 0.75); ctx.lineTo(cx, cy - size); ctx.stroke();
           break;
         case 'map':
           ctx.strokeRect(cx - size * 0.8, cy - size * 0.7, size * 1.6, size * 1.4);
-          const mx = cx - size * 0.15, my = cy;
+          var mx2 = cx - size * 0.15, my2 = cy;
           ctx.beginPath();
-          ctx.moveTo(mx - size * 0.2, my - size * 0.2);
-          ctx.lineTo(mx + size * 0.2, my + size * 0.2);
-          ctx.moveTo(mx + size * 0.2, my - size * 0.2);
-          ctx.lineTo(mx - size * 0.2, my + size * 0.2);
+          ctx.moveTo(mx2 - size * 0.2, my2 - size * 0.2); ctx.lineTo(mx2 + size * 0.2, my2 + size * 0.2);
+          ctx.moveTo(mx2 + size * 0.2, my2 - size * 0.2); ctx.lineTo(mx2 - size * 0.2, my2 + size * 0.2);
           ctx.stroke();
           break;
         case 'coin':
@@ -490,9 +506,12 @@
           break;
         case 'music':
           ctx.beginPath(); ctx.arc(cx - size * 0.2, cy + size * 0.35, size * 0.3, 0, Math.PI * 2); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(cx - size * 0.2 + size * 0.3, cy + size * 0.35);
-          ctx.lineTo(cx - size * 0.2 + size * 0.3, cy - size * 0.7); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(cx - size * 0.2 + size * 0.3, cy - size * 0.7);
+          ctx.beginPath();
+          ctx.moveTo(cx - size * 0.2 + size * 0.3, cy + size * 0.35);
+          ctx.lineTo(cx - size * 0.2 + size * 0.3, cy - size * 0.7);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(cx - size * 0.2 + size * 0.3, cy - size * 0.7);
           ctx.quadraticCurveTo(cx + size * 0.5, cy - size * 0.4, cx - size * 0.2 + size * 0.3, cy - size * 0.15);
           ctx.stroke();
           break;
@@ -502,46 +521,32 @@
 
     function roundRect(x, y, w, h, r) {
       ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.arcTo(x + w, y, x + w, y + r, r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-      ctx.lineTo(x + r, y + h);
-      ctx.arcTo(x, y + h, x, y + h - r, r);
-      ctx.lineTo(x, y + r);
-      ctx.arcTo(x, y, x + r, y, r);
-      ctx.closePath();
+      ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+      ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r);
+      ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
     }
 
     function drawItemCard(item, x, y, w, h, showValue) {
       ctx.save();
-      ctx.fillStyle = PANEL;
-      ctx.strokeStyle = item.category.color;
-      ctx.lineWidth = 2;
-      ctx.shadowColor = item.category.color;
-      ctx.shadowBlur = 12;
-      roundRect(x, y, w, h, 8);
-      ctx.fill(); ctx.stroke();
-      ctx.shadowBlur = 0;
+      ctx.fillStyle = PANEL; ctx.strokeStyle = item.category.color;
+      ctx.lineWidth = 2; ctx.shadowColor = item.category.color; ctx.shadowBlur = 12;
+      roundRect(x, y, w, h, 8); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
 
       ctx.fillStyle = item.category.color;
-      ctx.font = '10px Courier New';
-      ctx.textAlign = 'center';
+      ctx.font = '10px Courier New'; ctx.textAlign = 'center';
       ctx.fillText(item.category.name.toUpperCase(), x + w / 2, y + 16);
 
       drawIcon(x + w / 2, y + 55, 18, item.category.icon, item.category.color);
 
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 11px Courier New';
-      ctx.textAlign = 'center';
-      const words = item.name.split(' ');
-      let line = '', ly = y + 90;
-      for (const word of words) {
-        const test = line + (line ? ' ' : '') + word;
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Courier New'; ctx.textAlign = 'center';
+      var words = item.name.split(' '), line = '', ly = y + 90;
+      for (var wi = 0; wi < words.length; wi++) {
+        var test = line + (line ? ' ' : '') + words[wi];
         if (ctx.measureText(test).width > w - 16) {
-          ctx.fillText(line, x + w / 2, ly); line = word; ly += 13;
-        } else { line = test; }
+          ctx.fillText(line, x + w / 2, ly); line = words[wi]; ly += 13;
+        } else line = test;
       }
       ctx.fillText(line, x + w / 2, ly);
 
@@ -562,16 +567,12 @@
 
     function drawButton(btn, hover, disabled) {
       ctx.save();
-      const col = disabled ? '#444' : (hover ? '#fc2' : GOLD);
+      var col = disabled ? '#444' : (hover ? '#fc2' : GOLD);
       ctx.fillStyle = disabled ? '#222' : (hover ? PANEL_LIGHT : PANEL);
-      ctx.strokeStyle = col;
-      ctx.lineWidth = hover ? 2 : 1;
+      ctx.strokeStyle = col; ctx.lineWidth = hover ? 2 : 1;
       if (hover && !disabled) { ctx.shadowColor = GOLD; ctx.shadowBlur = 10; }
-      roundRect(btn.x, btn.y, btn.w, btn.h, 4);
-      ctx.fill(); ctx.stroke();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = col;
-      ctx.font = 'bold 11px Courier New';
+      roundRect(btn.x, btn.y, btn.w, btn.h, 4); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+      ctx.fillStyle = col; ctx.font = 'bold 11px Courier New';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
       ctx.restore();
@@ -579,21 +580,18 @@
 
     function drawPlayerPanel(p, idx, x, y, w, h) {
       ctx.save();
-      const isCurrent = (currentBidder === idx);
+      var isCurrent = (currentBidder === idx);
       ctx.fillStyle = isCurrent ? 'rgba(255,170,0,0.08)' : PANEL;
       ctx.strokeStyle = isCurrent ? GOLD : (p.passed ? '#333' : p.color);
       ctx.lineWidth = isCurrent ? 2 : 1;
       if (isCurrent) { ctx.shadowColor = GOLD; ctx.shadowBlur = 8; }
-      roundRect(x, y, w, h, 4);
-      ctx.fill(); ctx.stroke();
-      ctx.shadowBlur = 0;
+      roundRect(x, y, w, h, 4); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
 
       ctx.fillStyle = p.passed ? '#555' : p.color;
       ctx.font = 'bold 10px Courier New'; ctx.textAlign = 'left';
       ctx.fillText(p.isHuman ? 'YOU' : p.name, x + 6, y + 13);
 
-      ctx.fillStyle = p.passed ? '#444' : '#aaa';
-      ctx.font = '9px Courier New';
+      ctx.fillStyle = p.passed ? '#444' : '#aaa'; ctx.font = '9px Courier New';
       ctx.fillText('$' + p.budget, x + 6, y + 26);
 
       ctx.textAlign = 'right';
@@ -604,27 +602,26 @@
         ctx.fillStyle = '#644'; ctx.textAlign = 'right';
         ctx.fillText('PASSED', x + w - 6, y + 26);
       } else if (isCurrent) {
-        ctx.fillStyle = GOLD; ctx.textAlign = 'right';
-        ctx.font = 'bold 9px Courier New';
+        ctx.fillStyle = GOLD; ctx.textAlign = 'right'; ctx.font = 'bold 9px Courier New';
         ctx.fillText('LEADING', x + w - 6, y + 26);
       }
       ctx.restore();
     }
 
     function drawCollection() {
-      const y0 = 440;
+      var y0 = 440;
       ctx.fillStyle = '#666'; ctx.font = '9px Courier New'; ctx.textAlign = 'left';
       ctx.fillText('YOUR COLLECTION:', 15, y0);
-      const items = players[0].items;
+      var items = players[0].items;
       if (items.length === 0) {
         ctx.fillStyle = '#444'; ctx.fillText('No items yet', 15, y0 + 14);
       } else {
-        for (let i = 0; i < items.length && (15 + i * 46 + 42 < W - 120); i++) {
-          const ix = 15 + i * 46;
+        var maxShow = Math.min(items.length, 10);
+        for (var i = 0; i < maxShow; i++) {
+          var ix = 15 + i * 46;
           ctx.save();
           ctx.fillStyle = PANEL; ctx.strokeStyle = items[i].category.color; ctx.lineWidth = 1;
-          roundRect(ix, y0 + 4, 42, 42, 3);
-          ctx.fill(); ctx.stroke();
+          roundRect(ix, y0 + 4, 42, 42, 3); ctx.fill(); ctx.stroke();
           drawIcon(ix + 21, y0 + 22, 10, items[i].category.icon, items[i].category.color);
           ctx.fillStyle = '#888'; ctx.font = '7px Courier New'; ctx.textAlign = 'center';
           ctx.fillText('$' + items[i].pricePaid, ix + 21, y0 + 42);
@@ -632,10 +629,9 @@
         }
         if (items.length > 10) {
           ctx.fillStyle = '#666'; ctx.font = '9px Courier New'; ctx.textAlign = 'left';
-          ctx.fillText('+' + (items.length - 10) + ' more', 15 + 10 * 46, y0 + 26);
+          ctx.fillText('+' + (items.length - 10), 15 + 10 * 46, y0 + 26);
         }
       }
-
       ctx.fillStyle = '#888'; ctx.font = '10px Courier New'; ctx.textAlign = 'right';
       ctx.fillText('Budget:', W - 90, y0);
       ctx.fillStyle = players[0].budget < 1000 ? '#f44' : GOLD;
@@ -647,11 +643,11 @@
 
     function drawMessages() {
       ctx.save();
-      const mx = 15, my = 200;
+      var mx = 15, my = 200;
       ctx.font = '9px Courier New'; ctx.textAlign = 'left';
-      for (let i = 0; i < messageLog.length; i++) {
-        const msg = messageLog[i];
-        const alpha = Math.min(1, msg.time / 60);
+      for (var i = 0; i < messageLog.length; i++) {
+        var msg = messageLog[i];
+        var alpha = Math.min(1, msg.time / 80);
         ctx.fillStyle = 'rgba(170,170,170,' + alpha + ')';
         ctx.fillText(msg.text, mx, my + i * 12);
       }
@@ -659,8 +655,8 @@
     }
 
     function drawSparkles() {
-      for (const s of sparkles) {
-        const alpha = s.life / s.maxLife;
+      for (var i = 0; i < sparkles.length; i++) {
+        var s = sparkles[i], alpha = s.life / s.maxLife;
         ctx.save();
         ctx.fillStyle = GOLD_GLOW + alpha + ')';
         ctx.shadowColor = GOLD; ctx.shadowBlur = 6;
@@ -676,27 +672,21 @@
       ctx.fillText('AUCTION RESULTS', W / 2, 35);
       ctx.shadowBlur = 0;
 
-      const sorted = [...players].sort((a, b) => b.profit - a.profit);
-      const startY = 55;
-      const rowH = 62;
+      var sorted = [...players].sort(function(a, b) { return b.profit - a.profit; });
+      var startY = 55, rowH = 62;
 
-      for (let i = 0; i < sorted.length; i++) {
-        const p = sorted[i];
-        const y = startY + i * rowH;
-        const isPlayer = p.isHuman;
-
-        ctx.fillStyle = isPlayer ? 'rgba(255,170,0,0.08)' : PANEL;
-        ctx.strokeStyle = isPlayer ? GOLD : (i === 0 ? '#fd4' : '#333');
-        ctx.lineWidth = isPlayer ? 2 : 1;
-        roundRect(20, y, W - 40, rowH - 5, 6);
-        ctx.fill(); ctx.stroke();
+      for (var i = 0; i < sorted.length; i++) {
+        var p = sorted[i], y = startY + i * rowH, isP = p.isHuman;
+        ctx.fillStyle = isP ? 'rgba(255,170,0,0.08)' : PANEL;
+        ctx.strokeStyle = isP ? GOLD : (i === 0 ? '#fd4' : '#333');
+        ctx.lineWidth = isP ? 2 : 1;
+        roundRect(20, y, W - 40, rowH - 5, 6); ctx.fill(); ctx.stroke();
 
         ctx.fillStyle = i === 0 ? '#fd4' : '#888';
         ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'left';
         ctx.fillText('#' + (i + 1), 32, y + 22);
 
-        ctx.fillStyle = p.color;
-        ctx.font = 'bold 12px Courier New';
+        ctx.fillStyle = p.color; ctx.font = 'bold 12px Courier New';
         ctx.fillText(p.name, 70, y + 16);
 
         if (!p.isHuman) {
@@ -707,8 +697,7 @@
         ctx.fillStyle = '#888'; ctx.font = '9px Courier New';
         ctx.fillText(p.items.length + ' items won', 70, y + 44);
 
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#aaa'; ctx.font = '9px Courier New';
+        ctx.textAlign = 'right'; ctx.fillStyle = '#aaa'; ctx.font = '9px Courier New';
         ctx.fillText('Spent: $' + p.totalSpent, W - 180, y + 16);
         ctx.fillText('Value: $' + p.totalValue, W - 180, y + 30);
 
@@ -721,18 +710,18 @@
           ctx.fillText('\u2605', W - 35, y + 48);
         }
 
-        const iconStartX = 200;
-        for (let j = 0; j < p.items.length && j < 7; j++) {
+        var iconStartX = 200;
+        for (var j = 0; j < p.items.length && j < 7; j++) {
           drawIcon(iconStartX + j * 26, y + 46, 6, p.items[j].category.icon, p.items[j].category.color);
         }
       }
 
-      // Unsold items
-      const unsold = allItems.filter(it => it.winner === -1);
+      var unsold = allItems.filter(function(it) { return it.winner === -1; });
       if (unsold.length > 0) {
-        const uy = startY + sorted.length * rowH + 5;
+        var uy = startY + sorted.length * rowH + 5;
         ctx.fillStyle = '#555'; ctx.font = '10px Courier New'; ctx.textAlign = 'left';
-        ctx.fillText('Unsold: ' + unsold.map(u => u.name).join(', '), 25, uy);
+        var names = unsold.map(function(u) { return u.name; }).join(', ');
+        ctx.fillText('Unsold: ' + names, 25, uy);
       }
 
       ctx.fillStyle = GOLD_GLOW + (0.5 + Math.sin(animTimer * 0.05) * 0.3) + ')';
@@ -742,108 +731,110 @@
     }
 
     function draw() {
-      ctx.clearRect(0, 0, W, H);
-      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
-
+      ctx.clearRect(0, 0, W, H); ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
       if (auctionPhase === 'results') { drawResults(); return; }
 
-      // Item card
+      // Item card (left side)
       if (currentItem) {
-        drawItemCard(currentItem, 15, 10, 160, 160, auctionPhase === 'sold' && currentItem.winner >= 0);
+        drawItemCard(currentItem, 15, 10, 160, 165, auctionPhase === 'sold' && currentItem.winner >= 0);
       }
 
       // Round info
       ctx.fillStyle = '#666'; ctx.font = '10px Courier New'; ctx.textAlign = 'left';
-      ctx.fillText('Round ' + round + '/' + totalRounds, 20, 185);
+      ctx.fillText('Round ' + round + '/' + totalRounds, 20, 190);
 
-      // Bidding display
+      // Bidding display (center/right)
       if (auctionPhase === 'showing' || auctionPhase === 'bidding') {
         ctx.save();
         ctx.fillStyle = GOLD; ctx.shadowColor = GOLD; ctx.shadowBlur = 15;
         ctx.font = 'bold 28px Courier New'; ctx.textAlign = 'center';
-        ctx.fillText('$' + currentBid, 380, 45);
+        ctx.fillText('$' + currentBid, 380, 42);
         ctx.shadowBlur = 0;
 
         ctx.fillStyle = '#888'; ctx.font = '11px Courier New';
-        if (currentBidder >= 0) ctx.fillText('Current bid by ' + players[currentBidder].name, 380, 65);
-        else ctx.fillText('Starting bid', 380, 65);
+        if (currentBidder >= 0) ctx.fillText('Current bid by ' + players[currentBidder].name, 380, 62);
+        else ctx.fillText('Starting bid', 380, 62);
         ctx.restore();
 
         if (gaveled) {
           ctx.save();
-          const pa = 0.5 + Math.sin(animTimer * 0.15) * 0.3;
+          var pa = 0.5 + Math.sin(animTimer * 0.15) * 0.3;
           ctx.fillStyle = GOLD_GLOW + pa + ')';
           ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'center';
-          const gt = gavelCount === 0 ? 'Going once...' : gavelCount === 1 ? 'Going twice...' : 'SOLD!';
-          ctx.fillText(gt, 380, 87);
+          var gt = gavelCount === 0 ? 'Going once...' : gavelCount === 1 ? 'Going twice...' : 'SOLD!';
+          ctx.fillText(gt, 380, 84);
           ctx.restore();
         }
 
         if (auctionPhase === 'showing') {
           ctx.fillStyle = GOLD_GLOW + '0.5)';
           ctx.font = '11px Courier New'; ctx.textAlign = 'center';
-          ctx.fillText('Presenting next item...', 380, 87);
+          ctx.fillText('Presenting next item...', 380, 84);
         }
       }
 
-      // Sold animation
+      // Sold overlay
       if (auctionPhase === 'sold' && soldAnim > 0) {
         ctx.save();
-        const alpha = Math.min(1, soldAnim / 30);
+        var alpha = Math.min(1, soldAnim / 30);
         if (currentItem.winner >= 0) {
           ctx.fillStyle = GOLD_GLOW + alpha + ')'; ctx.shadowColor = GOLD; ctx.shadowBlur = 20;
           ctx.font = 'bold 22px Courier New'; ctx.textAlign = 'center';
-          ctx.fillText('SOLD!', 380, 40);
+          ctx.fillText('SOLD!', 380, 38);
           ctx.shadowBlur = 0;
           ctx.fillStyle = 'rgba(255,255,255,' + alpha + ')'; ctx.font = '12px Courier New';
-          ctx.fillText('to ' + players[currentItem.winner].name + ' for $' + currentItem.winBid, 380, 62);
-          const profitOnItem = currentItem.trueValue - currentItem.winBid;
+          ctx.fillText('to ' + players[currentItem.winner].name + ' for $' + currentItem.winBid, 380, 58);
+          var profitOnItem = currentItem.trueValue - currentItem.winBid;
           ctx.fillStyle = profitOnItem >= 0 ? 'rgba(80,255,80,' + alpha + ')' : 'rgba(255,80,80,' + alpha + ')';
           ctx.font = 'bold 11px Courier New';
-          ctx.fillText('True Value: $' + currentItem.trueValue + ' (' + (profitOnItem >= 0 ? '+' : '') + profitOnItem + ')', 380, 82);
+          ctx.fillText('True Value: $' + currentItem.trueValue + ' (' + (profitOnItem >= 0 ? '+' : '') + profitOnItem + ')', 380, 78);
         } else {
           ctx.fillStyle = 'rgba(150,150,150,' + alpha + ')';
           ctx.font = 'bold 18px Courier New'; ctx.textAlign = 'center';
-          ctx.fillText('NO SALE', 380, 50);
+          ctx.fillText('NO SALE', 380, 48);
         }
         ctx.restore();
       }
 
       // Player panels
-      const panelX = 195, panelW = 390, panelRowH = 34;
-      for (let i = 0; i < players.length; i++) {
-        const px = panelX + (i % 2) * (panelW / 2 + 5);
-        const py = 100 + Math.floor(i / 2) * (panelRowH + 4);
+      var panelX = 195, panelW = 390, panelRowH = 34;
+      for (var i = 0; i < players.length; i++) {
+        var px = panelX + (i % 2) * (panelW / 2 + 5);
+        var py = 96 + Math.floor(i / 2) * (panelRowH + 4);
         drawPlayerPanel(players[i], i, px, py, panelW / 2 - 5, panelRowH);
       }
 
       // Bid controls
       if (auctionPhase === 'bidding' && !players[0].passed) {
-        // Bid area background
         ctx.save();
         ctx.fillStyle = 'rgba(22,33,62,0.6)';
-        roundRect(390, 320, 200, 120, 6);
-        ctx.fill();
+        roundRect(392, 325, 200, 115, 6); ctx.fill();
         ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
-        roundRect(390, 320, 200, 120, 6);
-        ctx.stroke();
+        roundRect(392, 325, 200, 115, 6); ctx.stroke();
         ctx.restore();
 
         ctx.fillStyle = '#aaa'; ctx.font = '10px Courier New'; ctx.textAlign = 'left';
-        ctx.fillText('Your bid:', 400, 342);
+        ctx.fillText('Your bid:', 400, 345);
         ctx.fillStyle = playerBidAmount > players[0].budget ? '#f44' : GOLD;
         ctx.font = 'bold 14px Courier New';
-        ctx.fillText('$' + playerBidAmount, 470, 342);
+        ctx.fillText('$' + playerBidAmount, 470, 345);
 
-        for (let i = 0; i < quickBidButtons.length; i++) {
+        for (var i = 0; i < quickBidButtons.length; i++) {
           drawButton(quickBidButtons[i], hoverBtn === 100 + i, false);
         }
-        const canBid = playerBidAmount <= players[0].budget && (playerBidAmount > currentBid || currentBidder === -1);
+        var canBid = playerBidAmount <= players[0].budget && (playerBidAmount > currentBid || currentBidder === -1);
         drawButton(bidButtons[0], hoverBtn === 0, !canBid);
         drawButton(bidButtons[1], hoverBtn === 1, false);
+
+        // Waiting indicator
+        if (waitingForHuman) {
+          ctx.fillStyle = GOLD_GLOW + (0.5 + Math.sin(animTimer * 0.1) * 0.3) + ')';
+          ctx.font = '9px Courier New'; ctx.textAlign = 'center';
+          ctx.fillText('Your turn to respond!', 492, 318);
+        }
       } else if (auctionPhase === 'bidding' && players[0].passed) {
         ctx.fillStyle = '#555'; ctx.font = '11px Courier New'; ctx.textAlign = 'center';
-        ctx.fillText('You passed. Watching...', 490, 390);
+        ctx.fillText('You passed. Watching...', 490, 385);
       }
 
       drawCollection();
@@ -853,30 +844,42 @@
 
     function update() {
       animTimer++;
-      for (const msg of messageLog) msg.time--;
-      messageLog = messageLog.filter(m => m.time > 0);
-      for (const s of sparkles) { s.x += s.vx; s.y += s.vy; s.vy += 0.05; s.life--; }
-      sparkles = sparkles.filter(s => s.life > 0);
+      for (var i = messageLog.length - 1; i >= 0; i--) {
+        messageLog[i].time--;
+        if (messageLog[i].time <= 0) messageLog.splice(i, 1);
+      }
+      for (var i = sparkles.length - 1; i >= 0; i--) {
+        sparkles[i].x += sparkles[i].vx;
+        sparkles[i].y += sparkles[i].vy;
+        sparkles[i].vy += 0.05;
+        sparkles[i].life--;
+        if (sparkles[i].life <= 0) sparkles.splice(i, 1);
+      }
       if (gameState !== 'playing') return;
 
+      // Show item phase
       if (auctionPhase === 'showing') {
         showItemTimer--;
         if (showItemTimer <= 0) {
           auctionPhase = 'bidding';
-          triggerAIResponses();
+          // Start bidding: no one has responded yet. Schedule first AI response
+          respondedToBid = new Set();
+          scheduleResponses();
         }
       }
 
-      if (aiTurnQueue.length > 0) {
-        aiTurnQueue[0].delay--;
-        if (aiTurnQueue[0].delay <= 0) {
-          const turn = aiTurnQueue.shift();
-          if (!players[turn.idx].passed) aiDecide(turn.idx);
-          if (aiTurnQueue.length === 0) checkAuctionEnd();
+      // AI action timer
+      if (auctionPhase === 'bidding' && nextAiIdx >= 0) {
+        aiActionTimer--;
+        if (aiActionTimer <= 0) {
+          var idx = nextAiIdx;
+          nextAiIdx = -1;
+          aiDecide(idx);
         }
       }
 
-      if (gaveled && aiTurnQueue.length === 0) {
+      // Gavel countdown
+      if (gaveled && nextAiIdx < 0) {
         gavelTimer--;
         if (gavelTimer <= 0) {
           gavelCount++;
@@ -885,35 +888,37 @@
         }
       }
 
+      // Sold animation
       if (auctionPhase === 'sold') {
         soldAnim--;
         if (soldAnim <= 0) startNextRound();
       }
     }
 
-    let mouseX = 0, mouseY = 0;
+    // Input
+    var mouseX = 0, mouseY = 0;
 
-    canvas.addEventListener('mousemove', (e) => {
-      const rect = canvas.getBoundingClientRect();
+    canvas.addEventListener('mousemove', function(e) {
+      var rect = canvas.getBoundingClientRect();
       mouseX = (e.clientX - rect.left) * (W / rect.width);
       mouseY = (e.clientY - rect.top) * (H / rect.height);
       hoverBtn = -1;
       if (auctionPhase === 'bidding' && !players[0].passed) {
-        for (let i = 0; i < bidButtons.length; i++) {
-          const b = bidButtons[i];
+        for (var i = 0; i < bidButtons.length; i++) {
+          var b = bidButtons[i];
           if (mouseX >= b.x && mouseX <= b.x + b.w && mouseY >= b.y && mouseY <= b.y + b.h) hoverBtn = i;
         }
-        for (let i = 0; i < quickBidButtons.length; i++) {
-          const b = quickBidButtons[i];
+        for (var i = 0; i < quickBidButtons.length; i++) {
+          var b = quickBidButtons[i];
           if (mouseX >= b.x && mouseX <= b.x + b.w && mouseY >= b.y && mouseY <= b.y + b.h) hoverBtn = 100 + i;
         }
       }
     });
 
-    canvas.addEventListener('click', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const cx = (e.clientX - rect.left) * (W / rect.width);
-      const cy = (e.clientY - rect.top) * (H / rect.height);
+    canvas.addEventListener('click', function(e) {
+      var rect = canvas.getBoundingClientRect();
+      var cx = (e.clientX - rect.left) * (W / rect.width);
+      var cy = (e.clientY - rect.top) * (H / rect.height);
 
       if (gameState === 'waiting') {
         gameState = 'playing'; overlay.style.display = 'none'; initGame(); return;
@@ -922,12 +927,12 @@
         if (auctionPhase === 'results') { gameState = 'playing'; initGame(); } return;
       }
       if (auctionPhase === 'bidding' && !players[0].passed) {
-        const b0 = bidButtons[0];
+        var b0 = bidButtons[0];
         if (cx >= b0.x && cx <= b0.x + b0.w && cy >= b0.y && cy <= b0.y + b0.h) { playerBid(); return; }
-        const b1 = bidButtons[1];
+        var b1 = bidButtons[1];
         if (cx >= b1.x && cx <= b1.x + b1.w && cy >= b1.y && cy <= b1.y + b1.h) { playerPass(); return; }
-        for (let i = 0; i < quickBidButtons.length; i++) {
-          const qb = quickBidButtons[i];
+        for (var i = 0; i < quickBidButtons.length; i++) {
+          var qb = quickBidButtons[i];
           if (cx >= qb.x && cx <= qb.x + qb.w && cy >= qb.y && cy <= qb.y + qb.h) {
             playerBidAmount += qb.value; return;
           }
@@ -935,7 +940,7 @@
       }
     });
 
-    overlay.addEventListener('click', () => {
+    overlay.addEventListener('click', function() {
       if (gameState === 'waiting') { gameState = 'playing'; overlay.style.display = 'none'; initGame(); }
     });
     overlay.style.pointerEvents = 'auto';

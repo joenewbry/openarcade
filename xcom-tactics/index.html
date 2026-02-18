@@ -54,7 +54,8 @@
       background: rgba(26, 26, 46, 0.85);
     }
     .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
-    .overlay p { font-size: 1rem; color: #aaa; }
+    .overlay p { font-size: 1rem; color: #aaa; margin: 4px 0; }
+    .overlay .controls { font-size: 0.8rem; color: #666; margin-top: 12px; line-height: 1.6; }
   </style>
 </head>
 <body>
@@ -64,1063 +65,1107 @@
   </div>
   <div class="score-bar">
     <div>Kills: <span id="score">0</span></div>
-    <div id="turnInfo" style="color:#aaa;font-size:0.9rem;">YOUR TURN</div>
+    <div id="turnInfo" style="color:#4488ff;font-size:0.9rem;">YOUR TURN</div>
     <div>Best: <span id="best">0</span></div>
   </div>
   <div style="position: relative; display: inline-block;">
     <canvas id="game" width="600" height="500"></canvas>
     <div class="overlay" id="overlay" style="width:600px;height:500px;">
       <h2 id="overlayTitle">XCOM TACTICS</h2>
-      <p id="overlayText">Click to deploy your squad</p>
+      <p id="overlayText">Click anywhere to deploy</p>
+      <div class="controls" id="overlayControls">
+        Click soldier to select | Click tile to move | Click enemy to shoot<br>
+        Right-click: Overwatch | [G] Grenade | [H] Hunker Down | [E] End Turn
+      </div>
     </div>
   </div>
 
   <script>
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    const W = 600, H = 500;
-    const scoreEl = document.getElementById('score');
-    const bestEl = document.getElementById('best');
-    const turnInfoEl = document.getElementById('turnInfo');
-    const overlay = document.getElementById('overlay');
-    const overlayTitle = document.getElementById('overlayTitle');
-    const overlayText = document.getElementById('overlayText');
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = 600, H = 500;
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const turnInfoEl = document.getElementById('turnInfo');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayText = document.getElementById('overlayText');
+  const overlayControls = document.getElementById('overlayControls');
 
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-    document.addEventListener('keydown', e => {
-      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
-      if (gameState === 'waiting') { startGame(); return; }
-      if (gameState === 'over') { init(); return; }
-      if (gameState === 'playing') {
-        if (e.key === 'e' || e.key === 'E') endTurn();
-        if (e.key === 'g' || e.key === 'G') setAction('grenade');
-        if (e.key === 'h' || e.key === 'H') setAction('hunker');
-        if (e.key === 'Escape') cancelAction();
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  let gameState, score, best = 0;
+
+  // --- Grid constants ---
+  const COLS = 12, ROWS = 12;
+  const CELL = 34;
+  const OX = Math.floor((W - COLS * CELL) / 2);
+  const OY = 6;
+  const PANEL_Y = OY + ROWS * CELL + 4;
+
+  // --- Cover ---
+  const COVER_NONE = 0, COVER_HALF = 1, COVER_FULL = 2;
+  const COVER_DEF = [0, 25, 50];
+
+  // --- State ---
+  let grid, soldiers, selSoldier, curAction, turn, aiThinking;
+  let moveRange, floats, logs, turnNum, hoverCell;
+  let shootAnim, grenadeAnim;
+
+  // --- Init ---
+  function init() {
+    score = 0;
+    scoreEl.textContent = '0';
+    gameState = 'waiting';
+    overlay.style.display = 'flex';
+    overlayTitle.textContent = 'XCOM TACTICS';
+    overlayText.textContent = 'Click anywhere to deploy';
+    overlayControls.style.display = 'block';
+    genMap();
+    draw();
+  }
+
+  function genMap() {
+    grid = Array.from({length: ROWS}, () => Array.from({length: COLS}, () => ({cover: COVER_NONE})));
+    // Place cover clusters
+    let placed = 0;
+    let target = 20 + Math.floor(Math.random() * 10);
+    let attempts = 0;
+    while (placed < target && attempts < 500) {
+      attempts++;
+      let r = 2 + Math.floor(Math.random() * (ROWS - 4));
+      let c = Math.floor(Math.random() * COLS);
+      if (grid[r][c].cover !== COVER_NONE) continue;
+      let type = Math.random() < 0.35 ? COVER_FULL : COVER_HALF;
+      grid[r][c].cover = type;
+      placed++;
+      // Cluster: sometimes extend
+      if (Math.random() < 0.45) {
+        let dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+        let d = dirs[Math.floor(Math.random() * 4)];
+        let nr = r + d[0], nc = c + d[1];
+        if (nr >= 2 && nr < ROWS - 2 && nc >= 0 && nc < COLS && grid[nr][nc].cover === COVER_NONE) {
+          grid[nr][nc].cover = type;
+          placed++;
+        }
+      }
+    }
+
+    soldiers = [];
+    selSoldier = null;
+    curAction = null;
+    turn = 'player';
+    aiThinking = false;
+    moveRange = [];
+    floats = [];
+    logs = [];
+    turnNum = 1;
+    hoverCell = null;
+    shootAnim = null;
+    grenadeAnim = null;
+
+    // Player squad (bottom)
+    let pNames = ['Alpha','Bravo','Charlie','Delta'];
+    let pPos = randPositions(ROWS - 2, ROWS, 0, COLS, 4);
+    for (let i = 0; i < 4; i++) {
+      let hp = 3 + Math.floor(Math.random() * 3);
+      soldiers.push({
+        id: i, team: 'player', name: pNames[i],
+        row: pPos[i].r, col: pPos[i].c,
+        hp, maxHp: hp, moved: false, acted: false,
+        overwatch: false, hunkered: false, alive: true
+      });
+    }
+    // AI squad (top)
+    let aNames = ['Sectoid-A','Sectoid-B','Muton-A','Muton-B'];
+    let aPos = randPositions(0, 2, 0, COLS, 4);
+    for (let i = 0; i < 4; i++) {
+      let hp = 3 + Math.floor(Math.random() * 3);
+      soldiers.push({
+        id: i + 4, team: 'ai', name: aNames[i],
+        row: aPos[i].r, col: aPos[i].c,
+        hp, maxHp: hp, moved: false, acted: false,
+        overwatch: false, hunkered: false, alive: true
+      });
+    }
+  }
+
+  function randPositions(rMin, rMax, cMin, cMax, n) {
+    let all = [];
+    for (let r = rMin; r < rMax; r++)
+      for (let c = cMin; c < cMax; c++)
+        if (grid[r][c].cover === COVER_NONE) all.push({r, c});
+    for (let i = all.length - 1; i > 0; i--) {
+      let j = Math.floor(Math.random() * (i + 1));
+      [all[i], all[j]] = [all[j], all[i]];
+    }
+    return all.slice(0, n);
+  }
+
+  function startGame() {
+    gameState = 'playing';
+    overlay.style.display = 'none';
+    turn = 'player';
+    resetTurn('player');
+    log('Turn 1 — Select a soldier.');
+    draw();
+  }
+
+  // --- Turn Management ---
+  function resetTurn(team) {
+    soldiers.forEach(s => {
+      if (s.team === team && s.alive) {
+        s.moved = false;
+        s.acted = false;
+        s.hunkered = false;
+        // overwatch persists
       }
     });
+    if (team === 'player') {
+      turnInfoEl.textContent = `TURN ${turnNum} — YOUR MOVE  [E] End`;
+      turnInfoEl.style.color = '#4488ff';
+    }
+  }
 
-    let gameState, score, best = 0;
+  function endPlayerTurn() {
+    if (turn !== 'player' || aiThinking) return;
+    selSoldier = null;
+    curAction = null;
+    moveRange = [];
+    if (checkWin()) return;
+    turn = 'ai';
+    turnInfoEl.textContent = 'ALIEN ACTIVITY...';
+    turnInfoEl.style.color = '#e44';
+    resetTurn('ai');
+    log('--- Alien turn ---');
+    draw();
+    aiThinking = true;
+    setTimeout(runAI, 500);
+  }
 
-    // Grid
-    const COLS = 12, ROWS = 12;
-    const CELL = Math.min(Math.floor((W - 40) / COLS), Math.floor((H - 80) / ROWS));
-    const OX = Math.floor((W - COLS * CELL) / 2);
-    const OY = 36;
+  function endAITurn() {
+    aiThinking = false;
+    if (checkWin()) return;
+    turnNum++;
+    turn = 'player';
+    resetTurn('player');
+    log(`Turn ${turnNum} — Your move.`);
+    draw();
+  }
 
-    // Cover types
-    const COVER_NONE = 0, COVER_HALF = 1, COVER_FULL = 2;
-    const COVER_BONUS = { 0: 0, 1: 25, 2: 50 };
-
-    // Game state
-    let grid, soldiers, selectedSoldier, currentAction, turn, animQueue, aiThinking;
-    let moveRange, shootRange, grenadeRange, overwatchTriggers;
-    let floatingTexts, logMessages;
-
-    function init() {
-      score = 0;
-      scoreEl.textContent = '0';
-      gameState = 'waiting';
+  function checkWin() {
+    let pAlive = soldiers.filter(s => s.team === 'player' && s.alive).length;
+    let aAlive = soldiers.filter(s => s.team === 'ai' && s.alive).length;
+    if (aAlive === 0) {
+      gameState = 'over';
+      if (score > best) { best = score; bestEl.textContent = best; }
       overlay.style.display = 'flex';
-      overlayTitle.textContent = 'XCOM TACTICS';
-      overlayText.textContent = 'Click to deploy your squad';
-      generateMap();
-      draw();
-    }
-
-    function generateMap() {
-      grid = [];
-      for (let r = 0; r < ROWS; r++) {
-        grid[r] = [];
-        for (let c = 0; c < COLS; c++) {
-          grid[r][c] = { cover: COVER_NONE, destroyed: false };
-        }
-      }
-      // Place cover objects - walls and crates
-      const coverCount = 18 + Math.floor(Math.random() * 8);
-      for (let i = 0; i < coverCount; i++) {
-        let r = Math.floor(Math.random() * ROWS);
-        let c = Math.floor(Math.random() * COLS);
-        // Keep spawn areas clear (top 2 rows for AI, bottom 2 for player)
-        if (r < 2 || r >= ROWS - 2) continue;
-        if (grid[r][c].cover !== COVER_NONE) continue;
-        let type = Math.random() < 0.4 ? COVER_FULL : COVER_HALF;
-        grid[r][c].cover = type;
-        // Sometimes place pairs for walls
-        if (type === COVER_FULL && Math.random() < 0.5) {
-          let dr = Math.random() < 0.5 ? 0 : 1;
-          let dc = dr === 0 ? 1 : 0;
-          let nr = r + dr, nc = c + dc;
-          if (nr >= 2 && nr < ROWS - 2 && nc >= 0 && nc < COLS && grid[nr][nc].cover === COVER_NONE) {
-            grid[nr][nc].cover = COVER_FULL;
-          }
-        }
-      }
-
-      soldiers = [];
-      selectedSoldier = null;
-      currentAction = null;
-      turn = 'player';
-      animQueue = [];
-      aiThinking = false;
-      moveRange = [];
-      shootRange = [];
-      grenadeRange = [];
-      overwatchTriggers = [];
-      floatingTexts = [];
-      logMessages = [];
-
-      // Player soldiers (bottom area) - blue team
-      const playerNames = ['Alpha', 'Bravo', 'Charlie', 'Delta'];
-      const playerPositions = shufflePositions(ROWS - 2, ROWS, 0, COLS);
-      for (let i = 0; i < 4; i++) {
-        soldiers.push({
-          id: i,
-          team: 'player',
-          name: playerNames[i],
-          row: playerPositions[i].r,
-          col: playerPositions[i].c,
-          hp: 3 + Math.floor(Math.random() * 3), // 3-5
-          maxHp: 0,
-          moved: false,
-          acted: false,
-          overwatch: false,
-          hunkered: false,
-          alive: true,
-          color: '#4488ff',
-          glowColor: 'rgba(68,136,255,0.4)'
-        });
-        soldiers[soldiers.length - 1].maxHp = soldiers[soldiers.length - 1].hp;
-      }
-
-      // AI soldiers (top area) - red/green team (aliens)
-      const aiNames = ['Sectoid-1', 'Sectoid-2', 'Muton-1', 'Muton-2'];
-      const aiPositions = shufflePositions(0, 2, 0, COLS);
-      for (let i = 0; i < 4; i++) {
-        soldiers.push({
-          id: i + 4,
-          team: 'ai',
-          name: aiNames[i],
-          row: aiPositions[i].r,
-          col: aiPositions[i].c,
-          hp: 3 + Math.floor(Math.random() * 3),
-          maxHp: 0,
-          moved: false,
-          acted: false,
-          overwatch: false,
-          hunkered: false,
-          alive: true,
-          color: '#e44',
-          glowColor: 'rgba(238,68,68,0.4)'
-        });
-        soldiers[soldiers.length - 1].maxHp = soldiers[soldiers.length - 1].hp;
-      }
-    }
-
-    function shufflePositions(rMin, rMax, cMin, cMax) {
-      let positions = [];
-      for (let r = rMin; r < rMax; r++)
-        for (let c = cMin; c < cMax; c++)
-          positions.push({ r, c });
-      // Shuffle
-      for (let i = positions.length - 1; i > 0; i--) {
-        let j = Math.floor(Math.random() * (i + 1));
-        [positions[i], positions[j]] = [positions[j], positions[i]];
-      }
-      return positions.slice(0, 4);
-    }
-
-    function startGame() {
-      gameState = 'playing';
-      overlay.style.display = 'none';
-      turn = 'player';
-      resetTurn('player');
-      addLog('Your turn. Select a soldier.');
-      draw();
-    }
-
-    function endTurn() {
-      if (turn !== 'player' || aiThinking) return;
-      selectedSoldier = null;
-      currentAction = null;
-      moveRange = [];
-      shootRange = [];
-      grenadeRange = [];
-
-      // Check for win
-      if (checkWin()) return;
-
-      turn = 'ai';
-      turnInfoEl.textContent = 'ALIEN TURN';
-      turnInfoEl.style.color = '#e44';
-      resetTurn('ai');
-      addLog('Alien turn...');
-      draw();
-      aiThinking = true;
-      setTimeout(() => runAI(), 600);
-    }
-
-    function resetTurn(team) {
-      soldiers.forEach(s => {
-        if (s.team === team && s.alive) {
-          s.moved = false;
-          s.acted = false;
-          // Overwatch persists until triggered or new turn
-          if (team === s.team) {
-            // Keep overwatch from previous turn active
-          }
-          s.hunkered = false;
-        }
-      });
-      if (team === 'player') {
-        turnInfoEl.textContent = 'YOUR TURN  [E] End Turn';
-        turnInfoEl.style.color = '#4488ff';
-      }
-    }
-
-    function checkWin() {
-      let playerAlive = soldiers.filter(s => s.team === 'player' && s.alive).length;
-      let aiAlive = soldiers.filter(s => s.team === 'ai' && s.alive).length;
-      if (aiAlive === 0) {
-        gameState = 'over';
-        if (score > best) { best = score; bestEl.textContent = best; }
-        overlay.style.display = 'flex';
-        overlayTitle.textContent = 'VICTORY';
-        overlayText.textContent = `Kills: ${score} — Click to play again`;
-        return true;
-      }
-      if (playerAlive === 0) {
-        gameState = 'over';
-        if (score > best) { best = score; bestEl.textContent = best; }
-        overlay.style.display = 'flex';
-        overlayTitle.textContent = 'SQUAD WIPED';
-        overlayText.textContent = `Kills: ${score} — Click to play again`;
-        return true;
-      }
-      return false;
-    }
-
-    // ---- Actions ----
-    function setAction(action) {
-      if (!selectedSoldier || selectedSoldier.acted || turn !== 'player') return;
-      currentAction = action;
-      if (action === 'grenade') {
-        grenadeRange = getGrenadeRange(selectedSoldier);
-      } else if (action === 'hunker') {
-        doHunker(selectedSoldier);
-        currentAction = null;
-      }
-      draw();
-    }
-
-    function cancelAction() {
-      currentAction = null;
-      grenadeRange = [];
-      draw();
-    }
-
-    function getMovementRange(soldier) {
-      if (soldier.moved) return [];
-      let range = [];
-      let maxDist = 4; // Movement range
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          let dist = Math.abs(r - soldier.row) + Math.abs(c - soldier.col);
-          if (dist > 0 && dist <= maxDist) {
-            if (!isOccupied(r, c) && grid[r][c].cover !== COVER_FULL) {
-              // Check pathability (simple: just distance for now, but block full cover)
-              range.push({ r, c, dist });
-            }
-          }
-        }
-      }
-      return range;
-    }
-
-    function getShootRange(soldier) {
-      if (soldier.acted) return [];
-      let range = [];
-      let enemies = soldiers.filter(s => s.team !== soldier.team && s.alive);
-      for (let e of enemies) {
-        let dist = Math.abs(e.row - soldier.row) + Math.abs(e.col - soldier.col);
-        if (dist <= 10) { // Max shoot range
-          let hitChance = calcHitChance(soldier, e);
-          range.push({ soldier: e, hitChance, dist });
-        }
-      }
-      return range;
-    }
-
-    function getGrenadeRange(soldier) {
-      if (soldier.acted) return [];
-      let range = [];
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          let dist = Math.abs(r - soldier.row) + Math.abs(c - soldier.col);
-          if (dist > 0 && dist <= 6) {
-            range.push({ r, c });
-          }
-        }
-      }
-      return range;
-    }
-
-    function calcHitChance(attacker, target) {
-      let dist = Math.abs(target.row - attacker.row) + Math.abs(target.col - attacker.col);
-      // Base hit chance decreases with distance
-      let base = 90 - (dist - 1) * 8;
-      base = Math.max(base, 20);
-
-      // Check if target is flanked
-      let flanked = isFlanked(attacker, target);
-
-      if (!flanked) {
-        // Cover bonus for target
-        let coverType = getEffectiveCover(attacker, target);
-        base -= COVER_BONUS[coverType];
-      }
-
-      // Hunkered bonus
-      if (target.hunkered) base -= 20;
-
-      return Math.max(Math.min(base, 95), 5);
-    }
-
-    function getEffectiveCover(attacker, target) {
-      // Check adjacent cells to target for cover between attacker and target
-      let dr = Math.sign(attacker.row - target.row);
-      let dc = Math.sign(attacker.col - target.col);
-
-      let bestCover = COVER_NONE;
-      // Check the cell in direction of attacker
-      let checkPositions = [];
-      if (dr !== 0) checkPositions.push({ r: target.row + dr, c: target.col });
-      if (dc !== 0) checkPositions.push({ r: target.row, c: target.col + dc });
-      if (dr !== 0 && dc !== 0) checkPositions.push({ r: target.row + dr, c: target.col + dc });
-
-      // Also check the target's own cell for destroyed cover
-      for (let p of checkPositions) {
-        if (p.r >= 0 && p.r < ROWS && p.c >= 0 && p.c < COLS) {
-          let cell = grid[p.r][p.c];
-          if (!cell.destroyed && cell.cover > bestCover) {
-            bestCover = cell.cover;
-          }
-        }
-      }
-
-      // Also check adjacent cells to target (the cell target is hiding behind)
-      let adjCells = [
-        { r: target.row - 1, c: target.col },
-        { r: target.row + 1, c: target.col },
-        { r: target.row, c: target.col - 1 },
-        { r: target.row, c: target.col + 1 }
-      ];
-
-      for (let adj of adjCells) {
-        if (adj.r < 0 || adj.r >= ROWS || adj.c < 0 || adj.c >= COLS) continue;
-        let cell = grid[adj.r][adj.c];
-        if (cell.destroyed || cell.cover === COVER_NONE) continue;
-        // Only counts if the cover is between target and attacker
-        let toAttacker = { r: attacker.row - target.row, c: attacker.col - target.col };
-        let toCover = { r: adj.r - target.row, c: adj.c - target.col };
-        let dot = toAttacker.r * toCover.r + toAttacker.c * toCover.c;
-        if (dot > 0 && cell.cover > bestCover) {
-          bestCover = cell.cover;
-        }
-      }
-
-      return bestCover;
-    }
-
-    function isFlanked(attacker, target) {
-      // A target is flanked if attacker approaches from a side with no cover
-      let coverDir = getEffectiveCover(attacker, target);
-      return coverDir === COVER_NONE;
-    }
-
-    function isOccupied(r, c) {
-      return soldiers.some(s => s.alive && s.row === r && s.col === c);
-    }
-
-    function getSoldierAt(r, c) {
-      return soldiers.find(s => s.alive && s.row === r && s.col === c) || null;
-    }
-
-    function hasLineOfSight(r1, c1, r2, c2) {
-      // Bresenham-ish check for full-cover blocking LOS
-      let dr = Math.abs(r2 - r1), dc = Math.abs(c2 - c1);
-      let sr = r1 < r2 ? 1 : -1, sc = c1 < c2 ? 1 : -1;
-      let err = dr - dc;
-      let cr = r1, cc = c1;
-      while (cr !== r2 || cc !== c2) {
-        let e2 = 2 * err;
-        if (e2 > -dc) { err -= dc; cr += sr; }
-        if (e2 < dr) { err += dr; cc += sc; }
-        if (cr === r2 && cc === c2) break;
-        if (cr >= 0 && cr < ROWS && cc >= 0 && cc < COLS) {
-          if (grid[cr][cc].cover === COVER_FULL && !grid[cr][cc].destroyed) return false;
-        }
-      }
+      overlayTitle.textContent = 'MISSION COMPLETE';
+      overlayText.textContent = `Kills: ${score} — Click to redeploy`;
+      overlayControls.style.display = 'none';
       return true;
     }
+    if (pAlive === 0) {
+      gameState = 'over';
+      if (score > best) { best = score; bestEl.textContent = best; }
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'SQUAD WIPED';
+      overlayText.textContent = `Kills: ${score} — Click to redeploy`;
+      overlayControls.style.display = 'none';
+      return true;
+    }
+    return false;
+  }
 
-    // ---- Execute Actions ----
-    function doMove(soldier, r, c) {
-      let oldR = soldier.row, oldC = soldier.col;
-      soldier.row = r;
-      soldier.col = c;
-      soldier.moved = true;
-      soldier.overwatch = false; // Moving cancels overwatch
-      addLog(`${soldier.name} moves to (${c},${r})`);
+  // --- Helpers ---
+  function occupied(r, c) { return soldiers.some(s => s.alive && s.row === r && s.col === c); }
+  function soldierAt(r, c) { return soldiers.find(s => s.alive && s.row === r && s.col === c) || null; }
+  function dist(r1, c1, r2, c2) { return Math.abs(r1 - r2) + Math.abs(c1 - c2); }
 
-      // Check overwatch triggers
-      checkOverwatchTriggers(soldier, oldR, oldC, r, c);
+  function adjCover(r, c) {
+    let best = 0;
+    for (let [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      let nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc].cover > best) best = grid[nr][nc].cover;
+    }
+    return best;
+  }
+
+  function lineOfSight(r1, c1, r2, c2) {
+    // Bresenham LOS — full cover blocks
+    let dr = Math.abs(r2 - r1), dc = Math.abs(c2 - c1);
+    let sr = r1 < r2 ? 1 : -1, sc = c1 < c2 ? 1 : -1;
+    let err = dr - dc, cr = r1, cc = c1;
+    while (true) {
+      if (cr === r2 && cc === c2) return true;
+      let e2 = 2 * err;
+      if (e2 > -dc) { err -= dc; cr += sr; }
+      if (e2 < dr) { err += dr; cc += sc; }
+      if (cr === r2 && cc === c2) return true;
+      if (cr < 0 || cr >= ROWS || cc < 0 || cc >= COLS) return false;
+      if (grid[cr][cc].cover === COVER_FULL) return false;
+    }
+  }
+
+  function effectiveCover(attacker, target) {
+    // Cover between target and attacker direction
+    let best = COVER_NONE;
+    let dr = Math.sign(attacker.row - target.row);
+    let dc = Math.sign(attacker.col - target.col);
+
+    // Check adjacent cells on the attacker's side
+    let checks = [];
+    if (dr !== 0) checks.push([dr, 0]);
+    if (dc !== 0) checks.push([0, dc]);
+
+    for (let [cr, cc] of checks) {
+      let nr = target.row + cr, nc = target.col + cc;
+      if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+        if (grid[nr][nc].cover > best) best = grid[nr][nc].cover;
+      }
     }
 
-    function checkOverwatchTriggers(movingSoldier, fromR, fromC, toR, toC) {
-      let enemies = soldiers.filter(s => s.team !== movingSoldier.team && s.alive && s.overwatch);
-      for (let e of enemies) {
-        let distFrom = Math.abs(fromR - e.row) + Math.abs(fromC - e.col);
-        let distTo = Math.abs(toR - e.row) + Math.abs(toC - e.col);
-        if (distTo <= 8 && hasLineOfSight(e.row, e.col, toR, toC)) {
-          // Overwatch shot!
-          let hitChance = calcHitChance(e, movingSoldier);
-          hitChance = Math.max(hitChance - 10, 5); // Overwatch penalty
-          let hit = Math.random() * 100 < hitChance;
-          e.overwatch = false;
-          if (hit) {
-            let dmg = 1 + Math.floor(Math.random() * 2);
-            movingSoldier.hp -= dmg;
-            addLog(`${e.name} OVERWATCH! Hit ${movingSoldier.name} for ${dmg} dmg!`);
-            addFloat(movingSoldier.row, movingSoldier.col, `-${dmg}`, '#f44');
-            if (movingSoldier.hp <= 0) {
-              movingSoldier.alive = false;
-              addLog(`${movingSoldier.name} is KIA!`);
-              addFloat(movingSoldier.row, movingSoldier.col, 'KIA', '#f44');
-              if (movingSoldier.team === 'ai') { score++; scoreEl.textContent = score; }
-            }
-          } else {
-            addLog(`${e.name} OVERWATCH! Missed ${movingSoldier.name}.`);
-            addFloat(movingSoldier.row, movingSoldier.col, 'MISS', '#aaa');
-          }
+    // Also check all 4 adjacent for any cover that faces the attacker
+    for (let [cr, cc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      let nr = target.row + cr, nc = target.col + cc;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      if (grid[nr][nc].cover === COVER_NONE) continue;
+      // Dot product: cover direction from target toward attacker
+      let toAtk = [attacker.row - target.row, attacker.col - target.col];
+      let toCov = [cr, cc];
+      if (toAtk[0] * toCov[0] + toAtk[1] * toCov[1] > 0) {
+        if (grid[nr][nc].cover > best) best = grid[nr][nc].cover;
+      }
+    }
+    return best;
+  }
+
+  function hitChance(atk, tgt) {
+    let d = dist(atk.row, atk.col, tgt.row, tgt.col);
+    let base = 95 - (d - 1) * 7;
+    if (base < 25) base = 25;
+    // Cover
+    let cover = effectiveCover(atk, tgt);
+    base -= COVER_DEF[cover];
+    // Hunker
+    if (tgt.hunkered) base -= 20;
+    return Math.max(Math.min(base, 95), 5);
+  }
+
+  // --- Movement BFS ---
+  function calcMoveRange(s) {
+    if (s.moved) return [];
+    let maxSteps = 5;
+    let visited = new Map();
+    let queue = [{r: s.row, c: s.col, steps: 0}];
+    visited.set(s.row * COLS + s.col, 0);
+    let result = [];
+
+    while (queue.length > 0) {
+      let cur = queue.shift();
+      if (cur.steps > 0) result.push({r: cur.r, c: cur.c, steps: cur.steps});
+      if (cur.steps >= maxSteps) continue;
+      for (let [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        let nr = cur.r + dr, nc = cur.c + dc;
+        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+        if (grid[nr][nc].cover === COVER_FULL) continue;
+        if (occupied(nr, nc)) continue;
+        let key = nr * COLS + nc;
+        let newSteps = cur.steps + 1;
+        if (!visited.has(key) || visited.get(key) > newSteps) {
+          visited.set(key, newSteps);
+          queue.push({r: nr, c: nc, steps: newSteps});
         }
       }
     }
+    return result;
+  }
 
-    function doShoot(attacker, target) {
-      let hitChance = calcHitChance(attacker, target);
-      let hit = Math.random() * 100 < hitChance;
-      attacker.acted = true;
-
-      if (hit) {
-        let dmg = 1 + Math.floor(Math.random() * 2); // 1-2 damage
-        target.hp -= dmg;
-        addLog(`${attacker.name} shoots ${target.name} (${hitChance}%) — HIT for ${dmg}!`);
-        addFloat(target.row, target.col, `-${dmg}`, '#f44');
-        if (target.hp <= 0) {
-          target.alive = false;
-          addLog(`${target.name} is KIA!`);
-          addFloat(target.row, target.col, 'KIA', '#f44');
-          if (target.team === 'ai') { score++; scoreEl.textContent = score; }
-        }
-      } else {
-        addLog(`${attacker.name} shoots ${target.name} (${hitChance}%) — MISS!`);
-        addFloat(target.row, target.col, 'MISS', '#aaa');
+  function shootTargets(s) {
+    if (s.acted) return [];
+    let targets = [];
+    let enemies = soldiers.filter(e => e.team !== s.team && e.alive);
+    for (let e of enemies) {
+      let d = dist(s.row, s.col, e.row, e.col);
+      if (d <= 10 && lineOfSight(s.row, s.col, e.row, e.col)) {
+        targets.push({soldier: e, hit: hitChance(s, e), dist: d});
       }
-      // Shooting also counts as acting but not moving
-      if (!attacker.moved) attacker.moved = true; // End movement too
     }
+    return targets;
+  }
 
-    function doGrenade(attacker, r, c) {
-      attacker.acted = true;
-      if (!attacker.moved) attacker.moved = true;
-      addLog(`${attacker.name} throws grenade at (${c},${r})!`);
+  // --- Actions ---
+  function doMove(s, r, c) {
+    let oR = s.row, oC = s.col;
+    s.row = r; s.col = c; s.moved = true; s.overwatch = false;
+    log(`${s.name} moves to (${c},${r})`);
+    triggerOverwatch(s, oR, oC);
+  }
 
-      // Area of effect: target cell + adjacent
-      let aoe = [{ r, c }];
-      let dirs = [[-1,0],[1,0],[0,-1],[0,1]];
-      for (let d of dirs) {
-        let nr = r + d[0], nc = c + d[1];
-        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) aoe.push({ r: nr, c: nc });
-      }
-
-      for (let cell of aoe) {
-        // Destroy cover
-        if (grid[cell.r][cell.c].cover !== COVER_NONE) {
-          grid[cell.r][cell.c].destroyed = true;
-          grid[cell.r][cell.c].cover = COVER_NONE;
-        }
-        // Damage soldiers in AOE
-        let s = getSoldierAt(cell.r, cell.c);
-        if (s && s.id !== attacker.id) {
-          let dmg = cell.r === r && cell.c === c ? 2 : 1;
-          s.hp -= dmg;
-          addFloat(s.row, s.col, `-${dmg}`, '#fa0');
-          addLog(`Grenade hits ${s.name} for ${dmg}!`);
-          if (s.hp <= 0) {
-            s.alive = false;
-            addLog(`${s.name} is KIA!`);
-            addFloat(s.row, s.col, 'KIA', '#f44');
-            if (s.team === 'ai') { score++; scoreEl.textContent = score; }
-          }
-        }
-      }
-      addFloat(r, c, 'BOOM', '#fa0');
-    }
-
-    function doOverwatch(soldier) {
-      soldier.overwatch = true;
-      soldier.acted = true;
-      if (!soldier.moved) soldier.moved = true;
-      addLog(`${soldier.name} sets Overwatch.`);
-      addFloat(soldier.row, soldier.col, 'OVERWATCH', '#4e8');
-    }
-
-    function doHunker(soldier) {
-      soldier.hunkered = true;
-      soldier.acted = true;
-      if (!soldier.moved) soldier.moved = true;
-      addLog(`${soldier.name} hunkers down.`);
-      addFloat(soldier.row, soldier.col, 'HUNKERED', '#48f');
-    }
-
-    // ---- Floating Text ----
-    function addFloat(r, c, text, color) {
-      floatingTexts.push({
-        x: OX + c * CELL + CELL / 2,
-        y: OY + r * CELL,
-        text, color, life: 60
-      });
-    }
-
-    function addLog(msg) {
-      logMessages.unshift(msg);
-      if (logMessages.length > 5) logMessages.pop();
-    }
-
-    // ---- AI ----
-    function runAI() {
-      let aiSoldiers = soldiers.filter(s => s.team === 'ai' && s.alive && (!s.moved || !s.acted));
-      if (aiSoldiers.length === 0) {
-        aiThinking = false;
-        if (checkWin()) return;
-        turn = 'player';
-        resetTurn('player');
-        addLog('Your turn. Select a soldier.');
-        draw();
-        return;
-      }
-
-      let soldier = aiSoldiers[0];
-      aiTakeTurn(soldier);
-
-      draw();
-      setTimeout(() => {
-        if (gameState !== 'playing') return;
-        if (checkWin()) return;
-        runAI();
-      }, 500);
-    }
-
-    function aiTakeTurn(soldier) {
-      let enemies = soldiers.filter(s => s.team === 'player' && s.alive);
-      if (enemies.length === 0) return;
-
-      // Evaluate threats
-      let threats = enemies.map(e => {
-        let dist = Math.abs(e.row - soldier.row) + Math.abs(e.col - soldier.col);
-        let hitChanceOnMe = calcHitChance(e, soldier);
-        let myHitChance = calcHitChance(soldier, e);
-        let los = hasLineOfSight(soldier.row, soldier.col, e.row, e.col);
-        return { enemy: e, dist, hitChanceOnMe, myHitChance, los };
-      }).sort((a, b) => a.dist - b.dist);
-
-      let bestTarget = threats.find(t => t.los && t.dist <= 10);
-
-      // Phase 1: Move
-      if (!soldier.moved) {
-        let moveOptions = getMovementRange(soldier);
-        if (moveOptions.length > 0) {
-          let bestMove = null;
-          let bestScore = -Infinity;
-
-          for (let m of moveOptions) {
-            let mScore = 0;
-            // Prefer positions with cover
-            let adjCover = getAdjacentCover(m.r, m.c);
-            mScore += adjCover * 15;
-
-            // Prefer positions that can shoot at enemies
-            for (let t of threats) {
-              let newDist = Math.abs(m.r - t.enemy.row) + Math.abs(m.c - t.enemy.col);
-              if (newDist <= 8 && hasLineOfSight(m.r, m.c, t.enemy.row, t.enemy.col)) {
-                mScore += 20;
-                // Prefer flanking positions
-                let coverFromHere = getEffectiveCover({ row: m.r, col: m.c }, t.enemy);
-                if (coverFromHere === COVER_NONE) mScore += 5; // flanking doesn't help us shoot but...
-                // Actually check if WE would flank THEM
-                let enemyCover = getEffectiveCover({ row: m.r, col: m.c }, t.enemy);
-                // Recalc from new position perspective
-                let tmpSoldier = { row: m.r, col: m.c };
-                let theirCover = getEffectiveCover(tmpSoldier, t.enemy);
-                if (theirCover === COVER_NONE) mScore += 25; // Flanking bonus!
-              }
-              // Don't get too close
-              if (newDist <= 2) mScore -= 10;
-              // Medium range is good
-              if (newDist >= 3 && newDist <= 5) mScore += 10;
-            }
-
-            if (mScore > bestScore) {
-              bestScore = mScore;
-              bestMove = m;
-            }
-          }
-
-          if (bestMove && (bestScore > 0 || !bestTarget)) {
-            doMove(soldier, bestMove.r, bestMove.c);
-            if (!soldier.alive) return; // Killed by overwatch
-          }
-        }
-      }
-
-      // Re-evaluate after moving
-      if (!soldier.acted && soldier.alive) {
-        threats = enemies.filter(e => e.alive).map(e => {
-          let dist = Math.abs(e.row - soldier.row) + Math.abs(e.col - soldier.col);
-          let myHitChance = calcHitChance(soldier, e);
-          let los = hasLineOfSight(soldier.row, soldier.col, e.row, e.col);
-          return { enemy: e, dist, myHitChance, los };
-        }).sort((a, b) => b.myHitChance - a.myHitChance);
-
-        bestTarget = threats.find(t => t.los && t.dist <= 10);
-
-        if (bestTarget && bestTarget.myHitChance >= 30) {
-          // Shoot the best target
-          doShoot(soldier, bestTarget.enemy);
-        } else if (bestTarget && Math.random() < 0.3) {
-          // Try grenade if clustered enemies
-          let grenadeTarget = findGrenadeTarget(soldier, enemies.filter(e => e.alive));
-          if (grenadeTarget) {
-            doGrenade(soldier, grenadeTarget.r, grenadeTarget.c);
-          } else if (bestTarget) {
-            doShoot(soldier, bestTarget.enemy);
-          } else {
-            doOverwatch(soldier);
-          }
-        } else if (threats.some(t => t.dist <= 8 && t.los)) {
-          // Set overwatch if enemies nearby
-          doOverwatch(soldier);
+  function triggerOverwatch(mover, fromR, fromC) {
+    let watchers = soldiers.filter(e => e.team !== mover.team && e.alive && e.overwatch);
+    for (let w of watchers) {
+      if (!mover.alive) break;
+      let d = dist(w.row, w.col, mover.row, mover.col);
+      if (d <= 8 && lineOfSight(w.row, w.col, mover.row, mover.col)) {
+        w.overwatch = false;
+        let chance = hitChance(w, mover) - 15; // OW penalty
+        chance = Math.max(chance, 5);
+        let hit = Math.random() * 100 < chance;
+        if (hit) {
+          let dmg = 1 + Math.floor(Math.random() * 2);
+          mover.hp -= dmg;
+          log(`${w.name} OVERWATCH hits ${mover.name} for ${dmg}! (${chance}%)`);
+          addFloat(mover.row, mover.col, `-${dmg} OW`, '#f44');
+          shootAnim = {from: {r: w.row, c: w.col}, to: {r: mover.row, c: mover.col}, t: 20, color: '#f44'};
+          if (mover.hp <= 0) { killSoldier(mover); }
         } else {
-          // Hunker down
-          let adjCover = getAdjacentCover(soldier.row, soldier.col);
-          if (adjCover > 0) {
-            doHunker(soldier);
-          } else {
-            doOverwatch(soldier);
+          log(`${w.name} OVERWATCH misses ${mover.name}. (${chance}%)`);
+          addFloat(mover.row, mover.col, 'MISS', '#888');
+          shootAnim = {from: {r: w.row, c: w.col}, to: {r: mover.row, c: mover.col}, t: 20, color: '#666'};
+        }
+      }
+    }
+  }
+
+  function doShoot(atk, tgt) {
+    atk.acted = true;
+    if (!atk.moved) atk.moved = true;
+    let chance = hitChance(atk, tgt);
+    let hit = Math.random() * 100 < chance;
+    shootAnim = {from: {r: atk.row, c: atk.col}, to: {r: tgt.row, c: tgt.col}, t: 20, color: hit ? '#ff4' : '#666'};
+    if (hit) {
+      let dmg = 1 + Math.floor(Math.random() * 2);
+      tgt.hp -= dmg;
+      log(`${atk.name} shoots ${tgt.name} — HIT ${dmg} dmg (${chance}%)`);
+      addFloat(tgt.row, tgt.col, `-${dmg}`, '#f44');
+      if (tgt.hp <= 0) killSoldier(tgt);
+    } else {
+      log(`${atk.name} shoots ${tgt.name} — MISS (${chance}%)`);
+      addFloat(tgt.row, tgt.col, 'MISS', '#888');
+    }
+  }
+
+  function doGrenade(atk, r, c) {
+    atk.acted = true;
+    if (!atk.moved) atk.moved = true;
+    log(`${atk.name} throws grenade!`);
+    addFloat(r, c, 'BOOM', '#fa0');
+    grenadeAnim = {r, c, t: 25};
+    // AOE: center + adjacent
+    let cells = [{r, c}];
+    for (let [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      let nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) cells.push({r: nr, c: nc});
+    }
+    for (let cell of cells) {
+      // Destroy cover
+      if (grid[cell.r][cell.c].cover !== COVER_NONE) {
+        grid[cell.r][cell.c].cover = COVER_NONE;
+        log(`Cover destroyed at (${cell.c},${cell.r})`);
+      }
+      // Damage
+      let s = soldierAt(cell.r, cell.c);
+      if (s) {
+        let dmg = (cell.r === r && cell.c === c) ? 3 : 2;
+        s.hp -= dmg;
+        addFloat(s.row, s.col, `-${dmg}`, '#fa0');
+        log(`Grenade hits ${s.name} for ${dmg}!`);
+        if (s.hp <= 0) killSoldier(s);
+      }
+    }
+  }
+
+  function doOverwatch(s) {
+    s.overwatch = true; s.acted = true;
+    if (!s.moved) s.moved = true;
+    log(`${s.name} sets Overwatch.`);
+    addFloat(s.row, s.col, 'OVERWATCH', '#4e8');
+  }
+
+  function doHunker(s) {
+    s.hunkered = true; s.acted = true;
+    if (!s.moved) s.moved = true;
+    log(`${s.name} hunkers down.`);
+    addFloat(s.row, s.col, 'HUNKERED', '#48f');
+  }
+
+  function killSoldier(s) {
+    s.alive = false;
+    addFloat(s.row, s.col, 'KIA', '#f00');
+    log(`${s.name} is KIA!`);
+    if (s.team === 'ai') { score++; scoreEl.textContent = score; }
+  }
+
+  // --- AI ---
+  function runAI() {
+    let aiUnits = soldiers.filter(s => s.team === 'ai' && s.alive && (!s.moved || !s.acted));
+    if (aiUnits.length === 0) {
+      endAITurn();
+      return;
+    }
+    let unit = aiUnits[0];
+    aiTurn(unit);
+    draw();
+    setTimeout(() => {
+      if (gameState !== 'playing') return;
+      if (checkWin()) return;
+      runAI();
+    }, 600);
+  }
+
+  function aiTurn(s) {
+    let enemies = soldiers.filter(e => e.team === 'player' && e.alive);
+    if (enemies.length === 0) return;
+
+    // Evaluate current shooting options
+    let curTargets = shootTargets(s);
+    let bestCurTarget = curTargets.sort((a, b) => {
+      // Prioritize low HP targets, then high hit chance
+      let scoreA = a.hit + (a.soldier.hp <= 1 ? 40 : 0);
+      let scoreB = b.hit + (b.soldier.hp <= 1 ? 40 : 0);
+      return scoreB - scoreA;
+    })[0] || null;
+
+    // Phase 1: Move
+    if (!s.moved) {
+      let moves = calcMoveRange(s);
+      if (moves.length > 0) {
+        let bestMove = null, bestMoveScore = -9999;
+
+        for (let m of moves) {
+          let ms = 0;
+          // Cover bonus
+          let ac = adjCover(m.r, m.c);
+          ms += ac === COVER_FULL ? 30 : ac === COVER_HALF ? 15 : -10;
+
+          // Can we shoot from there?
+          let tmpS = {row: m.r, col: m.c, team: 'ai', moved: false, acted: false};
+          for (let e of enemies) {
+            let d2 = dist(m.r, m.c, e.row, e.col);
+            if (d2 <= 10 && lineOfSight(m.r, m.c, e.row, e.col)) {
+              let hc = hitChance(tmpS, e);
+              ms += hc * 0.4;
+              // Flanking: check if no cover from this angle
+              let cv = effectiveCover(tmpS, e);
+              if (cv === COVER_NONE) ms += 20;
+              // Kill shot bonus
+              if (e.hp <= 2 && hc >= 50) ms += 30;
+            }
           }
+
+          // Avoid being too close to multiple enemies
+          let nearEnemies = enemies.filter(e => dist(m.r, m.c, e.row, e.col) <= 2).length;
+          ms -= nearEnemies * 15;
+
+          // Prefer medium range
+          let minDist = Math.min(...enemies.map(e => dist(m.r, m.c, e.row, e.col)));
+          if (minDist >= 3 && minDist <= 6) ms += 10;
+
+          // Check overwatch danger (would we trigger overwatch moving here?)
+          let owDanger = soldiers.filter(e => e.team === 'player' && e.alive && e.overwatch).some(w => {
+            return dist(w.row, w.col, m.r, m.c) <= 8 && lineOfSight(w.row, w.col, m.r, m.c);
+          });
+          if (owDanger) ms -= 35;
+
+          if (ms > bestMoveScore) { bestMoveScore = ms; bestMove = m; }
+        }
+
+        // Only move if it improves our position or we have no shot
+        let curScore = 0;
+        curScore += adjCover(s.row, s.col) === COVER_FULL ? 30 : adjCover(s.row, s.col) === COVER_HALF ? 15 : -10;
+        if (bestCurTarget) curScore += bestCurTarget.hit * 0.4;
+
+        if (bestMove && (bestMoveScore > curScore + 5 || !bestCurTarget)) {
+          doMove(s, bestMove.r, bestMove.c);
+          if (!s.alive) return;
+        } else {
+          s.moved = true; // Stay in place
         }
       }
-
-      // Mark turn as complete
-      soldier.moved = true;
-      soldier.acted = true;
     }
 
-    function findGrenadeTarget(soldier, enemies) {
-      let bestTarget = null;
-      let bestHits = 0;
+    // Phase 2: Act
+    if (!s.acted && s.alive) {
+      let targets = shootTargets(s);
+      targets.sort((a, b) => {
+        let sa = a.hit + (a.soldier.hp <= 1 ? 40 : 0) + (a.soldier.hp <= 2 ? 20 : 0);
+        let sb = b.hit + (b.soldier.hp <= 1 ? 40 : 0) + (b.soldier.hp <= 2 ? 20 : 0);
+        return sb - sa;
+      });
+      let best = targets[0] || null;
 
-      for (let e of enemies) {
-        let dist = Math.abs(e.row - soldier.row) + Math.abs(e.col - soldier.col);
-        if (dist > 6) continue;
+      // Check grenade opportunity
+      let grenadeTarget = aiGrenadeTarget(s);
 
-        // Count enemies in AOE
-        let hits = 0;
-        let dirs = [[-1,0],[1,0],[0,-1],[0,1],[0,0]];
-        for (let d of dirs) {
-          let cr = e.row + d[0], cc = e.col + d[1];
-          let s = getSoldierAt(cr, cc);
-          if (s && s.team === 'player') hits++;
-          if (s && s.team === 'ai') hits -= 2; // Avoid friendly fire
-        }
-        if (hits > bestHits) {
-          bestHits = hits;
-          bestTarget = { r: e.row, c: e.col };
+      if (grenadeTarget && grenadeTarget.value >= 3) {
+        doGrenade(s, grenadeTarget.r, grenadeTarget.c);
+      } else if (best && best.hit >= 25) {
+        doShoot(s, best.soldier);
+      } else if (grenadeTarget) {
+        doGrenade(s, grenadeTarget.r, grenadeTarget.c);
+      } else {
+        // No good shot — decide between overwatch and hunker
+        let nearestEnemy = Math.min(...enemies.map(e => dist(s.row, s.col, e.row, e.col)));
+        if (nearestEnemy <= 8) {
+          doOverwatch(s);
+        } else if (adjCover(s.row, s.col) >= COVER_HALF) {
+          doHunker(s);
+        } else {
+          doOverwatch(s);
         }
       }
-      return bestHits >= 2 ? bestTarget : null;
     }
 
-    function getAdjacentCover(r, c) {
-      let best = 0;
-      let dirs = [[-1,0],[1,0],[0,-1],[0,1]];
-      for (let d of dirs) {
-        let nr = r + d[0], nc = c + d[1];
-        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
-          if (!grid[nr][nc].destroyed && grid[nr][nc].cover > best) {
-            best = grid[nr][nc].cover;
-          }
-        }
+    s.moved = true;
+    s.acted = true;
+  }
+
+  function aiGrenadeTarget(s) {
+    let enemies = soldiers.filter(e => e.team === 'player' && e.alive);
+    let bestVal = 0, bestPos = null;
+
+    for (let e of enemies) {
+      let d = dist(s.row, s.col, e.row, e.col);
+      if (d > 6 || d < 2) continue; // range 2-6
+
+      let hits = 0;
+      let friendlyHits = 0;
+      let coverDestroyed = 0;
+      let cells = [{r: e.row, c: e.col}];
+      for (let [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        let nr = e.row + dr, nc = e.col + dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) cells.push({r: nr, c: nc});
       }
-      return best;
+      for (let cell of cells) {
+        let target = soldierAt(cell.r, cell.c);
+        if (target && target.team === 'player') hits++;
+        if (target && target.team === 'ai' && target.id !== s.id) friendlyHits++;
+        if (grid[cell.r][cell.c].cover !== COVER_NONE) coverDestroyed++;
+      }
+
+      let value = hits * 3 - friendlyHits * 5 + coverDestroyed * 0.5;
+      if (value > bestVal) {
+        bestVal = value;
+        bestPos = {r: e.row, c: e.col, value};
+      }
     }
+    return bestPos;
+  }
 
-    // ---- Mouse Input ----
-    canvas.addEventListener('click', e => {
-      if (gameState === 'waiting') { startGame(); return; }
-      if (gameState === 'over') { init(); return; }
-      if (turn !== 'player' || aiThinking) return;
-
-      let rect = canvas.getBoundingClientRect();
-      let mx = e.clientX - rect.left;
-      let my = e.clientY - rect.top;
-      let col = Math.floor((mx - OX) / CELL);
-      let row = Math.floor((my - OY) / CELL);
-
-      if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return;
-
-      let clickedSoldier = getSoldierAt(row, col);
-
-      // Grenade mode
-      if (currentAction === 'grenade' && selectedSoldier && !selectedSoldier.acted) {
-        let inRange = grenadeRange.some(g => g.r === row && g.c === col);
-        if (inRange) {
-          doGrenade(selectedSoldier, row, col);
-          currentAction = null;
-          grenadeRange = [];
-          selectedSoldier = null;
-          checkWin();
-          draw();
-          return;
-        }
+  // --- Input ---
+  canvas.addEventListener('mousemove', e => {
+    if (gameState !== 'playing') return;
+    let rect = canvas.getBoundingClientRect();
+    let mx = (e.clientX - rect.left) * (W / rect.width);
+    let my = (e.clientY - rect.top) * (H / rect.height);
+    let c = Math.floor((mx - OX) / CELL);
+    let r = Math.floor((my - OY) / CELL);
+    if (c >= 0 && c < COLS && r >= 0 && r < ROWS) {
+      if (!hoverCell || hoverCell.r !== r || hoverCell.c !== c) {
+        hoverCell = {r, c};
+        draw();
       }
+    } else {
+      if (hoverCell) { hoverCell = null; draw(); }
+    }
+  });
 
-      // Click on own soldier to select
-      if (clickedSoldier && clickedSoldier.team === 'player') {
-        selectedSoldier = clickedSoldier;
-        currentAction = null;
-        grenadeRange = [];
-        moveRange = getMovementRange(clickedSoldier);
-        shootRange = getShootRange(clickedSoldier);
+  canvas.addEventListener('click', e => {
+    if (gameState === 'waiting') { startGame(); return; }
+    if (gameState === 'over') { init(); return; }
+    if (turn !== 'player' || aiThinking) return;
+
+    let rect = canvas.getBoundingClientRect();
+    let mx = (e.clientX - rect.left) * (W / rect.width);
+    let my = (e.clientY - rect.top) * (H / rect.height);
+    let col = Math.floor((mx - OX) / CELL);
+    let row = Math.floor((my - OY) / CELL);
+    if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return;
+
+    let clicked = soldierAt(row, col);
+
+    // Grenade mode
+    if (curAction === 'grenade' && selSoldier && !selSoldier.acted) {
+      let d = dist(selSoldier.row, selSoldier.col, row, col);
+      if (d >= 2 && d <= 6) {
+        doGrenade(selSoldier, row, col);
+        curAction = null; selSoldier = null; moveRange = [];
+        checkWin();
         draw();
         return;
       }
+    }
 
-      // Click on enemy to shoot
-      if (clickedSoldier && clickedSoldier.team === 'ai' && selectedSoldier && !selectedSoldier.acted) {
-        let canShoot = shootRange.some(s => s.soldier.id === clickedSoldier.id);
-        if (canShoot) {
-          doShoot(selectedSoldier, clickedSoldier);
-          selectedSoldier = null;
-          moveRange = [];
-          shootRange = [];
-          checkWin();
-          draw();
-          return;
-        }
-      }
-
-      // Click on empty cell to move
-      if (!clickedSoldier && selectedSoldier && !selectedSoldier.moved) {
-        let inRange = moveRange.some(m => m.r === row && m.c === col);
-        if (inRange) {
-          doMove(selectedSoldier, row, col);
-          if (!selectedSoldier.alive) {
-            selectedSoldier = null;
-            moveRange = [];
-            shootRange = [];
-          } else {
-            moveRange = [];
-            shootRange = getShootRange(selectedSoldier);
-          }
-          checkWin();
-          draw();
-          return;
-        }
-      }
-
-      // Click on empty space to deselect
-      selectedSoldier = null;
-      currentAction = null;
-      moveRange = [];
-      shootRange = [];
-      grenadeRange = [];
+    // Select own soldier
+    if (clicked && clicked.team === 'player') {
+      selSoldier = clicked;
+      curAction = null;
+      moveRange = calcMoveRange(clicked);
       draw();
-    });
+      return;
+    }
 
-    // Right click for overwatch
-    canvas.addEventListener('contextmenu', e => {
+    // Shoot enemy
+    if (clicked && clicked.team === 'ai' && selSoldier && !selSoldier.acted) {
+      let targets = shootTargets(selSoldier);
+      if (targets.some(t => t.soldier.id === clicked.id)) {
+        doShoot(selSoldier, clicked);
+        selSoldier = null; moveRange = [];
+        checkWin();
+        draw();
+        return;
+      }
+    }
+
+    // Move
+    if (!clicked && selSoldier && !selSoldier.moved) {
+      if (moveRange.some(m => m.r === row && m.c === col)) {
+        doMove(selSoldier, row, col);
+        if (!selSoldier.alive) { selSoldier = null; moveRange = []; }
+        else { moveRange = []; } // After move, keep selected for action
+        checkWin();
+        draw();
+        return;
+      }
+    }
+
+    // Deselect
+    selSoldier = null; curAction = null; moveRange = [];
+    draw();
+  });
+
+  canvas.addEventListener('mousedown', e => {
+    if (e.button === 2) { // Right click
       e.preventDefault();
       if (gameState !== 'playing' || turn !== 'player') return;
-      if (selectedSoldier && !selectedSoldier.acted) {
-        doOverwatch(selectedSoldier);
-        selectedSoldier = null;
-        moveRange = [];
-        shootRange = [];
+      if (selSoldier && !selSoldier.acted) {
+        doOverwatch(selSoldier);
+        selSoldier = null; moveRange = [];
         draw();
       }
-    });
+    }
+  });
 
-    // ---- Drawing ----
-    function draw() {
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(0, 0, W, H);
+  document.addEventListener('keydown', e => {
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+    if (gameState === 'waiting') { startGame(); return; }
+    if (gameState === 'over') { init(); return; }
+    if (gameState === 'playing') {
+      if (e.key === 'e' || e.key === 'E') endPlayerTurn();
+      if (e.key === 'g' || e.key === 'G') {
+        if (selSoldier && !selSoldier.acted) { curAction = 'grenade'; draw(); }
+      }
+      if (e.key === 'h' || e.key === 'H') {
+        if (selSoldier && !selSoldier.acted) { doHunker(selSoldier); selSoldier = null; moveRange = []; draw(); }
+      }
+      if (e.key === 'Escape') { curAction = null; draw(); }
+    }
+  });
 
-      drawGrid();
-      drawCover();
-      drawRanges();
-      drawSoldiers();
-      drawUI();
-      drawFloatingTexts();
-      drawLog();
+  // --- Floating text ---
+  function addFloat(r, c, text, color) {
+    floats.push({x: OX + c * CELL + CELL / 2, y: OY + r * CELL + CELL / 2, text, color, life: 50});
+  }
+  function log(msg) { logs.unshift(msg); if (logs.length > 4) logs.pop(); }
+
+  // --- Drawing ---
+  function draw() {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W, H);
+
+    drawGrid();
+    drawCover();
+    drawRanges();
+    drawSoldiers();
+    drawAnims();
+    drawFloats();
+    drawPanel();
+  }
+
+  function drawGrid() {
+    ctx.strokeStyle = '#16213e';
+    ctx.lineWidth = 1;
+    for (let r = 0; r <= ROWS; r++) {
+      ctx.beginPath();
+      ctx.moveTo(OX, OY + r * CELL);
+      ctx.lineTo(OX + COLS * CELL, OY + r * CELL);
+      ctx.stroke();
+    }
+    for (let c = 0; c <= COLS; c++) {
+      ctx.beginPath();
+      ctx.moveTo(OX + c * CELL, OY);
+      ctx.lineTo(OX + c * CELL, OY + ROWS * CELL);
+      ctx.stroke();
     }
 
-    function drawGrid() {
-      ctx.strokeStyle = '#16213e';
+    // Hover cell
+    if (hoverCell) {
+      let x = OX + hoverCell.c * CELL, y = OY + hoverCell.r * CELL;
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
       ctx.lineWidth = 1;
-      for (let r = 0; r <= ROWS; r++) {
-        ctx.beginPath();
-        ctx.moveTo(OX, OY + r * CELL);
-        ctx.lineTo(OX + COLS * CELL, OY + r * CELL);
-        ctx.stroke();
+    }
+  }
+
+  function drawCover() {
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        let cv = grid[r][c].cover;
+        if (cv === COVER_NONE) continue;
+        let x = OX + c * CELL, y = OY + r * CELL;
+
+        if (cv === COVER_FULL) {
+          // Wall block
+          ctx.fillStyle = '#3a3a50';
+          ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+          ctx.strokeStyle = '#555';
+          ctx.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
+          // Brick pattern
+          ctx.strokeStyle = '#4a4a60';
+          ctx.beginPath();
+          ctx.moveTo(x + 1, y + CELL / 2);
+          ctx.lineTo(x + CELL - 1, y + CELL / 2);
+          ctx.moveTo(x + CELL / 2, y + 1);
+          ctx.lineTo(x + CELL / 2, y + CELL / 2);
+          ctx.moveTo(x + CELL / 4, y + CELL / 2);
+          ctx.lineTo(x + CELL / 4, y + CELL - 1);
+          ctx.moveTo(x + CELL * 3/4, y + CELL / 2);
+          ctx.lineTo(x + CELL * 3/4, y + CELL - 1);
+          ctx.stroke();
+          // Shield icon
+          ctx.fillStyle = '#6a6a80';
+          ctx.font = '8px Courier New';
+          ctx.textAlign = 'center';
+          ctx.fillText('||', x + CELL / 2, y + CELL / 2 + 3);
+        } else {
+          // Crate (half cover)
+          ctx.fillStyle = '#4a4030';
+          ctx.fillRect(x + 4, y + CELL / 3, CELL - 8, CELL * 2/3 - 4);
+          ctx.strokeStyle = '#6a5a40';
+          ctx.strokeRect(x + 4, y + CELL / 3, CELL - 8, CELL * 2/3 - 4);
+          // Cross
+          ctx.beginPath();
+          ctx.moveTo(x + CELL / 2, y + CELL / 3 + 2);
+          ctx.lineTo(x + CELL / 2, y + CELL - 6);
+          ctx.moveTo(x + 6, y + CELL * 0.55);
+          ctx.lineTo(x + CELL - 6, y + CELL * 0.55);
+          ctx.stroke();
+        }
       }
-      for (let c = 0; c <= COLS; c++) {
-        ctx.beginPath();
-        ctx.moveTo(OX + c * CELL, OY);
-        ctx.lineTo(OX + c * CELL, OY + ROWS * CELL);
-        ctx.stroke();
+    }
+  }
+
+  function drawRanges() {
+    if (!selSoldier || turn !== 'player') return;
+
+    // Move range
+    if (!selSoldier.moved) {
+      for (let m of moveRange) {
+        let x = OX + m.c * CELL, y = OY + m.r * CELL;
+        ctx.fillStyle = 'rgba(68,136,255,0.12)';
+        ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+        ctx.strokeStyle = 'rgba(68,136,255,0.35)';
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(x + 2, y + 2, CELL - 4, CELL - 4);
+        ctx.setLineDash([]);
       }
     }
 
-    function drawCover() {
+    // Shoot indicators on enemies
+    if (!selSoldier.acted && curAction !== 'grenade') {
+      let targets = shootTargets(selSoldier);
+      for (let t of targets) {
+        let x = OX + t.soldier.col * CELL, y = OY + t.soldier.row * CELL;
+        let color = t.hit >= 60 ? '#4e8' : t.hit >= 35 ? '#fa0' : '#f44';
+        let alpha = t.hit >= 60 ? 0.5 : t.hit >= 35 ? 0.4 : 0.3;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
+        ctx.lineWidth = 1;
+        // Crosshair
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        let cx = x + CELL / 2, cy = y + CELL / 2;
+        ctx.arc(cx, cy, CELL * 0.3, 0, Math.PI * 2);
+        ctx.moveTo(cx - CELL * 0.4, cy);
+        ctx.lineTo(cx + CELL * 0.4, cy);
+        ctx.moveTo(cx, cy - CELL * 0.4);
+        ctx.lineTo(cx, cy + CELL * 0.4);
+        ctx.stroke();
+        // Percentage
+        ctx.fillStyle = color;
+        ctx.font = 'bold 9px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(t.hit + '%', x + CELL / 2, y + CELL - 2);
+      }
+    }
+
+    // Grenade range
+    if (curAction === 'grenade' && !selSoldier.acted) {
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-          let cell = grid[r][c];
-          let x = OX + c * CELL, y = OY + r * CELL;
-          if (cell.destroyed) {
-            // Rubble
-            ctx.fillStyle = '#2a2a3e';
-            ctx.fillRect(x + 2, y + 2, CELL - 4, CELL - 4);
-            ctx.fillStyle = '#333';
-            ctx.fillRect(x + 5, y + 8, 6, 4);
-            ctx.fillRect(x + 14, y + 5, 5, 5);
-          } else if (cell.cover === COVER_FULL) {
-            // Full cover - solid wall
-            ctx.fillStyle = '#445';
+          let d = dist(selSoldier.row, selSoldier.col, r, c);
+          if (d >= 2 && d <= 6) {
+            let x = OX + c * CELL, y = OY + r * CELL;
+            ctx.fillStyle = 'rgba(255,170,0,0.08)';
             ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
-            ctx.strokeStyle = '#667';
-            ctx.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
-            // Wall pattern
-            ctx.fillStyle = '#556';
-            ctx.fillRect(x + 3, y + 3, CELL / 2 - 2, CELL / 2 - 4);
-            ctx.fillRect(x + CELL / 2 + 1, y + CELL / 2 - 1, CELL / 2 - 4, CELL / 2 - 2);
-          } else if (cell.cover === COVER_HALF) {
-            // Half cover - crate
-            ctx.fillStyle = '#553';
-            ctx.fillRect(x + 3, y + CELL / 3, CELL - 6, CELL * 2 / 3 - 3);
-            ctx.strokeStyle = '#774';
-            ctx.strokeRect(x + 3, y + CELL / 3, CELL - 6, CELL * 2 / 3 - 3);
-            // Cross on crate
-            ctx.strokeStyle = '#664';
-            ctx.beginPath();
-            ctx.moveTo(x + CELL / 2, y + CELL / 3 + 2);
-            ctx.lineTo(x + CELL / 2, y + CELL - 5);
-            ctx.moveTo(x + 5, y + CELL / 2 + 3);
-            ctx.lineTo(x + CELL - 5, y + CELL / 2 + 3);
-            ctx.stroke();
+          }
+        }
+      }
+      // Hover: show AOE
+      if (hoverCell) {
+        let d = dist(selSoldier.row, selSoldier.col, hoverCell.r, hoverCell.c);
+        if (d >= 2 && d <= 6) {
+          let cells = [{r: hoverCell.r, c: hoverCell.c}];
+          for (let [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            let nr = hoverCell.r + dr, nc = hoverCell.c + dc;
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) cells.push({r: nr, c: nc});
+          }
+          for (let cell of cells) {
+            let x = OX + cell.c * CELL, y = OY + cell.r * CELL;
+            ctx.fillStyle = 'rgba(255,120,0,0.25)';
+            ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+            ctx.strokeStyle = 'rgba(255,120,0,0.5)';
+            ctx.strokeRect(x + 2, y + 2, CELL - 4, CELL - 4);
           }
         }
       }
     }
+  }
 
-    function drawRanges() {
-      // Movement range
-      if (selectedSoldier && !selectedSoldier.moved) {
-        for (let m of moveRange) {
-          let x = OX + m.c * CELL, y = OY + m.r * CELL;
-          ctx.fillStyle = 'rgba(68,136,255,0.15)';
-          ctx.fillRect(x, y, CELL, CELL);
-          ctx.strokeStyle = 'rgba(68,136,255,0.4)';
-          ctx.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
-        }
+  function drawSoldiers() {
+    for (let s of soldiers) {
+      if (!s.alive) continue;
+      let x = OX + s.col * CELL, y = OY + s.row * CELL;
+      let cx = x + CELL / 2, cy = y + CELL / 2;
+
+      // Dimmed if done
+      if (s.team === 'player' && turn === 'player' && s.moved && s.acted) {
+        ctx.globalAlpha = 0.45;
       }
 
-      // Shoot range indicators on enemies
-      if (selectedSoldier && !selectedSoldier.acted && currentAction !== 'grenade') {
-        for (let s of shootRange) {
-          let x = OX + s.soldier.col * CELL, y = OY + s.soldier.row * CELL;
-          ctx.strokeStyle = s.hitChance >= 60 ? 'rgba(68,238,136,0.6)' : s.hitChance >= 30 ? 'rgba(255,170,0,0.6)' : 'rgba(255,68,68,0.4)';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x, y, CELL, CELL);
-          ctx.lineWidth = 1;
-          // Hit chance text
-          ctx.fillStyle = '#fff';
+      // Selection ring
+      if (s === selSoldier) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
+        ctx.lineWidth = 1;
+      }
+
+      // Glow
+      let isPlayer = s.team === 'player';
+      ctx.shadowColor = isPlayer ? '#48f' : '#f44';
+      ctx.shadowBlur = s === selSoldier ? 14 : 6;
+
+      // Body (soldier shape)
+      if (isPlayer) {
+        // Blue soldier
+        ctx.fillStyle = '#2255aa';
+        // Torso
+        ctx.fillRect(cx - 5, cy - 2, 10, 10);
+        // Head
+        ctx.fillStyle = '#4488ff';
+        ctx.beginPath();
+        ctx.arc(cx, cy - 5, 5, 0, Math.PI * 2);
+        ctx.fill();
+        // Helmet visor
+        ctx.fillStyle = '#6af';
+        ctx.fillRect(cx - 3, cy - 6, 6, 2);
+        // Gun
+        ctx.fillStyle = '#888';
+        ctx.fillRect(cx + 4, cy - 1, 7, 2);
+      } else {
+        // Alien soldier
+        ctx.fillStyle = '#882222';
+        // Body
+        ctx.fillRect(cx - 6, cy - 1, 12, 9);
+        // Head
+        ctx.fillStyle = '#cc4444';
+        ctx.beginPath();
+        ctx.arc(cx, cy - 5, 6, 0, Math.PI * 2);
+        ctx.fill();
+        // Eyes
+        ctx.fillStyle = '#ff0';
+        ctx.beginPath();
+        ctx.ellipse(cx - 3, cy - 5, 2, 1.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(cx + 3, cy - 5, 2, 1.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.shadowBlur = 0;
+
+      // HP bar
+      let barW = CELL - 6, barH = 3;
+      let barX = x + 3, barY = y + 2;
+      ctx.fillStyle = '#222';
+      ctx.fillRect(barX, barY, barW, barH);
+      let frac = s.hp / s.maxHp;
+      ctx.fillStyle = frac > 0.6 ? '#0c0' : frac > 0.3 ? '#fa0' : '#f00';
+      ctx.fillRect(barX, barY, barW * frac, barH);
+
+      // Status
+      ctx.font = 'bold 7px Courier New';
+      ctx.textAlign = 'center';
+      if (s.overwatch) {
+        ctx.fillStyle = '#4e8';
+        ctx.fillText('OW', cx, y + CELL - 1);
+      }
+      if (s.hunkered) {
+        ctx.fillStyle = '#48f';
+        ctx.fillText('HD', cx, y + CELL - 1);
+      }
+
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawAnims() {
+    // Shoot line
+    if (shootAnim && shootAnim.t > 0) {
+      let sa = shootAnim;
+      let fx = OX + sa.from.c * CELL + CELL / 2, fy = OY + sa.from.r * CELL + CELL / 2;
+      let tx = OX + sa.to.c * CELL + CELL / 2, ty = OY + sa.to.r * CELL + CELL / 2;
+      ctx.strokeStyle = sa.color;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = sa.t / 20;
+      ctx.shadowColor = sa.color;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1;
+      sa.t--;
+    }
+
+    // Grenade explosion
+    if (grenadeAnim && grenadeAnim.t > 0) {
+      let ga = grenadeAnim;
+      let cx = OX + ga.c * CELL + CELL / 2, cy = OY + ga.r * CELL + CELL / 2;
+      let radius = (25 - ga.t) * 3;
+      ctx.globalAlpha = ga.t / 25;
+      ctx.fillStyle = '#fa0';
+      ctx.shadowColor = '#f80';
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ff0';
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      ga.t--;
+    }
+  }
+
+  function drawFloats() {
+    for (let i = floats.length - 1; i >= 0; i--) {
+      let f = floats[i];
+      f.life--;
+      f.y -= 0.6;
+      ctx.globalAlpha = Math.min(1, f.life / 25);
+      ctx.fillStyle = f.color;
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = f.color;
+      ctx.shadowBlur = 6;
+      ctx.fillText(f.text, f.x, f.y);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      if (f.life <= 0) floats.splice(i, 1);
+    }
+  }
+
+  function drawPanel() {
+    // Background
+    ctx.fillStyle = '#16213e';
+    ctx.fillRect(0, PANEL_Y, W, H - PANEL_Y);
+    ctx.strokeStyle = '#0f3460';
+    ctx.beginPath();
+    ctx.moveTo(0, PANEL_Y);
+    ctx.lineTo(W, PANEL_Y);
+    ctx.stroke();
+
+    // Log messages (left side)
+    ctx.font = '9px Courier New';
+    ctx.textAlign = 'left';
+    for (let i = 0; i < logs.length; i++) {
+      ctx.fillStyle = i === 0 ? '#4e8' : '#555';
+      let msg = logs[i];
+      if (msg.length > 55) msg = msg.substring(0, 54) + '..';
+      ctx.fillText(msg, 8, PANEL_Y + 13 + i * 12);
+    }
+
+    // Selected soldier info (right side)
+    if (selSoldier && turn === 'player') {
+      let s = selSoldier;
+      let rx = W - 200;
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#4488ff';
+      ctx.fillText(s.name, rx, PANEL_Y + 13);
+      ctx.fillStyle = '#aaa';
+      ctx.fillText(`HP: ${s.hp}/${s.maxHp}`, rx, PANEL_Y + 25);
+      // Action hints
+      let hints = [];
+      if (!s.moved) hints.push('Move');
+      if (!s.acted) hints.push('Shoot/[G]ren/[H]unk/RClick:OW');
+      ctx.fillStyle = '#666';
+      ctx.font = '8px Courier New';
+      ctx.fillText(hints.join(' | '), rx, PANEL_Y + 37);
+
+      if (curAction === 'grenade') {
+        ctx.fillStyle = '#fa0';
+        ctx.fillText('GRENADE MODE [Esc cancel]', rx, PANEL_Y + 49);
+      }
+    }
+
+    // Hover info
+    if (hoverCell && turn === 'player') {
+      let s = soldierAt(hoverCell.r, hoverCell.c);
+      if (s) {
+        let rx = W / 2 - 50;
+        ctx.font = '9px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = s.team === 'player' ? '#4488ff' : '#e44';
+        ctx.fillText(`${s.name} HP:${s.hp}/${s.maxHp}`, W / 2, PANEL_Y + 49);
+        let cv = adjCover(s.row, s.col);
+        let cvText = cv === COVER_FULL ? 'Full Cover' : cv === COVER_HALF ? 'Half Cover' : 'No Cover';
+        ctx.fillStyle = '#777';
+        ctx.fillText(cvText + (s.overwatch ? ' [OW]' : '') + (s.hunkered ? ' [HD]' : ''), W / 2, PANEL_Y + 61);
+      } else {
+        let cv = grid[hoverCell.r][hoverCell.c].cover;
+        if (cv > 0) {
           ctx.font = '9px Courier New';
           ctx.textAlign = 'center';
-          ctx.fillText(s.hitChance + '%', x + CELL / 2, y + CELL - 2);
-        }
-      }
-
-      // Grenade range
-      if (currentAction === 'grenade') {
-        for (let g of grenadeRange) {
-          let x = OX + g.c * CELL, y = OY + g.r * CELL;
-          ctx.fillStyle = 'rgba(255,170,0,0.1)';
-          ctx.fillRect(x, y, CELL, CELL);
+          ctx.fillStyle = '#666';
+          ctx.fillText(cv === COVER_FULL ? 'Full Cover (+50% def)' : 'Half Cover (+25% def)', W / 2, PANEL_Y + 49);
         }
       }
     }
+  }
 
-    function drawSoldiers() {
-      for (let s of soldiers) {
-        if (!s.alive) continue;
-        let x = OX + s.col * CELL + CELL / 2;
-        let y = OY + s.row * CELL + CELL / 2;
-        let r = CELL * 0.35;
-
-        // Selection highlight
-        if (s === selectedSoldier) {
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(OX + s.col * CELL, OY + s.row * CELL, CELL, CELL);
-          ctx.lineWidth = 1;
-        }
-
-        // Glow
-        ctx.shadowColor = s.color;
-        ctx.shadowBlur = s === selectedSoldier ? 15 : 8;
-
-        // Body
-        ctx.fillStyle = s.color;
-        ctx.beginPath();
-        ctx.arc(x, y + 2, r, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Head
-        ctx.fillStyle = s.team === 'player' ? '#6af' : '#f66';
-        ctx.beginPath();
-        ctx.arc(x, y - r * 0.5, r * 0.45, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.shadowBlur = 0;
-
-        // HP bar
-        let barW = CELL - 4;
-        let barH = 3;
-        let barX = OX + s.col * CELL + 2;
-        let barY = OY + s.row * CELL + 1;
-        ctx.fillStyle = '#300';
-        ctx.fillRect(barX, barY, barW, barH);
-        let hpFrac = s.hp / s.maxHp;
-        ctx.fillStyle = hpFrac > 0.5 ? '#0a0' : hpFrac > 0.25 ? '#fa0' : '#f00';
-        ctx.fillRect(barX, barY, barW * hpFrac, barH);
-
-        // Status icons
-        if (s.overwatch) {
-          ctx.fillStyle = '#4e8';
-          ctx.font = 'bold 8px Courier New';
-          ctx.textAlign = 'center';
-          ctx.fillText('OW', x, OY + s.row * CELL + CELL - 1);
-        }
-        if (s.hunkered) {
-          ctx.fillStyle = '#48f';
-          ctx.font = 'bold 8px Courier New';
-          ctx.textAlign = 'center';
-          ctx.fillText('HD', x, OY + s.row * CELL + CELL - 1);
-        }
-
-        // Acted/moved indicators
-        if (s.team === 'player' && turn === 'player') {
-          if (s.moved && s.acted) {
-            ctx.globalAlpha = 0.35;
-            ctx.fillStyle = '#000';
-            ctx.fillRect(OX + s.col * CELL, OY + s.row * CELL, CELL, CELL);
-            ctx.globalAlpha = 1;
-          }
-        }
-      }
+  // --- Main loop ---
+  function animLoop() {
+    if (gameState === 'playing') {
+      let needRedraw = floats.length > 0;
+      if (shootAnim && shootAnim.t > 0) needRedraw = true;
+      if (grenadeAnim && grenadeAnim.t > 0) needRedraw = true;
+      if (needRedraw) draw();
     }
+    requestAnimationFrame(animLoop);
+  }
 
-    function drawUI() {
-      // Action panel at bottom
-      let panelY = OY + ROWS * CELL + 4;
-      ctx.fillStyle = '#16213e';
-      ctx.fillRect(0, panelY, W, H - panelY);
-
-      if (selectedSoldier && turn === 'player') {
-        let s = selectedSoldier;
-        ctx.font = '11px Courier New';
-        ctx.textAlign = 'left';
-        ctx.fillStyle = s.color;
-        ctx.fillText(`${s.name}  HP: ${s.hp}/${s.maxHp}`, OX, panelY + 14);
-
-        ctx.fillStyle = '#aaa';
-        let actions = [];
-        if (!s.moved) actions.push('Click tile: Move');
-        if (!s.acted) {
-          actions.push('Click enemy: Shoot');
-          actions.push('[G] Grenade');
-          actions.push('[H] Hunker');
-          actions.push('Right-click: Overwatch');
-        }
-        ctx.fillText(actions.join('  |  '), OX, panelY + 28);
-
-        if (currentAction === 'grenade') {
-          ctx.fillStyle = '#fa0';
-          ctx.fillText('GRENADE MODE — Click target tile (ESC to cancel)', OX, panelY + 42);
-        }
-      } else if (turn === 'player') {
-        ctx.font = '11px Courier New';
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#aaa';
-        ctx.fillText('Click a soldier to select  |  [E] End Turn', OX, panelY + 14);
-      }
-    }
-
-    function drawFloatingTexts() {
-      for (let i = floatingTexts.length - 1; i >= 0; i--) {
-        let ft = floatingTexts[i];
-        ft.life--;
-        ft.y -= 0.5;
-        let alpha = ft.life / 60;
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = ft.color;
-        ctx.font = 'bold 12px Courier New';
-        ctx.textAlign = 'center';
-        ctx.shadowColor = ft.color;
-        ctx.shadowBlur = 8;
-        ctx.fillText(ft.text, ft.x, ft.y);
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 1;
-        if (ft.life <= 0) floatingTexts.splice(i, 1);
-      }
-    }
-
-    function drawLog() {
-      let logX = OX + COLS * CELL + 6;
-      // If no room on right, draw at bottom
-      let logY = OY + 4;
-      ctx.font = '9px Courier New';
-      ctx.textAlign = 'left';
-      for (let i = 0; i < logMessages.length && i < 5; i++) {
-        ctx.fillStyle = i === 0 ? '#4e8' : '#666';
-        let msg = logMessages[i];
-        if (msg.length > 28) msg = msg.substring(0, 27) + '..';
-        // Wrap within canvas - draw along right edge
-        // Actually, let's draw in top-right area
-      }
-    }
-
-    // Animation loop for floating texts
-    function animLoop() {
-      if (gameState === 'playing') {
-        if (floatingTexts.length > 0) draw();
-      }
-      requestAnimationFrame(animLoop);
-    }
-
-    init();
-    animLoop();
+  init();
+  animLoop();
   </script>
   <script src="../recorder.js?v=2"></script>
 </body>

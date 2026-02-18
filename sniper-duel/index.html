@@ -801,8 +801,9 @@
           });
         }
 
+        let shooter = bullet.shooter;
         turnMessage = headshot ? 'HEADSHOT! -2 HP' : 'HIT! -1 HP';
-        if (bullet.shooter === 'ai') {
+        if (shooter === 'ai') {
           turnMessage = headshot ? 'AI HEADSHOT! -2 HP' : 'AI HIT! -1 HP';
         }
         turnMessageTimer = 2;
@@ -814,7 +815,7 @@
 
         // Check game over
         if (target.hp <= 0) {
-          endGame(bullet === null && target === ai ? 'player' : 'ai');
+          endGame(target === ai ? 'player' : 'ai');
           return;
         }
 

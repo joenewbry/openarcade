@@ -71,7 +71,7 @@
     <canvas id="game" width="600" height="500"></canvas>
     <div class="overlay" id="overlay" style="width:600px;height:500px;">
       <h2 id="overlayTitle">MAHJONG COMPETITIVE</h2>
-      <p id="overlayText">Click to Start</p>
+      <p id="overlayText">Click to Start<br><br>Japanese Riichi Mahjong<br>4 players &bull; Simplified scoring</p>
     </div>
   </div>
 
@@ -90,79 +90,67 @@
     let score = 25000;
 
     // ========== TILE SYSTEM ==========
-    // Suits: m=man(characters), p=pin(circles), s=sou(bamboo)
-    // Honors: w1-w4=winds(E,S,W,N), d1-d3=dragons(white,green,red)
     const SUITS = ['m','p','s'];
     const SUIT_NAMES = {m:'Man',p:'Pin',s:'Sou'};
-    const SUIT_SYMBOLS = {m:'\u4E07',p:'\u25CB',s:'\u7AF9'};
-    const WIND_NAMES = ['East','South','West','North'];
     const WIND_KANJI = ['\u6771','\u5357','\u897F','\u5317'];
-    const DRAGON_NAMES = ['White','Green','Red'];
     const DRAGON_KANJI = ['\u767D','\u767C','\u4E2D'];
+    const WIND_NAMES = ['East','South','West','North'];
+    const DRAGON_NAMES = ['Wht','Grn','Red'];
 
-    function makeTileId(suit, num) { return suit + num; }
     function parseTile(t) {
       if (t[0]==='w') return {type:'wind',num:parseInt(t[1]),suit:'z'};
       if (t[0]==='d') return {type:'dragon',num:parseInt(t[1]),suit:'z'};
       return {type:'suit',suit:t[0],num:parseInt(t[1])};
     }
-    function tileSort(a,b) {
-      const pa=parseTile(a), pb=parseTile(b);
-      const order={m:0,p:1,s:2,z:3};
-      if (order[pa.suit||'z']!==order[pb.suit||'z']) return order[pa.suit||'z']-order[pb.suit||'z'];
-      if (pa.type!==pb.type) { const to={suit:0,wind:1,dragon:2}; return to[pa.type]-to[pb.type]; }
-      return pa.num-pb.num;
-    }
-    function tileName(t) {
-      const p = parseTile(t);
-      if (p.type==='wind') return WIND_NAMES[p.num-1];
-      if (p.type==='dragon') return DRAGON_NAMES[p.num-1];
-      return p.num + SUIT_NAMES[p.suit];
+
+    function tileSort(a, b) {
+      const pa = parseTile(a), pb = parseTile(b);
+      const order = {m:0, p:1, s:2, z:3};
+      const sa = pa.suit || 'z', sb = pb.suit || 'z';
+      if (order[sa] !== order[sb]) return order[sa] - order[sb];
+      const typeOrd = {suit:0, wind:1, dragon:2};
+      if (pa.type !== pb.type) return typeOrd[pa.type] - typeOrd[pb.type];
+      return pa.num - pb.num;
     }
 
     function buildWall() {
       let wall = [];
-      for (let s of SUITS) for (let n=1;n<=9;n++) for (let c=0;c<4;c++) wall.push(makeTileId(s,n));
-      for (let n=1;n<=4;n++) for (let c=0;c<4;c++) wall.push('w'+n);
-      for (let n=1;n<=3;n++) for (let c=0;c<4;c++) wall.push('d'+n);
-      // shuffle
-      for (let i=wall.length-1;i>0;i--) { let j=Math.random()*i|0; [wall[i],wall[j]]=[wall[j],wall[i]]; }
-      return wall;
+      for (let s of SUITS) for (let n = 1; n <= 9; n++) for (let c = 0; c < 4; c++) wall.push(s + n);
+      for (let n = 1; n <= 4; n++) for (let c = 0; c < 4; c++) wall.push('w' + n);
+      for (let n = 1; n <= 3; n++) for (let c = 0; c < 4; c++) wall.push('d' + n);
+      for (let i = wall.length - 1; i > 0; i--) {
+        let j = Math.random() * (i + 1) | 0;
+        [wall[i], wall[j]] = [wall[j], wall[i]];
+      }
+      return wall; // 136 tiles
     }
 
     // ========== GAME STATE ==========
-    let wall=[], deadWall=[];
-    let players=[]; // 0=human(south), 1=west(AI), 2=north(AI), 3=east(AI)
-    let currentTurn=0; // seat
-    let roundWind=0; // 0=east
-    let handNum=0; // 0-3
-    let turnPhase=''; // 'draw','discard','call','done'
-    let drawnTile=null;
-    let callOptions=[];
-    let callButtons=[];
-    let selectedTile=-1;
-    let hoveredTile=-1;
-    let message='';
-    let messageTimer=0;
-    let animTimer=0;
-    let riichiSticks=0;
-    let doraIndicators=[];
-    let actionLog=[];
+    let wall = [], deadWall = [];
+    let players = [];
+    let currentTurn = 0;
+    let roundWind = 0;
+    let handNum = 0;
+    let turnPhase = '';
+    let callOptions = [];
+    let callButtons = [];
+    let pendingAiCall = null; // stored separately so it survives callButtons reset
+    let discardSeat = -1; // who discarded the tile being called on
+    let selectedTile = -1;
+    let hoveredTile = -1;
+    let message = '';
+    let messageTimer = 0;
+    let riichiSticks = 0;
+    let doraIndicators = [];
+    let pendingRiichi = false;
 
-    const SEAT_NAMES = ['You','West AI','North AI','East AI'];
-    const SEAT_WIND = (seat) => (seat + (4 - handNum)) % 4; // seat wind relative to dealer
+    const SEAT_NAMES = ['You', 'West AI', 'North AI', 'East AI'];
+    const SEAT_WIND = (seat) => (seat + (4 - handNum)) % 4;
 
     function initPlayer(seat) {
       return {
-        seat: seat,
-        hand: [],
-        discards: [],
-        melds: [], // {type:'chi'|'pon'|'kan', tiles:[], open:bool}
-        riichi: false,
-        riichiTurn: -1,
-        ippatsu: false,
-        points: 25000,
-        tenpai: false
+        seat, hand: [], discards: [], melds: [],
+        riichi: false, riichiTurn: -1, points: 25000
       };
     }
 
@@ -171,66 +159,71 @@
       deadWall = wall.splice(0, 14);
       doraIndicators = [deadWall[0]];
       players = [initPlayer(0), initPlayer(1), initPlayer(2), initPlayer(3)];
-      // Deal 13 tiles each
-      for (let i=0;i<4;i++) {
-        players[i].hand = wall.splice(0, 13);
-        players[i].hand.sort(tileSort);
-        players[i].points = (i===0) ? score : [25000,25000,25000][i-1];
+      for (let i = 0; i < 4; i++) {
+        players[i].hand = wall.splice(0, 13).sort(tileSort);
+        players[i].points = (i === 0) ? score : players[i].points;
       }
-      // Dealer is handNum seat
-      currentTurn = handNum;
+      // Keep AI scores persistent
+      currentTurn = handNum; // dealer goes first
       turnPhase = 'draw';
-      drawnTile = null;
       callOptions = [];
       callButtons = [];
+      pendingAiCall = null;
+      discardSeat = -1;
       selectedTile = -1;
       hoveredTile = -1;
       riichiSticks = 0;
+      pendingRiichi = false;
       message = '';
       messageTimer = 0;
-      actionLog = [];
       updateUI();
     }
 
     function updateUI() {
       score = players[0].points;
       scoreEl.textContent = score;
-      roundInfoEl.textContent = (roundWind===0?'E':'S') + (handNum+1);
+      roundInfoEl.textContent = (roundWind === 0 ? 'E' : 'S') + (handNum + 1);
       wallCountEl.textContent = wall.length;
     }
 
     // ========== HAND EVALUATION ==========
     function countTiles(hand) {
       let c = {};
-      for (let t of hand) c[t] = (c[t]||0)+1;
+      for (let t of hand) c[t] = (c[t] || 0) + 1;
       return c;
     }
 
     function canWin(hand) {
-      // Check if 14-tile hand is a winning hand (4 sets + 1 pair) or seven pairs
       if (hand.length < 14) return false;
       let counts = countTiles(hand);
-      // Seven pairs check
+      // Seven pairs
       if (hand.length === 14) {
-        let pairs = Object.values(counts).filter(v=>v===2).length;
-        let fours = Object.values(counts).filter(v=>v===4).length;
-        if (pairs + fours*2 === 7) return true;
+        let pairCount = 0;
+        for (let k of Object.keys(counts)) {
+          if (counts[k] === 2) pairCount++;
+          else if (counts[k] === 4) pairCount += 2;
+          else if (counts[k] !== 0 && counts[k] !== 2 && counts[k] !== 4) { /* not seven pairs */ }
+        }
+        // All tiles must be in pairs
+        let allPairs = Object.values(counts).every(v => v === 2 || v === 4);
+        if (allPairs && Object.keys(counts).length + Object.values(counts).filter(v=>v===4).length >= 7) {
+          return true;
+        }
       }
-      // Standard form: try each tile as pair head
+      // Standard form
       let tiles = Object.keys(counts);
       for (let pair of tiles) {
         if (counts[pair] < 2) continue;
         let rem = {...counts};
         rem[pair] -= 2;
-        if (rem[pair]===0) delete rem[pair];
+        if (rem[pair] === 0) delete rem[pair];
         if (canFormSets(rem)) return true;
       }
       return false;
     }
 
     function canFormSets(counts) {
-      // Try to form 4 sets (triplets or sequences) from remaining tiles
-      let keys = Object.keys(counts).sort(tileSort);
+      let keys = Object.keys(counts).filter(k => counts[k] > 0).sort(tileSort);
       if (keys.length === 0) return true;
       let first = keys[0];
       let p = parseTile(first);
@@ -238,135 +231,30 @@
       if (counts[first] >= 3) {
         let rem = {...counts};
         rem[first] -= 3;
-        if (rem[first]===0) delete rem[first];
+        if (rem[first] === 0) delete rem[first];
         if (canFormSets(rem)) return true;
       }
-      // Try sequence (only for suited tiles)
+      // Try sequence
       if (p.type === 'suit' && p.num <= 7) {
-        let t2 = p.suit + (p.num+1);
-        let t3 = p.suit + (p.num+2);
-        if (counts[t2] && counts[t3]) {
+        let t2 = p.suit + (p.num + 1), t3 = p.suit + (p.num + 2);
+        if (counts[t2] > 0 && counts[t3] > 0) {
           let rem = {...counts};
-          rem[first]--; if(rem[first]===0) delete rem[first];
-          rem[t2]--; if(rem[t2]===0) delete rem[t2];
-          rem[t3]--; if(rem[t3]===0) delete rem[t3];
+          rem[first]--; if (rem[first] === 0) delete rem[first];
+          rem[t2]--; if (rem[t2] === 0) delete rem[t2];
+          rem[t3]--; if (rem[t3] === 0) delete rem[t3];
           if (canFormSets(rem)) return true;
         }
       }
       return false;
     }
 
-    function getShantenCount(hand) {
-      // Simplified shanten: count how many tiles away from tenpai
-      // Returns 0 for tenpai, -1 for complete
-      let best = 8;
-      let counts = countTiles(hand);
-      // Check standard form
-      let tiles = Object.keys(counts);
-      for (let pair of tiles) {
-        if (counts[pair] < 2) continue;
-        let rem = {...counts};
-        rem[pair] -= 2;
-        if(rem[pair]===0) delete rem[pair];
-        let s = setsShanten(rem, 4 - Math.floor((hand.length-2)/3) + (hand.length===13?1:0));
-        // For 13 tiles we need: (13-2)/3 = 3.67 -> we need sets from remaining 11
-        let needed = Math.floor((hand.length - 2) / 3);
-        s = setsNeeded(rem, needed);
-        if (s < best) best = s;
-      }
-      // Seven pairs
-      if (hand.length >= 13) {
-        let uniquePairs = 0;
-        let uniqueTiles = Object.keys(counts).length;
-        for (let t of Object.keys(counts)) {
-          if (counts[t] >= 2) uniquePairs++;
-        }
-        let spShanten = 6 - uniquePairs;
-        if (uniqueTiles < 7) spShanten += (7 - uniqueTiles);
-        if (spShanten < best) best = spShanten;
-      }
-      return best;
-    }
-
-    function setsNeeded(counts, target) {
-      // How many more sets needed
-      let keys = Object.keys(counts).sort(tileSort);
-      return setsRecurse(counts, keys, target, 0, 0);
-    }
-
-    function setsRecurse(counts, keys, target, sets, partial) {
-      if (sets >= target) return 0;
-      let activeKeys = Object.keys(counts).filter(k=>counts[k]>0).sort(tileSort);
-      if (activeKeys.length === 0) return (target - sets)*2 - partial;
-      let first = activeKeys[0];
-      let p = parseTile(first);
-      let best = (target-sets)*2 - partial; // worst case
-
-      // Try triplet
-      if (counts[first] >= 3) {
-        let rem = {...counts};
-        rem[first] -= 3; if(rem[first]===0) delete rem[first];
-        let s = setsRecurse(rem, keys, target, sets+1, partial);
-        if (s < best) best = s;
-      }
-      // Try sequence
-      if (p.type==='suit' && p.num<=7) {
-        let t2=p.suit+(p.num+1), t3=p.suit+(p.num+2);
-        if (counts[t2]>0 && counts[t3]>0) {
-          let rem={...counts};
-          rem[first]--; if(rem[first]===0) delete rem[first];
-          rem[t2]--; if(rem[t2]===0) delete rem[t2];
-          rem[t3]--; if(rem[t3]===0) delete rem[t3];
-          let s = setsRecurse(rem, keys, target, sets+1, partial);
-          if (s < best) best = s;
-        }
-      }
-      // Try pair partial (for shanten)
-      if (counts[first] >= 2) {
-        let rem = {...counts};
-        rem[first] -= 2; if(rem[first]===0) delete rem[first];
-        let s = setsRecurse(rem, keys, target, sets, partial+1);
-        if (s < best) best = s;
-      }
-      // Try partial sequence
-      if (p.type==='suit' && p.num<=8) {
-        let t2=p.suit+(p.num+1);
-        if (counts[t2]>0) {
-          let rem={...counts};
-          rem[first]--; if(rem[first]===0) delete rem[first];
-          rem[t2]--; if(rem[t2]===0) delete rem[t2];
-          let s = setsRecurse(rem, keys, target, sets, partial+1);
-          if (s < best) best = s;
-        }
-      }
-      if (p.type==='suit' && p.num<=7) {
-        let t3=p.suit+(p.num+2);
-        if (counts[t3]>0) {
-          let rem={...counts};
-          rem[first]--; if(rem[first]===0) delete rem[first];
-          rem[t3]--; if(rem[t3]===0) delete rem[t3];
-          let s = setsRecurse(rem, keys, target, sets, partial+1);
-          if (s < best) best = s;
-        }
-      }
-      // Skip tile
-      {
-        let rem={...counts};
-        delete rem[first];
-        let s = setsRecurse(rem, keys, target, sets, partial);
-        if (s < best) best = s;
-      }
-      return best;
-    }
-
     function getWaits(hand) {
-      // Returns list of tiles that would complete the hand (for 13-tile hand)
       let waits = [];
-      let allTiles = new Set();
-      for (let s of SUITS) for (let n=1;n<=9;n++) allTiles.add(s+n);
-      for (let n=1;n<=4;n++) allTiles.add('w'+n);
-      for (let n=1;n<=3;n++) allTiles.add('d'+n);
-      for (let t of allTiles) {
+      let allTileTypes = [];
+      for (let s of SUITS) for (let n = 1; n <= 9; n++) allTileTypes.push(s + n);
+      for (let n = 1; n <= 4; n++) allTileTypes.push('w' + n);
+      for (let n = 1; n <= 3; n++) allTileTypes.push('d' + n);
+      for (let t of allTileTypes) {
         let test = [...hand, t];
         if (canWin(test)) waits.push(t);
       }
@@ -377,67 +265,97 @@
       return getWaits(hand).length > 0;
     }
 
+    // Simplified shanten estimate
+    function getShantenSimple(hand) {
+      let counts = countTiles(hand);
+      let groups = 0, partials = 0, pairs = 0;
+      let used = {};
+      // Triplets
+      for (let t of Object.keys(counts)) {
+        let avail = counts[t] - (used[t] || 0);
+        if (avail >= 3) { groups++; used[t] = (used[t] || 0) + 3; }
+      }
+      // Sequences
+      for (let s of SUITS) {
+        for (let n = 1; n <= 7; n++) {
+          let t1 = s+n, t2 = s+(n+1), t3 = s+(n+2);
+          let a1 = (counts[t1]||0) - (used[t1]||0);
+          let a2 = (counts[t2]||0) - (used[t2]||0);
+          let a3 = (counts[t3]||0) - (used[t3]||0);
+          if (a1 > 0 && a2 > 0 && a3 > 0) {
+            groups++;
+            used[t1] = (used[t1]||0) + 1;
+            used[t2] = (used[t2]||0) + 1;
+            used[t3] = (used[t3]||0) + 1;
+          }
+        }
+      }
+      // Pairs from remaining
+      for (let t of Object.keys(counts)) {
+        let rem = (counts[t]||0) - (used[t]||0);
+        if (rem >= 2) pairs++;
+      }
+      // Partial sequences
+      for (let s of SUITS) {
+        for (let n = 1; n <= 8; n++) {
+          let t1 = s+n, t2 = s+(n+1);
+          let a1 = (counts[t1]||0) - (used[t1]||0);
+          let a2 = (counts[t2]||0) - (used[t2]||0);
+          if (a1 > 0 && a2 > 0) partials++;
+        }
+      }
+      let needed = 4;
+      let sh = (needed - groups) * 2 - Math.min(partials + pairs, needed - groups) - (pairs > 0 ? 1 : 0);
+      return Math.max(sh, -1);
+    }
+
     // ========== SCORING ==========
-    function countFan(hand, melds, winTile, isTsumo, seatWind, roundWind, isRiichi) {
+    function countFan(hand, melds, winTile, isTsumo, seatWind, rndWind, isRiichi) {
       let fan = 0;
       let allTiles = [...hand];
       for (let m of melds) allTiles.push(...m.tiles);
-
       let counts = countTiles(allTiles);
       let isConcealed = melds.every(m => !m.open);
 
-      // Riichi
-      if (isRiichi) { fan += 1; }
-      // Tsumo (concealed)
-      if (isTsumo && isConcealed) fan += 1;
-      // All simples (tanyao)
-      let allSimple = allTiles.every(t => {
+      if (isRiichi) fan += 1;
+      if (isTsumo && isConcealed && melds.length === 0) fan += 1; // menzen tsumo
+
+      // Tanyao (all simples)
+      if (allTiles.every(t => {
         let p = parseTile(t);
-        return p.type==='suit' && p.num>=2 && p.num<=8;
-      });
-      if (allSimple) fan += 1;
-      // Seat wind triplet
-      let seatWindTile = 'w'+(seatWind+1);
-      if (counts[seatWindTile]>=3) fan += 1;
-      // Round wind triplet
-      let roundWindTile = 'w'+(roundWind+1);
-      if (counts[roundWindTile]>=3) fan += 1;
-      // Dragon triplets
-      for (let d=1;d<=3;d++) if (counts['d'+d]>=3) fan += 1;
-      // Pinfu (all sequences, concealed, pair not yakuhai, two-sided wait)
-      if (isConcealed && melds.length===0) {
-        // simplified pinfu check
-        let c = countTiles(hand);
-        let seqCount = 0;
-        // We'll just grant pinfu if concealed and fan===0 so far and tsumo
-        // Simplified: just check if all sets are sequences
-      }
+        return p.type === 'suit' && p.num >= 2 && p.num <= 8;
+      })) fan += 1;
+
+      // Yakuhai (value tiles)
+      let swt = 'w' + (seatWind + 1);
+      let rwt = 'w' + (rndWind + 1);
+      if ((counts[swt] || 0) >= 3) fan += 1;
+      if ((counts[rwt] || 0) >= 3) fan += 1;
+      for (let d = 1; d <= 3; d++) if ((counts['d'+d] || 0) >= 3) fan += 1;
+
       // Seven pairs
-      if (hand.length===14 && isConcealed) {
-        let pairs = Object.values(counts).filter(v=>v>=2).length;
-        if (pairs >= 7) fan += 2;
+      let spCheck = Object.values(counts);
+      if (hand.length === 14 && isConcealed && spCheck.every(v => v === 2 || v === 4) &&
+          Object.keys(counts).length + spCheck.filter(v=>v===4).length >= 7) {
+        fan += 2;
       }
-      // Half flush
-      let suits = new Set();
-      let hasHonor = false;
+
+      // Flush checks
+      let suits = new Set(), hasHonor = false;
       for (let t of allTiles) {
         let p = parseTile(t);
-        if (p.type==='suit') suits.add(p.suit);
-        else hasHonor = true;
+        if (p.type === 'suit') suits.add(p.suit); else hasHonor = true;
       }
-      if (suits.size===1 && hasHonor) fan += (isConcealed?3:2);
-      // Full flush
-      if (suits.size===1 && !hasHonor) fan += (isConcealed?6:5);
-      // All honors
-      if (suits.size===0 && hasHonor) fan += 4; // yakuman simplified
+      if (suits.size === 1 && hasHonor) fan += (isConcealed ? 3 : 2); // half flush
+      if (suits.size === 1 && !hasHonor) fan += (isConcealed ? 6 : 5); // full flush
+      if (suits.size === 0) fan += 4; // all honors (simplified yakuman)
 
-      // Minimum 1 fan
+      // Minimum 1 fan to win
       if (fan === 0) fan = 1;
       return fan;
     }
 
     function fanToPoints(fan, isDealer) {
-      // Simplified scoring
       let base;
       if (fan >= 13) base = 8000;
       else if (fan >= 11) base = 6000;
@@ -451,111 +369,41 @@
       return isDealer ? base * 6 : base * 4;
     }
 
-    // ========== AI ==========
+    // ========== AI LOGIC ==========
     function aiEvalDiscard(seat) {
       let p = players[seat];
-      let hand = [...p.hand];
-      if (drawnTile && currentTurn===seat) hand.push(drawnTile); // shouldn't happen as drawn is added
+      let hand = p.hand;
+      if (p.riichi) return hand.length - 1; // tsumogiri
 
-      let bestDiscard = 0;
-      let bestScore = -999;
-
-      // For riichi players, they must discard drawn tile (tsumogiri)
-      if (p.riichi) return hand.length - 1;
-
-      for (let i=0; i<hand.length; i++) {
-        let test = hand.filter((_,j)=>j!==i);
+      let bestIdx = 0, bestScore = -9999;
+      for (let i = 0; i < hand.length; i++) {
+        let test = hand.filter((_, j) => j !== i);
+        let sc = 0;
         let waits = getWaits(test);
-        let sc = waits.length * 10;
+        sc += waits.length * 12;
 
-        // Penalize honor tiles less if they form pairs/triplets
         let tp = parseTile(hand[i]);
-        let cnt = hand.filter(t=>t===hand[i]).length;
+        let cnt = hand.filter(t => t === hand[i]).length;
 
-        if (cnt >= 3) sc -= 30; // don't discard triplets
-        if (cnt >= 2) sc -= 15; // don't break pairs easily
+        if (cnt >= 3) sc -= 30;
+        if (cnt >= 2) sc -= 15;
 
-        // Prefer discarding isolated honors
-        if (tp.type !== 'suit') {
-          if (cnt === 1) sc += 5;
-        }
+        // Isolated honors are safe discards
+        if (tp.type !== 'suit' && cnt === 1) sc += 5;
+        // Isolated terminals
+        if (tp.type === 'suit' && (tp.num === 1 || tp.num === 9) && cnt === 1) sc += 3;
 
-        // Prefer discarding terminals
-        if (tp.type==='suit' && (tp.num===1||tp.num===9) && cnt===1) sc += 3;
-
-        // Safety: check if tile was already discarded by others (safer)
+        // Already discarded = safer
         let discardedCount = 0;
-        for (let pl of players) {
-          discardedCount += pl.discards.filter(t=>t===hand[i]).length;
-        }
+        for (let pl of players) discardedCount += pl.discards.filter(t => t === hand[i]).length;
         sc += discardedCount * 2;
 
         // Shanten improvement
-        let curShanten = getShantenSimple(test);
-        sc -= curShanten * 8;
+        sc -= getShantenSimple(test) * 8;
 
-        if (sc > bestScore) {
-          bestScore = sc;
-          bestDiscard = i;
-        }
+        if (sc > bestScore) { bestScore = sc; bestIdx = i; }
       }
-      return bestDiscard;
-    }
-
-    function getShantenSimple(hand) {
-      // Quick shanten estimate
-      let counts = countTiles(hand);
-      let groups = 0;
-      let partials = 0;
-      let pairs = 0;
-      let used = {};
-
-      // Count triplets
-      for (let t of Object.keys(counts)) {
-        if (counts[t] >= 3) { groups++; used[t] = (used[t]||0)+3; }
-      }
-      // Count sequences
-      for (let s of SUITS) {
-        for (let n=1;n<=7;n++) {
-          let t1=s+n, t2=s+(n+1), t3=s+(n+2);
-          let a1=counts[t1]-(used[t1]||0);
-          let a2=counts[t2]-(used[t2]||0);
-          let a3=counts[t3]-(used[t3]||0);
-          if (a1>0&&a2>0&&a3>0) {
-            groups++;
-            used[t1]=(used[t1]||0)+1;
-            used[t2]=(used[t2]||0)+1;
-            used[t3]=(used[t3]||0)+1;
-          }
-        }
-      }
-      // Count pairs from remaining
-      for (let t of Object.keys(counts)) {
-        let rem = counts[t] - (used[t]||0);
-        if (rem >= 2) pairs++;
-      }
-      // Count partial sequences from remaining
-      for (let s of SUITS) {
-        for (let n=1;n<=8;n++) {
-          let t1=s+n, t2=s+(n+1);
-          let a1=counts[t1]-(used[t1]||0);
-          let a2=counts[t2]-(used[t2]||0);
-          if (a1>0&&a2>0) partials++;
-        }
-      }
-      let needed = 4;
-      let sh = (needed - groups)*2 - Math.min(partials+pairs, needed-groups) - (pairs>0?1:0);
-      return Math.max(sh, -1);
-    }
-
-    function aiShouldRiichi(seat) {
-      let p = players[seat];
-      if (p.riichi) return false;
-      if (p.points < 1000) return false;
-      if (p.melds.some(m=>m.open)) return false;
-      let waits = getWaits(p.hand);
-      if (waits.length > 0 && wall.length > 4) return true;
-      return false;
+      return bestIdx;
     }
 
     function aiShouldCall(seat, tile, fromSeat) {
@@ -564,198 +412,190 @@
       let hand = p.hand;
       let counts = countTiles(hand);
 
-      // Check Ron (win)
-      let testHand = [...hand, tile];
-      if (canWin(testHand)) {
-        return {type:'ron', tiles:[tile]};
-      }
+      // Ron check
+      if (canWin([...hand, tile])) return {type: 'ron'};
 
-      // Check Pon
-      if (counts[tile] >= 2) {
-        // Only pon if it improves hand significantly
+      // Pon check
+      if ((counts[tile] || 0) >= 2) {
         let curSh = getShantenSimple(hand);
-        let newHand = hand.filter(t=>t!==tile).concat(hand.filter(t=>t===tile).slice(2));
-        // Actually: remove 2 copies of tile from hand
-        let nh = [...hand];
         let removed = 0;
-        nh = nh.filter(t => { if(t===tile && removed<2){removed++;return false;} return true; });
+        let nh = hand.filter(t => { if (t === tile && removed < 2) { removed++; return false; } return true; });
         let newSh = getShantenSimple(nh);
-        if (newSh < curSh || (newSh <= 1 && Math.random() < 0.6)) {
-          return {type:'pon', tiles:[tile,tile,tile]};
+        if (newSh < curSh || (newSh <= 1 && Math.random() < 0.5)) {
+          return {type: 'pon'};
         }
       }
 
-      // Check Chi (only from left player, i.e. fromSeat === (seat+3)%4)
-      if (fromSeat === (seat+3)%4) {
+      // Chi check (only from left player)
+      if (fromSeat === (seat + 3) % 4) {
         let tp = parseTile(tile);
-        if (tp.type==='suit') {
-          let bestChi = null;
-          let bestScore = -1;
-          // Check all possible chi combinations
+        if (tp.type === 'suit') {
+          let curSh = getShantenSimple(hand);
           let combos = [];
-          if (tp.num>=3) {
-            let t1=tp.suit+(tp.num-2), t2=tp.suit+(tp.num-1);
-            if (counts[t1]&&counts[t2]) combos.push([t1,t2,tile]);
+          if (tp.num >= 3 && (counts[tp.suit+(tp.num-2)]||0) > 0 && (counts[tp.suit+(tp.num-1)]||0) > 0) {
+            combos.push([tp.suit+(tp.num-2), tp.suit+(tp.num-1), tile]);
           }
-          if (tp.num>=2&&tp.num<=8) {
-            let t1=tp.suit+(tp.num-1), t2=tp.suit+(tp.num+1);
-            if (counts[t1]&&counts[t2]) combos.push([t1,tile,t2]);
+          if (tp.num >= 2 && tp.num <= 8 && (counts[tp.suit+(tp.num-1)]||0) > 0 && (counts[tp.suit+(tp.num+1)]||0) > 0) {
+            combos.push([tp.suit+(tp.num-1), tile, tp.suit+(tp.num+1)]);
           }
-          if (tp.num<=7) {
-            let t1=tp.suit+(tp.num+1), t2=tp.suit+(tp.num+2);
-            if (counts[t1]&&counts[t2]) combos.push([tile,t1,t2]);
+          if (tp.num <= 7 && (counts[tp.suit+(tp.num+1)]||0) > 0 && (counts[tp.suit+(tp.num+2)]||0) > 0) {
+            combos.push([tile, tp.suit+(tp.num+1), tp.suit+(tp.num+2)]);
           }
           for (let combo of combos) {
             let nh = [...hand];
             for (let ct of combo) {
               if (ct !== tile) {
                 let idx = nh.indexOf(ct);
-                if (idx>=0) nh.splice(idx,1);
+                if (idx >= 0) nh.splice(idx, 1);
               }
             }
             let newSh = getShantenSimple(nh);
-            let curSh = getShantenSimple(hand);
-            if (newSh < curSh) {
-              if (!bestChi || newSh < bestScore) {
-                bestChi = {type:'chi', tiles:combo.sort(tileSort)};
-                bestScore = newSh;
-              }
-            }
+            if (newSh < curSh) return {type: 'chi', combo: combo.sort(tileSort)};
           }
-          if (bestChi) return bestChi;
         }
       }
       return null;
     }
 
-    // ========== GAME LOGIC ==========
-    function drawTile() {
-      if (wall.length === 0) {
-        endHandDraw();
-        return;
-      }
+    // ========== GAME FLOW ==========
+    function drawTileFromWall() {
+      if (wall.length === 0) { endHandDraw(); return; }
       let tile = wall.shift();
       let p = players[currentTurn];
       p.hand.push(tile);
       p.hand.sort(tileSort);
 
-      // Check tsumo (self-draw win)
+      // Check tsumo
       if (canWin(p.hand)) {
         if (currentTurn === 0) {
-          // Offer tsumo to player
-          callOptions = [{type:'tsumo', seat:0}];
-          callButtons = [{label:'TSUMO', x:250, y:300, w:100, h:30, action:'tsumo'}];
+          callOptions = [{type: 'tsumo', seat: 0}];
+          callButtons = [
+            {label: 'TSUMO', x: 220, y: 300, w: 80, h: 30, action: 'tsumo'},
+            {label: 'PASS', x: 310, y: 300, w: 80, h: 30, action: 'pass_tsumo'}
+          ];
           turnPhase = 'call';
           return;
         } else {
-          // AI always declares tsumo
           declareTsumo(currentTurn);
           return;
         }
       }
 
-      // Check riichi declaration for AI
-      if (currentTurn !== 0 && aiShouldRiichi(currentTurn)) {
-        p.riichi = true;
-        p.riichiTurn = p.discards.length;
-        p.points -= 1000;
-        riichiSticks++;
-        showMessage(SEAT_NAMES[currentTurn] + ' declares RIICHI!');
+      // AI riichi check
+      if (currentTurn !== 0) {
+        if (!p.riichi && !p.melds.some(m => m.open) && p.points >= 1000) {
+          // Check if any discard leaves tenpai
+          for (let i = 0; i < p.hand.length; i++) {
+            let test = p.hand.filter((_, j) => j !== i);
+            if (isTenpai(test)) {
+              p.riichi = true;
+              p.riichiTurn = p.discards.length;
+              p.points -= 1000;
+              riichiSticks++;
+              showMessage(SEAT_NAMES[currentTurn] + ' declares RIICHI!');
+              break;
+            }
+          }
+        }
       }
 
       if (currentTurn === 0) {
         turnPhase = 'discard';
       } else {
-        // AI discard
         setTimeout(() => {
+          if (gameState !== 'playing') return;
           let idx = aiEvalDiscard(currentTurn);
           doDiscard(currentTurn, idx);
-        }, 300 + Math.random()*400);
+        }, 400 + Math.random() * 400);
       }
       updateUI();
     }
 
     function doDiscard(seat, tileIdx) {
       let p = players[seat];
+      if (tileIdx < 0 || tileIdx >= p.hand.length) return;
       let tile = p.hand.splice(tileIdx, 1)[0];
       p.discards.push(tile);
-      p.ippatsu = false;
+      discardSeat = seat;
 
       // Check calls from other players
       let calls = [];
-      for (let i=0;i<4;i++) {
-        if (i===seat) continue;
-        // Check ron
-        let testHand = [...players[i].hand, tile];
-        if (canWin(testHand)) {
-          calls.push({type:'ron', seat:i, tile:tile, priority:3});
+      for (let i = 0; i < 4; i++) {
+        if (i === seat) continue;
+        if (players[i].riichi) {
+          // Riichi players can only ron
+          if (canWin([...players[i].hand, tile])) {
+            calls.push({type: 'ron', seat: i, tile, priority: 3});
+          }
+          continue;
         }
-        // Check pon
-        let cnt = players[i].hand.filter(t=>t===tile).length;
-        if (cnt>=2) {
-          calls.push({type:'pon', seat:i, tile:tile, priority:2});
+        // Ron
+        if (canWin([...players[i].hand, tile])) {
+          calls.push({type: 'ron', seat: i, tile, priority: 3});
         }
-        // Check chi (only next player)
-        if (i===(seat+1)%4) {
+        // Pon
+        let cnt = players[i].hand.filter(t => t === tile).length;
+        if (cnt >= 2) {
+          calls.push({type: 'pon', seat: i, tile, priority: 2});
+        }
+        // Chi (only from left = next player in turn order)
+        if (i === (seat + 1) % 4) {
           let tp = parseTile(tile);
-          if (tp.type==='suit') {
-            let h = players[i].hand;
-            let hc = countTiles(h);
-            if (tp.num>=3 && hc[tp.suit+(tp.num-2)] && hc[tp.suit+(tp.num-1)]) {
-              calls.push({type:'chi', seat:i, tile:tile, priority:1, combo:[tp.suit+(tp.num-2),tp.suit+(tp.num-1),tile]});
-            }
-            if (tp.num>=2&&tp.num<=8 && hc[tp.suit+(tp.num-1)] && hc[tp.suit+(tp.num+1)]) {
-              calls.push({type:'chi', seat:i, tile:tile, priority:1, combo:[tp.suit+(tp.num-1),tile,tp.suit+(tp.num+1)]});
-            }
-            if (tp.num<=7 && hc[tp.suit+(tp.num+1)] && hc[tp.suit+(tp.num+2)]) {
-              calls.push({type:'chi', seat:i, tile:tile, priority:1, combo:[tile,tp.suit+(tp.num+1),tp.suit+(tp.num+2)]});
-            }
+          if (tp.type === 'suit') {
+            let hc = countTiles(players[i].hand);
+            if (tp.num >= 3 && (hc[tp.suit+(tp.num-2)]||0) > 0 && (hc[tp.suit+(tp.num-1)]||0) > 0)
+              calls.push({type:'chi',seat:i,tile,priority:1,combo:[tp.suit+(tp.num-2),tp.suit+(tp.num-1),tile]});
+            if (tp.num >= 2 && tp.num <= 8 && (hc[tp.suit+(tp.num-1)]||0) > 0 && (hc[tp.suit+(tp.num+1)]||0) > 0)
+              calls.push({type:'chi',seat:i,tile,priority:1,combo:[tp.suit+(tp.num-1),tile,tp.suit+(tp.num+1)]});
+            if (tp.num <= 7 && (hc[tp.suit+(tp.num+1)]||0) > 0 && (hc[tp.suit+(tp.num+2)]||0) > 0)
+              calls.push({type:'chi',seat:i,tile,priority:1,combo:[tile,tp.suit+(tp.num+1),tp.suit+(tp.num+2)]});
           }
         }
       }
 
       if (calls.length > 0) {
-        // Sort by priority (ron > pon > chi)
-        calls.sort((a,b)=>b.priority-a.priority);
+        calls.sort((a, b) => b.priority - a.priority);
+        let humanCalls = calls.filter(c => c.seat === 0);
+        let aiCalls = calls.filter(c => c.seat !== 0);
 
-        // Check if human has calls
-        let humanCalls = calls.filter(c=>c.seat===0);
-        let aiCalls = calls.filter(c=>c.seat!==0);
-
-        // AI decides first (except human gets priority display)
-        let bestAiCall = null;
+        // Determine best AI call
+        let bestAi = null;
         for (let ac of aiCalls) {
           let decision = aiShouldCall(ac.seat, tile, seat);
           if (decision) {
-            if (!bestAiCall || ac.priority > bestAiCall.priority) {
-              bestAiCall = {...ac, decision};
+            if (!bestAi || ac.priority > bestAi.priority) {
+              bestAi = {...ac, decision};
             }
           }
         }
 
         if (humanCalls.length > 0) {
-          // Offer calls to human
           callOptions = humanCalls;
           callButtons = [];
-          let bx = 150;
+          pendingAiCall = bestAi;
+          let bx = 140;
+          // Deduplicate call types for buttons
+          let seenTypes = new Set();
           for (let hc of humanCalls) {
-            let label = hc.type.toUpperCase();
-            callButtons.push({label, x:bx, y:300, w:80, h:30, action:hc.type, data:hc});
+            if (seenTypes.has(hc.type)) continue;
+            seenTypes.add(hc.type);
+            callButtons.push({label: hc.type.toUpperCase(), x: bx, y: 300, w: 80, h: 30, action: hc.type, data: hc});
             bx += 90;
           }
-          callButtons.push({label:'PASS', x:bx, y:300, w:80, h:30, action:'pass'});
-          callButtons._aiCall = bestAiCall;
+          callButtons.push({label: 'PASS', x: bx, y: 300, w: 80, h: 30, action: 'pass'});
           turnPhase = 'call';
           return;
         }
 
-        if (bestAiCall) {
-          setTimeout(() => executeCall(bestAiCall.seat, bestAiCall.decision||bestAiCall, tile, seat), 400);
+        if (bestAi) {
+          setTimeout(() => {
+            if (gameState !== 'playing') return;
+            executeCall(bestAi.seat, bestAi.decision || bestAi, tile, seat);
+          }, 400);
           return;
         }
       }
 
-      // Next turn
       nextTurn();
     }
 
@@ -763,26 +603,24 @@
       let p = players[seat];
       if (call.type === 'ron') {
         p.hand.push(tile);
-        // Remove from discarder's discards
         let dIdx = players[fromSeat].discards.lastIndexOf(tile);
-        if (dIdx>=0) players[fromSeat].discards.splice(dIdx,1);
+        if (dIdx >= 0) players[fromSeat].discards.splice(dIdx, 1);
         declareWin(seat, fromSeat, false);
         return;
       }
       if (call.type === 'pon') {
-        // Remove tile from discarder's discards
         let dIdx = players[fromSeat].discards.lastIndexOf(tile);
-        if (dIdx>=0) players[fromSeat].discards.splice(dIdx,1);
-        // Remove 2 from hand
+        if (dIdx >= 0) players[fromSeat].discards.splice(dIdx, 1);
         let removed = 0;
-        p.hand = p.hand.filter(t => { if(t===tile&&removed<2){removed++;return false;} return true; });
-        p.melds.push({type:'pon', tiles:[tile,tile,tile], open:true});
+        p.hand = p.hand.filter(t => { if (t === tile && removed < 2) { removed++; return false; } return true; });
+        p.melds.push({type: 'pon', tiles: [tile, tile, tile], open: true});
         currentTurn = seat;
         showMessage(SEAT_NAMES[seat] + ' calls PON!');
-        if (seat===0) {
+        if (seat === 0) {
           turnPhase = 'discard';
         } else {
           setTimeout(() => {
+            if (gameState !== 'playing') return;
             let idx = aiEvalDiscard(seat);
             doDiscard(seat, idx);
           }, 500);
@@ -792,21 +630,22 @@
       }
       if (call.type === 'chi') {
         let dIdx = players[fromSeat].discards.lastIndexOf(tile);
-        if (dIdx>=0) players[fromSeat].discards.splice(dIdx,1);
-        let combo = call.combo || call.tiles;
+        if (dIdx >= 0) players[fromSeat].discards.splice(dIdx, 1);
+        let combo = call.combo || call.tiles || [];
         for (let ct of combo) {
           if (ct !== tile) {
             let idx = p.hand.indexOf(ct);
-            if (idx>=0) p.hand.splice(idx,1);
+            if (idx >= 0) p.hand.splice(idx, 1);
           }
         }
-        p.melds.push({type:'chi', tiles:combo.sort(tileSort), open:true});
+        p.melds.push({type: 'chi', tiles: combo.sort(tileSort), open: true});
         currentTurn = seat;
         showMessage(SEAT_NAMES[seat] + ' calls CHI!');
-        if (seat===0) {
+        if (seat === 0) {
           turnPhase = 'discard';
         } else {
           setTimeout(() => {
+            if (gameState !== 'playing') return;
             let idx = aiEvalDiscard(seat);
             doDiscard(seat, idx);
           }, 500);
@@ -822,27 +661,22 @@
 
     function declareWin(seat, fromSeat, isTsumo) {
       let p = players[seat];
-      let seatW = SEAT_WIND(seat);
+      let sw = SEAT_WIND(seat);
       let isDealer = (seat === handNum);
-      let fan = countFan(p.hand, p.melds, null, isTsumo, seatW, roundWind, p.riichi);
+      let fan = countFan(p.hand, p.melds, null, isTsumo, sw, roundWind, p.riichi);
       let pts = fanToPoints(fan, isDealer) + riichiSticks * 1000;
 
       if (isTsumo) {
-        showMessage(SEAT_NAMES[seat] + ' wins by TSUMO! +' + pts + 'pts (' + fan + ' fan)');
-        // All others pay
-        let each = isDealer ? Math.ceil(pts/3/100)*100 : 0;
-        let dealerPay = isDealer ? 0 : Math.ceil(pts/2/100)*100;
-        for (let i=0;i<4;i++) {
-          if (i===seat) continue;
-          if (isDealer) {
-            players[i].points -= each;
-          } else {
-            players[i].points -= (i===handNum) ? dealerPay : Math.ceil((pts-dealerPay)/2/100)*100;
-          }
+        showMessage(SEAT_NAMES[seat] + ' TSUMO! +' + pts + 'pts (' + fan + ' fan)');
+        let eachPay = Math.ceil(pts / 3 / 100) * 100;
+        for (let i = 0; i < 4; i++) {
+          if (i === seat) continue;
+          let pay = isDealer ? eachPay : (i === handNum ? Math.ceil(pts/2/100)*100 : Math.ceil(pts/4/100)*100);
+          players[i].points -= pay;
         }
         p.points += pts;
       } else {
-        showMessage(SEAT_NAMES[seat] + ' wins by RON from ' + SEAT_NAMES[fromSeat] + '! +' + pts + 'pts (' + fan + ' fan)');
+        showMessage(SEAT_NAMES[seat] + ' RON from ' + SEAT_NAMES[fromSeat] + '! +' + pts + 'pts (' + fan + ' fan)');
         players[fromSeat].points -= pts;
         p.points += pts;
       }
@@ -850,8 +684,10 @@
       score = players[0].points;
       turnPhase = 'done';
       riichiSticks = 0;
+      updateUI();
 
       setTimeout(() => {
+        if (gameState !== 'playing') return;
         endHand(seat === handNum);
       }, 2500);
     }
@@ -859,25 +695,24 @@
     function endHandDraw() {
       showMessage('Exhaustive draw!');
       turnPhase = 'done';
-      // Tenpai payments
       let tenpaiPlayers = [];
-      for (let i=0;i<4;i++) {
+      for (let i = 0; i < 4; i++) {
         if (isTenpai(players[i].hand)) tenpaiPlayers.push(i);
       }
       if (tenpaiPlayers.length > 0 && tenpaiPlayers.length < 4) {
         let total = 3000;
-        let payerCount = 4 - tenpaiPlayers.length;
-        let receiverCount = tenpaiPlayers.length;
-        for (let i=0;i<4;i++) {
+        for (let i = 0; i < 4; i++) {
           if (tenpaiPlayers.includes(i)) {
-            players[i].points += Math.floor(total/receiverCount);
+            players[i].points += Math.floor(total / tenpaiPlayers.length);
           } else {
-            players[i].points -= Math.floor(total/payerCount);
+            players[i].points -= Math.floor(total / (4 - tenpaiPlayers.length));
           }
         }
       }
       score = players[0].points;
+      updateUI();
       setTimeout(() => {
+        if (gameState !== 'playing') return;
         endHand(tenpaiPlayers.includes(handNum));
       }, 2000);
     }
@@ -887,25 +722,22 @@
         handNum = (handNum + 1) % 4;
         if (handNum === 0) {
           roundWind++;
-          if (roundWind >= 2) {
-            // Game over after South round
-            endGame();
-            return;
-          }
+          if (roundWind >= 2) { endGame(); return; }
         }
       }
       updateUI();
       dealHand();
       turnPhase = 'draw';
-      drawTile();
+      drawTileFromWall();
     }
 
     function endGame() {
       gameState = 'over';
-      let winner = players.reduce((a,b) => a.points>b.points?a:b);
-      overlayTitle.textContent = winner.seat===0 ? 'YOU WIN!' : SEAT_NAMES[winner.seat] + ' WINS';
-      let details = players.map((p,i) => SEAT_NAMES[i]+': '+p.points).join(' | ');
-      overlayText.textContent = details + '\nClick to play again';
+      let sorted = [...players].sort((a, b) => b.points - a.points);
+      let winnerSeat = sorted[0].seat;
+      overlayTitle.textContent = winnerSeat === 0 ? 'YOU WIN!' : SEAT_NAMES[winnerSeat] + ' WINS';
+      let details = players.map((p, i) => SEAT_NAMES[i] + ': ' + p.points).join('\n');
+      overlayText.innerHTML = details.replace(/\n/g, '<br>') + '<br><br>Click to play again';
       overlay.style.display = 'flex';
       overlay.style.pointerEvents = 'auto';
       score = players[0].points;
@@ -915,33 +747,16 @@
     function nextTurn() {
       currentTurn = (currentTurn + 1) % 4;
       turnPhase = 'draw';
-      drawTile();
+      drawTileFromWall();
     }
 
-    function showMessage(msg) {
-      message = msg;
-      messageTimer = 120;
-    }
+    function showMessage(msg) { message = msg; messageTimer = 150; }
 
     // ========== DRAWING ==========
-    const TILE_W = 30, TILE_H = 40;
-    const TILE_SM = 20, TILE_SM_H = 28;
+    const TW = 30, TH = 40;
+    const TSW = 20, TSH = 28;
 
-    function drawTileGfx(x, y, tileId, w, h, highlight, faceDown) {
-      ctx.save();
-      // Tile background
-      let grad = ctx.createLinearGradient(x, y, x, y+h);
-      if (faceDown) {
-        grad.addColorStop(0, '#2a5a4a');
-        grad.addColorStop(1, '#1a3a2a');
-      } else {
-        grad.addColorStop(0, '#f5f0e0');
-        grad.addColorStop(1, '#d8d0b8');
-      }
-      ctx.fillStyle = grad;
-
-      // Rounded rect
-      let r = 3;
+    function roundedRect(x, y, w, h, r) {
       ctx.beginPath();
       ctx.moveTo(x+r, y);
       ctx.lineTo(x+w-r, y);
@@ -953,6 +768,20 @@
       ctx.lineTo(x, y+r);
       ctx.quadraticCurveTo(x, y, x+r, y);
       ctx.closePath();
+    }
+
+    function drawTileGfx(x, y, tileId, w, h, highlight, faceDown) {
+      ctx.save();
+      let grad = ctx.createLinearGradient(x, y, x, y + h);
+      if (faceDown) {
+        grad.addColorStop(0, '#2a5a4a');
+        grad.addColorStop(1, '#1a3a2a');
+      } else {
+        grad.addColorStop(0, '#f5f0e0');
+        grad.addColorStop(1, '#d8d0b8');
+      }
+      ctx.fillStyle = grad;
+      roundedRect(x, y, w, h, 3);
       ctx.fill();
 
       if (highlight) {
@@ -961,7 +790,7 @@
         ctx.shadowColor = '#4a8';
         ctx.shadowBlur = 8;
       } else {
-        ctx.strokeStyle = '#888';
+        ctx.strokeStyle = faceDown ? '#3a7a6a' : '#999';
         ctx.lineWidth = 1;
         ctx.shadowBlur = 0;
       }
@@ -971,65 +800,68 @@
       if (faceDown || !tileId) { ctx.restore(); return; }
 
       let p = parseTile(tileId);
-      let cx = x + w/2, cy = y + h/2;
+      let cx = x + w / 2, cy = y + h / 2;
 
       if (p.type === 'suit') {
-        // Number
-        ctx.font = 'bold ' + (h*0.4) + 'px Courier New';
+        let suitColor = {m: '#c33', p: '#28c', s: '#282'}[p.suit];
+        ctx.fillStyle = suitColor;
+        ctx.font = 'bold ' + (h * 0.42) + 'px Courier New';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-
-        let suitColor = {m:'#c22', p:'#28c', s:'#2a2'}[p.suit];
-        ctx.fillStyle = suitColor;
-        ctx.fillText(p.num, cx, cy - h*0.12);
-
-        // Suit indicator
-        ctx.font = (h*0.25) + 'px Courier New';
-        let suitLabel = {m:'M', p:'P', s:'S'}[p.suit];
-        ctx.fillText(suitLabel, cx, cy + h*0.25);
+        ctx.fillText(p.num, cx, cy - h * 0.1);
+        ctx.font = (h * 0.22) + 'px Courier New';
+        ctx.fillText({m:'M', p:'P', s:'S'}[p.suit], cx, cy + h * 0.28);
       } else if (p.type === 'wind') {
-        ctx.font = 'bold ' + (h*0.4) + 'px serif';
+        ctx.font = 'bold ' + (h * 0.48) + 'px serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#333';
-        ctx.fillText(WIND_KANJI[p.num-1], cx, cy);
+        ctx.fillText(WIND_KANJI[p.num - 1], cx, cy);
       } else if (p.type === 'dragon') {
-        ctx.font = 'bold ' + (h*0.45) + 'px serif';
+        ctx.font = 'bold ' + (h * 0.48) + 'px serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        let dc = ['#666','#2a2','#c22'][p.num-1];
-        ctx.fillStyle = dc;
-        ctx.fillText(DRAGON_KANJI[p.num-1], cx, cy);
+        ctx.fillStyle = ['#777', '#2a2', '#c22'][p.num - 1];
+        ctx.fillText(DRAGON_KANJI[p.num - 1], cx, cy);
       }
       ctx.restore();
     }
 
     function draw() {
-      // Background
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
 
-      // Table center (jade green felt)
+      // Table center
       ctx.fillStyle = '#1a3828';
-      ctx.fillRect(100, 80, 400, 280);
+      roundedRect(100, 80, 400, 280, 8);
+      ctx.fill();
+      ctx.strokeStyle = '#2a5a4a';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Inner border
       ctx.strokeStyle = '#4a8';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(100, 80, 400, 280);
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(115, 95, 370, 250);
 
       // Center info
       ctx.fillStyle = '#4a8';
-      ctx.font = '12px Courier New';
+      ctx.font = '13px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText((roundWind===0?'East':'South') + ' ' + (handNum+1), 300, 200);
-      ctx.fillText('Wall: ' + wall.length, 300, 215);
+      let windLabel = roundWind === 0 ? 'East' : 'South';
+      ctx.fillText(windLabel + ' ' + (handNum + 1), 300, 195);
+      ctx.font = '11px Courier New';
+      ctx.fillStyle = '#6c6';
+      ctx.fillText('Wall: ' + wall.length, 300, 210);
 
-      // Dora indicator
+      // Dora
       if (doraIndicators.length > 0) {
-        ctx.fillStyle = '#aaa';
-        ctx.font = '10px Courier New';
-        ctx.fillText('Dora:', 300, 235);
-        for (let i=0;i<doraIndicators.length;i++) {
-          drawTileGfx(285 + i*22, 240, doraIndicators[i], 18, 24, false, false);
+        ctx.fillStyle = '#888';
+        ctx.font = '9px Courier New';
+        ctx.fillText('Dora Indicator', 300, 232);
+        let dx = 300 - (doraIndicators.length * 10);
+        for (let i = 0; i < doraIndicators.length; i++) {
+          drawTileGfx(dx + i * 22, 237, doraIndicators[i], 18, 24, false, false);
         }
       }
 
@@ -1037,274 +869,288 @@
       if (riichiSticks > 0) {
         ctx.fillStyle = '#ea0';
         ctx.font = '10px Courier New';
-        ctx.fillText(riichiSticks + ' riichi stick' + (riichiSticks>1?'s':''), 300, 275);
+        ctx.textAlign = 'center';
+        ctx.fillText(riichiSticks + ' riichi stick' + (riichiSticks > 1 ? 's' : ''), 300, 275);
+        // Draw stick visual
+        for (let i = 0; i < riichiSticks && i < 4; i++) {
+          ctx.fillStyle = '#ea0';
+          ctx.fillRect(270 + i * 20, 280, 16, 3);
+          ctx.fillStyle = '#c00';
+          ctx.beginPath();
+          ctx.arc(278 + i * 20, 281, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
 
-      // Draw current turn indicator
-      let turnNames = ['S(You)','W(AI)','N(AI)','E(AI)'];
-      ctx.fillStyle = '#4a8';
-      ctx.font = '11px Courier New';
-      ctx.textAlign = 'center';
+      // Turn indicator
       if (turnPhase !== 'done') {
-        ctx.fillText('Turn: ' + turnNames[currentTurn], 300, 185);
+        let turnNames = ['South(You)', 'West(AI)', 'North(AI)', 'East(AI)'];
+        ctx.fillStyle = '#4a8';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('Turn: ' + turnNames[currentTurn], 300, 180);
       }
 
-      // Draw each player's area
+      // Players
       drawPlayerSouth();
       drawPlayerWest();
       drawPlayerNorth();
       drawPlayerEast();
 
-      // Draw discard pools
+      // Discards
       drawDiscards();
 
-      // Draw call buttons
+      // Call buttons
       if (turnPhase === 'call' && callButtons.length > 0) {
+        // Semi-transparent backdrop
+        ctx.fillStyle = 'rgba(26,26,46,0.7)';
+        ctx.fillRect(120, 290, 360, 50);
         for (let btn of callButtons) {
-          if (typeof btn.action !== 'string') continue;
-          ctx.fillStyle = btn.hover ? '#5b9' : '#2a5a4a';
-          ctx.strokeStyle = '#4a8';
+          ctx.fillStyle = btn.hover ? '#3a8a6a' : '#2a5a4a';
+          roundedRect(btn.x, btn.y, btn.w, btn.h, 5);
+          ctx.fill();
+          ctx.strokeStyle = btn.hover ? '#6d6' : '#4a8';
           ctx.lineWidth = 2;
-          // Rounded button
-          let bx=btn.x, by=btn.y, bw=btn.w, bh=btn.h, br=5;
-          ctx.beginPath();
-          ctx.moveTo(bx+br,by);ctx.lineTo(bx+bw-br,by);
-          ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+br);
-          ctx.lineTo(bx+bw,by+bh-br);
-          ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-br,by+bh);
-          ctx.lineTo(bx+br,by+bh);
-          ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-br);
-          ctx.lineTo(bx,by+br);
-          ctx.quadraticCurveTo(bx,by,bx+br,by);
-          ctx.closePath();
-          ctx.fill(); ctx.stroke();
-
+          ctx.stroke();
           ctx.fillStyle = '#fff';
           ctx.font = 'bold 13px Courier New';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(btn.label, bx+bw/2, by+bh/2);
+          ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
         }
       }
 
-      // Riichi button for player
-      if (turnPhase === 'discard' && currentTurn === 0 && !players[0].riichi) {
+      // Riichi button
+      if (turnPhase === 'discard' && currentTurn === 0 && !players[0].riichi && players[0].points >= 1000) {
         let p0 = players[0];
-        if (!p0.melds.some(m=>m.open) && isTenpai(p0.hand.length===14?p0.hand.slice(0,-1):p0.hand)) {
-          // Could offer riichi... check each discard
-          let canRiichi = false;
-          for (let i=0;i<p0.hand.length;i++) {
-            let test = p0.hand.filter((_,j)=>j!==i);
-            if (isTenpai(test)) { canRiichi = true; break; }
+        if (!p0.melds.some(m => m.open)) {
+          let canR = false;
+          for (let i = 0; i < p0.hand.length; i++) {
+            let test = p0.hand.filter((_, j) => j !== i);
+            if (isTenpai(test)) { canR = true; break; }
           }
-          if (canRiichi && p0.points >= 1000) {
-            let rbx=500, rby=410, rbw=80, rbh=25;
-            ctx.fillStyle = '#5a2a2a';
+          if (canR) {
+            let rbx = 500, rby = 412, rbw = 80, rbh = 24;
+            ctx.fillStyle = '#4a2a2a';
+            roundedRect(rbx, rby, rbw, rbh, 4);
+            ctx.fill();
             ctx.strokeStyle = '#e44';
             ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.roundRect(rbx,rby,rbw,rbh,4);
-            ctx.fill(); ctx.stroke();
+            ctx.stroke();
             ctx.fillStyle = '#e44';
-            ctx.font = 'bold 12px Courier New';
+            ctx.font = 'bold 11px Courier New';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('RIICHI', rbx+rbw/2, rby+rbh/2);
+            ctx.fillText('RIICHI', rbx + rbw / 2, rby + rbh / 2);
           }
         }
       }
 
-      // Message
+      // Message bar
       if (messageTimer > 0) {
+        let alpha = Math.min(1, messageTimer / 30);
         ctx.save();
-        ctx.fillStyle = 'rgba(26,26,46,0.8)';
-        ctx.fillRect(100, 150, 400, 40);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = 'rgba(26,26,46,0.85)';
+        ctx.fillRect(80, 145, 440, 35);
+        ctx.strokeStyle = '#4a8';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(80, 145, 440, 35);
         ctx.fillStyle = '#4a8';
-        ctx.font = 'bold 14px Courier New';
+        ctx.font = 'bold 13px Courier New';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.shadowColor = '#4a8';
         ctx.shadowBlur = 10;
-        ctx.fillText(message, 300, 170);
+        ctx.fillText(message, 300, 162);
         ctx.restore();
+      }
+
+      // Waiting for AI indicator
+      if (turnPhase === 'discard' && currentTurn !== 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '11px Courier New';
+        ctx.textAlign = 'center';
+        let dots = '.'.repeat(1 + (Date.now() / 500 | 0) % 3);
+        ctx.fillText('AI thinking' + dots, 300, 395);
       }
     }
 
     function drawPlayerSouth() {
       let p = players[0];
       let handLen = p.hand.length;
-      let totalW = handLen * (TILE_W + 2);
-      let startX = (W - totalW) / 2;
-      let y = H - TILE_H - 15;
+      let meldTileCount = p.melds.reduce((s, m) => s + m.tiles.length, 0);
+      let totalW = handLen * (TW + 2);
+      let startX = Math.max(10, (W - totalW) / 2 - meldTileCount * 12);
+      let y = H - TH - 18;
 
-      // Player label
-      ctx.fillStyle = currentTurn===0 ? '#4a8' : '#888';
+      // Label
+      ctx.fillStyle = currentTurn === 0 ? '#4a8' : '#888';
       ctx.font = '11px Courier New';
       ctx.textAlign = 'left';
-      ctx.fillText('You (' + p.points + 'pts)' + (p.riichi?' [RIICHI]':''), startX, y - 8);
-      if (SEAT_WIND(0) === 0) {
-        ctx.fillStyle = '#ea0';
-        ctx.fillText(' E', startX + 140, y - 8);
-      }
+      let windStr = WIND_NAMES[SEAT_WIND(0)];
+      let label = 'You [' + windStr + '] ' + p.points + 'pts';
+      if (p.riichi) label += ' RIICHI';
+      ctx.fillText(label, 10, y - 6);
 
-      // Melds
-      let meldX = W - 10;
-      for (let m of p.melds) {
-        for (let i=m.tiles.length-1;i>=0;i--) {
-          meldX -= (TILE_SM + 2);
-          drawTileGfx(meldX, y + 8, m.tiles[i], TILE_SM, TILE_SM_H, false, false);
-        }
-        meldX -= 6;
-      }
-
-      // Hand tiles
-      for (let i=0; i<handLen; i++) {
-        let tx = startX + i * (TILE_W + 2);
+      // Hand
+      for (let i = 0; i < handLen; i++) {
+        let tx = startX + i * (TW + 2);
         let ty = y;
         let isHover = (i === hoveredTile && turnPhase === 'discard' && currentTurn === 0);
-        let isSel = (i === selectedTile);
-        if (isHover || isSel) ty -= 8;
-        drawTileGfx(tx, ty, p.hand[i], TILE_W, TILE_H, isHover || isSel, false);
+        if (isHover) ty -= 8;
+        drawTileGfx(tx, ty, p.hand[i], TW, TH, isHover, false);
+      }
+
+      // Melds (right side)
+      let mx = W - 8;
+      for (let m of p.melds) {
+        for (let i = m.tiles.length - 1; i >= 0; i--) {
+          mx -= (TSW + 2);
+          drawTileGfx(mx, y + 10, m.tiles[i], TSW, TSH, false, false);
+        }
+        mx -= 5;
       }
     }
 
     function drawPlayerWest() {
       let p = players[1];
-      let y0 = 95;
-      ctx.fillStyle = currentTurn===1 ? '#4a8' : '#888';
+      let y0 = 100;
+      ctx.fillStyle = currentTurn === 1 ? '#4a8' : '#888';
       ctx.font = '10px Courier New';
       ctx.textAlign = 'left';
-      ctx.fillText('West (' + p.points + ')' + (p.riichi?' R':''), 5, y0 - 3);
+      let label = 'W:' + p.points;
+      if (p.riichi) label += ' R';
+      ctx.fillText(label, 3, y0 - 4);
 
       let count = p.hand.length;
-      let tileH = Math.min(18, (260 / Math.max(count,1)));
-      for (let i=0; i<count; i++) {
-        drawTileGfx(10, y0 + i*tileH, null, TILE_SM_H, TILE_SM-2, false, true);
+      let gap = Math.min(16, 230 / Math.max(count, 1));
+      for (let i = 0; i < count; i++) {
+        drawTileGfx(8, y0 + i * gap, null, TSH, TSW - 2, false, true);
       }
-      // Melds
-      let my = y0 + count*tileH + 5;
+
+      let my = y0 + count * gap + 8;
       for (let m of p.melds) {
         for (let t of m.tiles) {
-          drawTileGfx(5, my, t, 16, 22, false, false);
-          my += 18;
+          drawTileGfx(3, my, t, 16, 20, false, false);
+          my += 17;
         }
-        my += 4;
+        my += 3;
       }
     }
 
     function drawPlayerNorth() {
       let p = players[2];
       let handLen = p.hand.length;
-      let totalW = handLen * (TILE_SM + 1);
+      let totalW = handLen * (TSW + 1);
       let startX = (W - totalW) / 2;
-      let y = 10;
+      let y = 8;
 
-      ctx.fillStyle = currentTurn===2 ? '#4a8' : '#888';
+      ctx.fillStyle = currentTurn === 2 ? '#4a8' : '#888';
       ctx.font = '10px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText('North (' + p.points + ')' + (p.riichi?' R':''), W/2, y + TILE_SM_H + 14);
+      let label = 'N:' + p.points;
+      if (p.riichi) label += ' R';
+      ctx.fillText(label, W / 2, y + TSH + 13);
 
-      for (let i=0; i<handLen; i++) {
-        drawTileGfx(startX + i*(TILE_SM+1), y, null, TILE_SM, TILE_SM_H, false, true);
+      for (let i = 0; i < handLen; i++) {
+        drawTileGfx(startX + i * (TSW + 1), y, null, TSW, TSH, false, true);
       }
-      // Melds
-      let mx = startX + handLen*(TILE_SM+1) + 5;
+
+      let mx = startX + handLen * (TSW + 1) + 8;
       for (let m of p.melds) {
         for (let t of m.tiles) {
-          drawTileGfx(mx, y, t, 16, 22, false, false);
-          mx += 18;
+          drawTileGfx(mx, y, t, 16, 20, false, false);
+          mx += 17;
         }
-        mx += 4;
+        mx += 3;
       }
     }
 
     function drawPlayerEast() {
       let p = players[3];
-      let y0 = 95;
-      ctx.fillStyle = currentTurn===3 ? '#4a8' : '#888';
+      let y0 = 100;
+      ctx.fillStyle = currentTurn === 3 ? '#4a8' : '#888';
       ctx.font = '10px Courier New';
       ctx.textAlign = 'right';
-      ctx.fillText('East (' + p.points + ')' + (p.riichi?' R':''), W-5, y0 - 3);
+      let label = 'E:' + p.points;
+      if (p.riichi) label += ' R';
+      ctx.fillText(label, W - 3, y0 - 4);
 
       let count = p.hand.length;
-      let tileH = Math.min(18, (260 / Math.max(count,1)));
-      for (let i=0; i<count; i++) {
-        drawTileGfx(W - 10 - TILE_SM_H, y0 + i*tileH, null, TILE_SM_H, TILE_SM-2, false, true);
+      let gap = Math.min(16, 230 / Math.max(count, 1));
+      for (let i = 0; i < count; i++) {
+        drawTileGfx(W - 8 - TSH, y0 + i * gap, null, TSH, TSW - 2, false, true);
       }
-      // Melds
-      let my = y0 + count*tileH + 5;
+
+      let my = y0 + count * gap + 8;
       for (let m of p.melds) {
         for (let t of m.tiles) {
-          drawTileGfx(W-25, my, t, 16, 22, false, false);
-          my += 18;
+          drawTileGfx(W - 22, my, t, 16, 20, false, false);
+          my += 17;
         }
-        my += 4;
+        my += 3;
       }
     }
 
     function drawDiscards() {
-      // Central discard area for each player
-      let areas = [
-        {x:200, y:310, dx:1, dy:0}, // South discards (above player hand)
-        {x:110, y:170, dx:0, dy:1}, // West discards
-        {x:200, y:90, dx:1, dy:0},  // North discards
-        {x:470, y:170, dx:0, dy:1}, // East discards
+      // Each player's discard pool in the center area
+      let tw = 15, th = 20;
+      let pools = [
+        {x: 200, y: 305, maxRow: 11, dx: 1}, // south (bottom of center)
+        {x: 120, y: 160, maxRow: 6, dx: 0},   // west
+        {x: 200, y: 100, maxRow: 11, dx: 1},  // north
+        {x: 455, y: 160, maxRow: 6, dx: 0},   // east
       ];
-      let tileW = 16, tileH = 22;
 
-      for (let pi=0;pi<4;pi++) {
+      for (let pi = 0; pi < 4; pi++) {
         let p = players[pi];
-        let a = areas[pi];
-        let row = 0, col = 0;
-        let maxPerRow = (a.dx===1) ? 10 : 6;
-
-        for (let di=0; di<p.discards.length; di++) {
+        let pool = pools[pi];
+        for (let di = 0; di < p.discards.length; di++) {
+          let row = Math.floor(di / pool.maxRow);
+          let col = di % pool.maxRow;
           let tx, ty;
-          if (a.dx === 1) {
-            tx = a.x + col*(tileW+1);
-            ty = a.y + row*(tileH+1);
+          if (pool.dx === 1) {
+            tx = pool.x + col * (tw + 1);
+            ty = pool.y + row * (th + 1);
           } else {
-            tx = a.x + row*(tileW+1);
-            ty = a.y + col*(tileH+1);
+            tx = pool.x + row * (tw + 1);
+            ty = pool.y + col * (th + 1);
           }
-          drawTileGfx(tx, ty, p.discards[di], tileW, tileH, false, false);
-          col++;
-          if (col >= maxPerRow) { col=0; row++; }
+          drawTileGfx(tx, ty, p.discards[di], tw, th, false, false);
         }
       }
     }
 
     // ========== INPUT ==========
-    let mouseX=0, mouseY=0;
+    let mouseX = 0, mouseY = 0;
 
     canvas.addEventListener('mousemove', (e) => {
       let rect = canvas.getBoundingClientRect();
       mouseX = (e.clientX - rect.left) * (W / rect.width);
       mouseY = (e.clientY - rect.top) * (H / rect.height);
 
-      // Hover detection for hand tiles
       hoveredTile = -1;
       if (turnPhase === 'discard' && currentTurn === 0) {
         let p = players[0];
         let handLen = p.hand.length;
-        let totalW = handLen * (TILE_W + 2);
-        let startX = (W - totalW) / 2;
-        let y = H - TILE_H - 15;
+        let meldTileCount = p.melds.reduce((s, m) => s + m.tiles.length, 0);
+        let totalW = handLen * (TW + 2);
+        let startX = Math.max(10, (W - totalW) / 2 - meldTileCount * 12);
+        let y = H - TH - 18;
 
-        for (let i=0; i<handLen; i++) {
-          let tx = startX + i * (TILE_W + 2);
-          if (mouseX >= tx && mouseX <= tx + TILE_W && mouseY >= y - 8 && mouseY <= y + TILE_H) {
+        for (let i = 0; i < handLen; i++) {
+          let tx = startX + i * (TW + 2);
+          if (mouseX >= tx && mouseX <= tx + TW && mouseY >= y - 10 && mouseY <= y + TH) {
             hoveredTile = i;
           }
         }
       }
 
       // Button hover
-      if (turnPhase === 'call') {
-        for (let btn of callButtons) {
-          if (typeof btn.action !== 'string') continue;
-          btn.hover = mouseX >= btn.x && mouseX <= btn.x+btn.w && mouseY >= btn.y && mouseY <= btn.y+btn.h;
-        }
+      for (let btn of callButtons) {
+        btn.hover = mouseX >= btn.x && mouseX <= btn.x + btn.w &&
+                    mouseY >= btn.y && mouseY <= btn.y + btn.h;
       }
     });
 
@@ -1318,55 +1164,55 @@
         return;
       }
 
-      // Handle call buttons
-      if (turnPhase === 'call' && callButtons.length > 0) {
+      // Call buttons
+      if (turnPhase === 'call') {
         for (let btn of callButtons) {
-          if (typeof btn.action !== 'string') continue;
-          if (cx >= btn.x && cx <= btn.x+btn.w && cy >= btn.y && cy <= btn.y+btn.h) {
-            handleCallButton(btn);
+          if (cx >= btn.x && cx <= btn.x + btn.w && cy >= btn.y && cy <= btn.y + btn.h) {
+            handleCallAction(btn);
             return;
           }
         }
         return;
       }
 
-      // Handle riichi button
-      if (turnPhase === 'discard' && currentTurn === 0 && !players[0].riichi) {
-        if (cx >= 500 && cx <= 580 && cy >= 410 && cy <= 435) {
-          // Declare riichi
-          players[0].riichi = true;
-          players[0].riichiTurn = players[0].discards.length;
-          players[0].points -= 1000;
-          riichiSticks++;
-          showMessage('You declare RIICHI!');
-          score = players[0].points;
-          scoreEl.textContent = score;
-          // Auto-discard: find a discard that keeps tenpai
+      // Riichi button
+      if (turnPhase === 'discard' && currentTurn === 0 && !players[0].riichi && players[0].points >= 1000) {
+        if (cx >= 500 && cx <= 580 && cy >= 412 && cy <= 436) {
           let p0 = players[0];
-          for (let i=0;i<p0.hand.length;i++) {
-            let test = p0.hand.filter((_,j)=>j!==i);
-            if (isTenpai(test)) {
-              doDiscard(0, i);
-              return;
+          if (!p0.melds.some(m => m.open)) {
+            p0.riichi = true;
+            p0.riichiTurn = p0.discards.length;
+            p0.points -= 1000;
+            riichiSticks++;
+            showMessage('You declare RIICHI!');
+            score = p0.points;
+            scoreEl.textContent = score;
+            // Auto-discard: pick first that keeps tenpai
+            for (let i = 0; i < p0.hand.length; i++) {
+              let test = p0.hand.filter((_, j) => j !== i);
+              if (isTenpai(test)) {
+                doDiscard(0, i);
+                return;
+              }
             }
           }
           return;
         }
       }
 
-      // Handle tile discard
+      // Tile discard
       if (turnPhase === 'discard' && currentTurn === 0) {
         let p = players[0];
         let handLen = p.hand.length;
-        let totalW = handLen * (TILE_W + 2);
-        let startX = (W - totalW) / 2;
-        let y = H - TILE_H - 15;
+        let meldTileCount = p.melds.reduce((s, m) => s + m.tiles.length, 0);
+        let totalW = handLen * (TW + 2);
+        let startX = Math.max(10, (W - totalW) / 2 - meldTileCount * 12);
+        let y = H - TH - 18;
 
-        for (let i=0; i<handLen; i++) {
-          let tx = startX + i * (TILE_W + 2);
-          if (cx >= tx && cx <= tx + TILE_W && cy >= y - 8 && cy <= y + TILE_H) {
+        for (let i = 0; i < handLen; i++) {
+          let tx = startX + i * (TW + 2);
+          if (cx >= tx && cx <= tx + TW && cy >= y - 10 && cy <= y + TH) {
             if (p.riichi) {
-              // Must discard drawn tile (last tile)
               doDiscard(0, p.hand.length - 1);
             } else {
               doDiscard(0, i);
@@ -1377,53 +1223,48 @@
       }
     });
 
-    function handleCallButton(btn) {
-      if (btn.action === 'pass') {
+    function handleCallAction(btn) {
+      let savedAiCall = pendingAiCall;
+
+      if (btn.action === 'pass' || btn.action === 'pass_tsumo') {
         callOptions = [];
-        callButtons_aiCall = callButtons._aiCall;
         callButtons = [];
-        if (callButtons_aiCall) {
-          let ac = callButtons_aiCall;
-          executeCall(ac.seat, ac.decision||ac, ac.tile, currentTurn);
+        pendingAiCall = null;
+        if (savedAiCall) {
+          executeCall(savedAiCall.seat, savedAiCall.decision || savedAiCall, savedAiCall.tile, discardSeat);
         } else {
           nextTurn();
         }
         return;
       }
+
+      callOptions = [];
+      callButtons = [];
+      pendingAiCall = null;
+
       if (btn.action === 'tsumo') {
-        callOptions = [];
-        callButtons = [];
         declareTsumo(0);
         return;
       }
       if (btn.action === 'ron') {
         let data = btn.data;
-        callOptions = [];
-        callButtons = [];
-        executeCall(0, {type:'ron'}, data.tile, currentTurn);
+        executeCall(0, {type: 'ron'}, data.tile, discardSeat);
         return;
       }
       if (btn.action === 'pon') {
         let data = btn.data;
-        callOptions = [];
-        callButtons = [];
-        executeCall(0, {type:'pon'}, data.tile, currentTurn);
+        executeCall(0, {type: 'pon'}, data.tile, discardSeat);
         return;
       }
       if (btn.action === 'chi') {
         let data = btn.data;
-        callOptions = [];
-        callButtons = [];
-        executeCall(0, {type:'chi', combo:data.combo, tiles:data.combo}, data.tile, currentTurn);
+        executeCall(0, {type: 'chi', combo: data.combo, tiles: data.combo}, data.tile, discardSeat);
         return;
       }
     }
 
-    // Overlay click
     overlay.addEventListener('click', () => {
-      if (gameState === 'waiting' || gameState === 'over') {
-        startGame();
-      }
+      if (gameState === 'waiting' || gameState === 'over') startGame();
     });
 
     function startGame() {
@@ -1434,9 +1275,15 @@
       roundWind = 0;
       handNum = 0;
       riichiSticks = 0;
+      // Initialize AI scores
+      for (let i = 0; i < 4; i++) {
+        if (!players[i]) players[i] = initPlayer(i);
+      }
       dealHand();
-      // Start first turn
-      drawTile();
+      // Set initial points
+      for (let i = 0; i < 4; i++) players[i].points = 25000;
+      score = 25000;
+      drawTileFromWall();
     }
 
     // ========== GAME LOOP ==========
@@ -1448,19 +1295,22 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // Initial overlay draw
-    function drawOverlayBg() {
+    // Initial decorative draw
+    (function drawStartScreen() {
       ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(0,0,W,H);
-      // Some decorative tiles
-      let demoTiles = ['m1','m9','p1','p9','s1','s9','w1','w2','w3','w4','d1','d2','d3'];
-      for (let i=0;i<demoTiles.length;i++) {
-        let x = 50 + i*40;
-        let y = 380;
-        drawTileGfx(x, y, demoTiles[i], 34, 46, false, false);
+      ctx.fillRect(0, 0, W, H);
+      let demoTiles = ['m1','m2','m3','p4','p5','p6','s7','s8','s9','w1','w2','w3','w4','d1','d2','d3'];
+      let startX = (W - demoTiles.length * 34) / 2;
+      for (let i = 0; i < demoTiles.length; i++) {
+        drawTileGfx(startX + i * 35, 380, demoTiles[i], 32, 44, false, false);
       }
-    }
-    drawOverlayBg();
+      // Title decorations
+      ctx.fillStyle = '#4a8';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('4-Player Riichi Mahjong', 300, 440);
+    })();
+
     gameLoop();
   </script>
   <script src="../recorder.js?v=2"></script>

@@ -70,1092 +70,978 @@
     <canvas id="game" width="600" height="400"></canvas>
     <div class="overlay" id="overlay" style="width:600px;height:400px;">
       <h2 id="overlayTitle">ROCKET LEAGUE 2D</h2>
-      <p id="overlayText">Arrow keys: drive/rotate | Up: jump | Space: boost<br><br>Press any key to start</p>
+      <p id="overlayText">&larr; &rarr; Drive &nbsp; &uarr; Jump &nbsp; Space Boost<br><br>Score goals with car soccer!<br><br>Press any key to start</p>
     </div>
   </div>
   <script src="../recorder.js"></script>
   <script>
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    const W = 600, H = 400;
-    const scoreEl = document.getElementById('score');
-    const bestEl = document.getElementById('best');
-    const matchInfo = document.getElementById('matchInfo');
-    const overlay = document.getElementById('overlay');
-    const overlayTitle = document.getElementById('overlayTitle');
-    const overlayText = document.getElementById('overlayText');
+  'use strict';
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = 600, H = 400;
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const matchInfo = document.getElementById('matchInfo');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayText = document.getElementById('overlayText');
 
-    // Theme
-    const THEME = '#f60';
-    const THEME_RGB = '255, 102, 0';
+  const THEME = '#f60';
 
-    // Game states
-    let gameState = 'start'; // start, playing, goalScored, gameOver
-    let score = 0;
-    let aiScore = 0;
+  // === GAME STATE ===
+  let gameState = 'start';
+  let score = 0;
+  let aiScore = 0;
+  let timer = 0;
+  let goalTimer = 0;
+  let goalMessage = '';
+  let kickoffTimer = 0;
 
-    // Physics
-    const GRAVITY = 0.35;
-    const FPS = 60;
-    const DT = 1;
+  // === CONSTANTS ===
+  const GRAVITY = 0.4;
+  const ARENA_L = 12;
+  const ARENA_R = W - 12;
+  const ARENA_T = 30;
+  const ARENA_B = H - 12;
+  const ARENA_W = ARENA_R - ARENA_L;
+  const ARENA_H = ARENA_B - ARENA_T;
+  const GOAL_H = 100;
+  const GOAL_W = 12;
+  const GOAL_TOP = ARENA_B - GOAL_H;
+  const BALL_R = 13;
+  const WIN_SCORE = 5;
+  const MATCH_SECS = 180;
+  const MAX_BOOST = 100;
 
-    // Arena dimensions
-    const WALL_THICK = 10;
-    const ARENA_LEFT = WALL_THICK;
-    const ARENA_RIGHT = W - WALL_THICK;
-    const ARENA_TOP = WALL_THICK;
-    const ARENA_BOTTOM = H - WALL_THICK;
-    const GOAL_WIDTH = 8;
-    const GOAL_HEIGHT = 90;
-    const GOAL_TOP = ARENA_BOTTOM - GOAL_HEIGHT;
+  // Car
+  const CAR_W = 38;
+  const CAR_H = 18;
+  const DRIVE_FORCE = 0.45;
+  const AIR_TORQUE = 0.07;
+  const JUMP_VEL = -7.5;
+  const DOUBLE_JUMP_VEL = -6;
+  const BOOST_FORCE = 0.55;
+  const BOOST_RATE = 1.0;
+  const MAX_SPEED = 8;
+  const MAX_BOOST_SPEED = 12;
+  const GROUND_FRIC = 0.94;
+  const AIR_FRIC = 0.997;
 
-    // Ball
-    const BALL_R = 14;
-    const BALL_BOUNCE = 0.7;
-    const BALL_FRICTION = 0.998;
-    const BALL_MAX_VEL = 12;
+  // === INPUT ===
+  const keys = {};
+  const justPressed = {};
+  document.addEventListener('keydown', e => {
+    if (!keys[e.code]) justPressed[e.code] = true;
+    keys[e.code] = true;
+    if (gameState === 'start') { startMatch(); e.preventDefault(); }
+    else if (gameState === 'gameOver') { resetAll(); e.preventDefault(); }
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+  });
+  document.addEventListener('keyup', e => { keys[e.code] = false; });
 
-    // Car dimensions
-    const CAR_W = 40;
-    const CAR_H = 20;
-    const CAR_MASS = 2;
-    const BALL_MASS = 1;
+  // === OBJECTS ===
+  let ball, player, aiCar, particles, ballTrail, boostPads;
 
-    // Car physics
-    const DRIVE_ACCEL = 0.3;
-    const BRAKE_DECEL = 0.15;
-    const CAR_FRICTION = 0.97;
-    const CAR_AIR_FRICTION = 0.995;
-    const ROTATE_SPEED = 0.06;
-    const JUMP_FORCE = 7;
-    const BOOST_ACCEL = 0.6;
-    const MAX_BOOST = 100;
-    const BOOST_COST = 0.8;
-    const BOOST_REGEN = 0;
+  function makeCar(x, facingRight, isAI) {
+    return {
+      x, y: ARENA_B - CAR_H/2,
+      vx: 0, vy: 0,
+      angle: 0,
+      angVel: 0,
+      grounded: false,
+      onWallL: false, onWallR: false, onCeiling: false,
+      boost: 40,
+      jumps: 2,
+      facingRight,
+      isAI,
+      color: isAI ? '#4af' : '#f60',
+      darkColor: isAI ? '#2a7ab5' : '#b34700',
+      flameTimer: 0,
+      lastHitBall: 0
+    };
+  }
 
-    // Boost pads
-    const BOOST_PAD_SIZE = 12;
-    const BOOST_PAD_AMOUNT = 25;
-    const BOOST_PAD_RESPAWN = 300; // frames
+  function initBoostPads() {
+    boostPads = [];
+    const positions = [
+      [80, ARENA_B], [200, ARENA_B], [300, ARENA_B], [400, ARENA_B], [520, ARENA_B],
+      [ARENA_L, 250], [ARENA_R, 250],
+      [150, ARENA_T], [300, ARENA_T], [450, ARENA_T]
+    ];
+    for (const [px, py] of positions) {
+      boostPads.push({ x: px, y: py, active: true, respawn: 0, big: (px===300 && py===ARENA_B) });
+    }
+  }
+
+  function resetPositions() {
+    ball = { x: W/2, y: ARENA_B - 80, vx: 0, vy: 0 };
+    player = makeCar(170, true, false);
+    aiCar = makeCar(430, false, true);
+    ballTrail = [];
+    kickoffTimer = 60;
+  }
+
+  function resetAll() {
+    score = 0; aiScore = 0;
+    scoreEl.textContent = '0';
+    bestEl.textContent = '0';
+    timer = MATCH_SECS * 60;
+    initBoostPads();
+    resetPositions();
+    particles = [];
+    gameState = 'start';
+    overlay.style.display = 'flex';
+    overlayTitle.textContent = 'ROCKET LEAGUE 2D';
+    overlayText.innerHTML = '&larr; &rarr; Drive &nbsp; &uarr; Jump &nbsp; Space Boost<br><br>Score goals with car soccer!<br><br>Press any key to start';
+  }
+
+  function startMatch() {
+    gameState = 'playing';
+    timer = MATCH_SECS * 60;
+    score = 0; aiScore = 0;
+    scoreEl.textContent = '0';
+    bestEl.textContent = '0';
+    initBoostPads();
+    resetPositions();
+    particles = [];
+    overlay.style.display = 'none';
+    if (typeof startRecording === 'function') startRecording();
+  }
+
+  // === PARTICLES ===
+  function spawn(x, y, color, n, spd) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = (Math.random() * 2 + 0.5) * (spd || 1);
+      particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life: 25+Math.random()*20, max: 45, color, sz: Math.random()*3+1 });
+    }
+  }
+
+  // === CAR PHYSICS ===
+  function getCarCorners(c) {
+    const hw = CAR_W/2, hh = CAR_H/2;
+    const cos = Math.cos(c.angle), sin = Math.sin(c.angle);
+    return [
+      { x: c.x + cos*hw - sin*(-hh), y: c.y + sin*hw + cos*(-hh) },
+      { x: c.x + cos*hw - sin*hh,    y: c.y + sin*hw + cos*hh },
+      { x: c.x + cos*(-hw) - sin*hh, y: c.y + sin*(-hw) + cos*hh },
+      { x: c.x + cos*(-hw) - sin*(-hh), y: c.y + sin*(-hw) + cos*(-hh) }
+    ];
+  }
+
+  function updateCar(c, inputLR, inputJump, inputBoost) {
+    const wasGrounded = c.grounded;
+    c.grounded = false; c.onWallL = false; c.onWallR = false; c.onCeiling = false;
+
+    // Check surface contacts
+    if (c.y + CAR_H/2 >= ARENA_B - 1) c.grounded = true;
+    if (c.y - CAR_H/2 <= ARENA_T + 1) c.onCeiling = true;
+    if (c.x - CAR_W/2 <= ARENA_L + 1) c.onWallL = true;
+    if (c.x + CAR_W/2 >= ARENA_R - 1) c.onWallR = true;
+    const onSurface = c.grounded || c.onWallL || c.onWallR || c.onCeiling;
+
+    // Reset jumps on ground
+    if (c.grounded && !wasGrounded) c.jumps = 2;
+    if (c.onWallL || c.onWallR || c.onCeiling) c.jumps = Math.max(c.jumps, 1);
+
+    if (c.grounded) {
+      // Ground: angle auto-levels, drive left/right
+      c.angle *= 0.8; // level out
+      c.angVel *= 0.5;
+
+      if (inputLR !== 0) {
+        c.vx += inputLR * DRIVE_FORCE;
+        c.facingRight = inputLR > 0;
+      }
+      c.vx *= GROUND_FRIC;
+      if (Math.abs(c.vy) < 1) c.vy = 0;
+
+    } else {
+      // Air: left/right = rotate car
+      if (inputLR !== 0) {
+        c.angVel += inputLR * AIR_TORQUE;
+      }
+      c.vx *= AIR_FRIC;
+      c.vy *= AIR_FRIC;
+    }
+
+    // Wall driving
+    if (c.onWallL && !c.grounded) {
+      c.vy *= 0.92;
+      if (inputLR !== 0) c.vy += inputLR * DRIVE_FORCE * -0.5;
+      c.angle = Math.PI/2 * 0.2 + c.angle * 0.8;
+    }
+    if (c.onWallR && !c.grounded) {
+      c.vy *= 0.92;
+      if (inputLR !== 0) c.vy += inputLR * DRIVE_FORCE * 0.5;
+      c.angle = -Math.PI/2 * 0.2 + c.angle * 0.8;
+    }
+    if (c.onCeiling && !c.grounded) {
+      c.vx *= GROUND_FRIC;
+      if (inputLR !== 0) c.vx += inputLR * DRIVE_FORCE;
+      c.angle = Math.PI * 0.2 + c.angle * 0.8;
+    }
+
+    // Jump
+    if (inputJump && c.jumps > 0) {
+      if (c.grounded) {
+        c.vy = JUMP_VEL;
+        c.jumps--;
+        spawn(c.x, c.y + CAR_H/2, '#fff', 6, 1.5);
+      } else if (c.onWallL) {
+        c.vx = 6; c.vy = -5; c.jumps--;
+        spawn(c.x - CAR_W/2, c.y, '#fff', 6, 1.5);
+      } else if (c.onWallR) {
+        c.vx = -6; c.vy = -5; c.jumps--;
+        spawn(c.x + CAR_W/2, c.y, '#fff', 6, 1.5);
+      } else if (c.onCeiling) {
+        c.vy = 5; c.jumps--;
+        spawn(c.x, c.y - CAR_H/2, '#fff', 6, 1.5);
+      } else if (c.jumps >= 1) {
+        // Double jump / air dodge
+        c.vy = DOUBLE_JUMP_VEL;
+        c.jumps--;
+        spawn(c.x, c.y + CAR_H/2, '#aaf', 4, 1);
+      }
+    }
+
+    // Boost
+    c.flameTimer = Math.max(0, c.flameTimer - 1);
+    if (inputBoost && c.boost > 0) {
+      const bx = Math.cos(c.angle) * (c.facingRight ? 1 : -1);
+      const by = Math.sin(c.angle);
+      c.vx += bx * BOOST_FORCE;
+      c.vy += by * BOOST_FORCE;
+      c.boost -= BOOST_RATE;
+      if (c.boost < 0) c.boost = 0;
+      c.flameTimer = 6;
+      if (Math.random() < 0.6) {
+        spawn(c.x - bx * CAR_W/2, c.y - by * CAR_W/2, c.isAI ? '#4af' : '#f60', 1, 2);
+      }
+    }
+
+    // Gravity
+    c.vy += GRAVITY;
+
+    // Angular damping
+    c.angVel *= 0.9;
+    c.angle += c.angVel;
+
+    // Apply velocity
+    c.x += c.vx;
+    c.y += c.vy;
+
+    // Speed limit
+    const spd = Math.hypot(c.vx, c.vy);
+    const limit = inputBoost ? MAX_BOOST_SPEED : MAX_SPEED;
+    if (spd > limit) { c.vx *= limit/spd; c.vy *= limit/spd; }
+
+    // Arena constraints
+    if (c.y + CAR_H/2 > ARENA_B) { c.y = ARENA_B - CAR_H/2; c.vy = Math.min(0, c.vy * -0.1); }
+    if (c.y - CAR_H/2 < ARENA_T) { c.y = ARENA_T + CAR_H/2; c.vy = Math.max(0, c.vy * -0.1); }
+
+    // Side walls - but not goal openings
+    const inGoalZone = c.y + CAR_H/2 > GOAL_TOP && c.y - CAR_H/2 < ARENA_B;
+    if (c.x - CAR_W/2 < ARENA_L) {
+      if (!inGoalZone) {
+        c.x = ARENA_L + CAR_W/2; c.vx = Math.max(0, c.vx * -0.2);
+      } else {
+        // Prevent going too deep into goal
+        if (c.x - CAR_W/2 < ARENA_L - GOAL_W) {
+          c.x = ARENA_L - GOAL_W + CAR_W/2; c.vx = Math.max(0, c.vx * -0.2);
+        }
+      }
+    }
+    if (c.x + CAR_W/2 > ARENA_R) {
+      if (!inGoalZone) {
+        c.x = ARENA_R - CAR_W/2; c.vx = Math.min(0, c.vx * -0.2);
+      } else {
+        if (c.x + CAR_W/2 > ARENA_R + GOAL_W) {
+          c.x = ARENA_R + GOAL_W - CAR_W/2; c.vx = Math.min(0, c.vx * -0.2);
+        }
+      }
+    }
+  }
+
+  // === BALL PHYSICS ===
+  function updateBall() {
+    if (kickoffTimer > 0) { kickoffTimer--; return null; }
+
+    ball.vy += GRAVITY;
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    // Friction
+    ball.vx *= 0.999;
+    ball.vy *= 0.999;
+
+    // Speed cap
+    const spd = Math.hypot(ball.vx, ball.vy);
+    if (spd > 14) { ball.vx *= 14/spd; ball.vy *= 14/spd; }
+
+    // Trail
+    if (spd > 1.5) {
+      ballTrail.push({ x: ball.x, y: ball.y, life: 12 });
+      if (ballTrail.length > 25) ballTrail.shift();
+    }
+
+    // Ceiling
+    if (ball.y - BALL_R < ARENA_T) {
+      ball.y = ARENA_T + BALL_R;
+      ball.vy = Math.abs(ball.vy) * 0.7;
+    }
+    // Floor
+    if (ball.y + BALL_R > ARENA_B) {
+      ball.y = ARENA_B - BALL_R;
+      ball.vy = -Math.abs(ball.vy) * 0.7;
+      ball.vx *= 0.97;
+      if (Math.abs(ball.vy) < 0.5) ball.vy = 0;
+    }
+
+    // Left wall / goal
+    if (ball.x - BALL_R < ARENA_L) {
+      if (ball.y > GOAL_TOP + BALL_R && ball.y < ARENA_B - BALL_R) {
+        // In goal opening
+        if (ball.x < ARENA_L - GOAL_W - BALL_R) return 'ai_goal';
+        // Goal back wall
+        if (ball.x - BALL_R < ARENA_L - GOAL_W) {
+          ball.x = ARENA_L - GOAL_W + BALL_R;
+          ball.vx = Math.abs(ball.vx) * 0.5;
+        }
+        // Goal top/bottom
+        if (ball.y - BALL_R < GOAL_TOP) { ball.y = GOAL_TOP + BALL_R; ball.vy = Math.abs(ball.vy) * 0.6; }
+      } else {
+        ball.x = ARENA_L + BALL_R;
+        ball.vx = Math.abs(ball.vx) * 0.7;
+      }
+    }
+    // Right wall / goal
+    if (ball.x + BALL_R > ARENA_R) {
+      if (ball.y > GOAL_TOP + BALL_R && ball.y < ARENA_B - BALL_R) {
+        if (ball.x > ARENA_R + GOAL_W + BALL_R) return 'player_goal';
+        if (ball.x + BALL_R > ARENA_R + GOAL_W) {
+          ball.x = ARENA_R + GOAL_W - BALL_R;
+          ball.vx = -Math.abs(ball.vx) * 0.5;
+        }
+        if (ball.y - BALL_R < GOAL_TOP) { ball.y = GOAL_TOP + BALL_R; ball.vy = Math.abs(ball.vy) * 0.6; }
+      } else {
+        ball.x = ARENA_R - BALL_R;
+        ball.vx = -Math.abs(ball.vx) * 0.7;
+      }
+    }
+
+    // Goal post collisions (circles at corners of goals)
+    const postR = 5;
+    const posts = [
+      { x: ARENA_L, y: GOAL_TOP }, { x: ARENA_R, y: GOAL_TOP }
+    ];
+    for (const p of posts) {
+      const dx = ball.x - p.x, dy = ball.y - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d < BALL_R + postR) {
+        const nx = dx/d, ny = dy/d;
+        ball.x = p.x + nx * (BALL_R + postR);
+        ball.y = p.y + ny * (BALL_R + postR);
+        const dot = ball.vx * nx + ball.vy * ny;
+        ball.vx -= 2 * dot * nx * 0.7;
+        ball.vy -= 2 * dot * ny * 0.7;
+        spawn(p.x, p.y, '#ff0', 6, 1.5);
+      }
+    }
+    return null;
+  }
+
+  // === CAR-BALL COLLISION ===
+  function carBallHit(c) {
+    // OBB vs circle
+    const dx = ball.x - c.x, dy = ball.y - c.y;
+    const cos = Math.cos(-c.angle), sin = Math.sin(-c.angle);
+    const lx = dx*cos - dy*sin, ly = dx*sin + dy*cos;
+    const hw = CAR_W/2 + 2, hh = CAR_H/2 + 2;
+    const cx = Math.max(-hw, Math.min(hw, lx));
+    const cy = Math.max(-hh, Math.min(hh, ly));
+    const dlx = lx - cx, dly = ly - cy;
+    const d = Math.hypot(dlx, dly);
+    if (d >= BALL_R) return;
+
+    // Collision normal in world space
+    const cos2 = Math.cos(c.angle), sin2 = Math.sin(c.angle);
+    let nx, ny;
+    if (d < 0.01) {
+      const dd = Math.hypot(dx, dy) || 1;
+      nx = dx/dd; ny = dy/dd;
+    } else {
+      const lnx = dlx/d, lny = dly/d;
+      nx = lnx*cos2 - lny*sin2;
+      ny = lnx*sin2 + lny*cos2;
+    }
+
+    // Separate
+    ball.x += nx * (BALL_R - d + 1);
+    ball.y += ny * (BALL_R - d + 1);
+
+    // Impulse
+    const rvx = ball.vx - c.vx, rvy = ball.vy - c.vy;
+    const rDot = rvx * nx + rvy * ny;
+    if (rDot > 0) return;
+
+    const e = 0.82;
+    const imp = -(1 + e) * rDot / (1 + 0.5);
+    ball.vx += imp * nx;
+    ball.vy += imp * ny;
+    c.vx -= imp * 0.3 * nx;
+    c.vy -= imp * 0.3 * ny;
+
+    const hitSpd = Math.hypot(rvx, rvy);
+    spawn(ball.x - nx*BALL_R, ball.y - ny*BALL_R, hitSpd > 6 ? '#ff0' : '#fff', Math.min(12, Math.floor(hitSpd*2)), hitSpd*0.3);
+    c.lastHitBall = 10;
+  }
+
+  // === CAR-CAR COLLISION ===
+  function carCar() {
+    const dx = aiCar.x - player.x, dy = aiCar.y - player.y;
+    const d = Math.hypot(dx, dy);
+    const minD = CAR_W * 0.6;
+    if (d < minD && d > 0) {
+      const nx = dx/d, ny = dy/d;
+      const ov = minD - d;
+      player.x -= nx * ov * 0.5; player.y -= ny * ov * 0.5;
+      aiCar.x += nx * ov * 0.5; aiCar.y += ny * ov * 0.5;
+      const rv = (player.vx - aiCar.vx) * nx + (player.vy - aiCar.vy) * ny;
+      if (rv > 0) {
+        player.vx -= rv * nx * 0.4; player.vy -= rv * ny * 0.4;
+        aiCar.vx += rv * nx * 0.4; aiCar.vy += rv * ny * 0.4;
+      }
+      spawn((player.x+aiCar.x)/2, (player.y+aiCar.y)/2, '#fff', 4, 1);
+    }
+  }
+
+  // === BOOST PADS ===
+  function checkPads(c) {
+    for (const p of boostPads) {
+      if (!p.active) continue;
+      if (Math.hypot(c.x - p.x, c.y - p.y) < CAR_W/2 + 10) {
+        c.boost = Math.min(MAX_BOOST, c.boost + (p.big ? 40 : 20));
+        p.active = false;
+        p.respawn = p.big ? 360 : 240;
+        spawn(p.x, p.y, '#ff0', 6, 1.5);
+      }
+    }
+  }
+
+  // === AI ===
+  function aiThink() {
+    let lr = 0, jump = false, boost = false;
+
+    const myGoalX = ARENA_R; // AI defends right
+    const theirGoalX = ARENA_L;
+
+    // Predict ball
+    const predT = 25;
+    let pbx = ball.x + ball.vx * predT;
+    let pby = ball.y + ball.vy * predT + 0.5 * GRAVITY * predT * predT;
+    pbx = Math.max(ARENA_L, Math.min(ARENA_R, pbx));
+    pby = Math.max(ARENA_T, Math.min(ARENA_B, pby));
+
+    const distBall = Math.hypot(aiCar.x - ball.x, aiCar.y - ball.y);
+    const ballSpeed = Math.hypot(ball.vx, ball.vy);
+    const ballToGoal = ball.vx > 0.5 && ball.x > W * 0.35;
+    const ballDangerous = ball.x > W * 0.55 && ball.vx > 0;
+    const ballOnMySide = ball.x > W / 2;
+
+    let targetX, targetY;
+    let urgency = 0;
+
+    // === STATE MACHINE ===
+    if (ballDangerous && ball.x > W * 0.65) {
+      // EMERGENCY DEFENSE: rush to ball
+      targetX = ball.x;
+      targetY = ball.y;
+      urgency = 3;
+    } else if (ballOnMySide && ballToGoal) {
+      // ACTIVE DEFENSE: intercept
+      targetX = Math.max(ball.x, pbx);
+      targetY = pby;
+      urgency = 2;
+    } else if (!ballOnMySide) {
+      // ATTACK: approach from behind ball (between ball and our goal), push toward their goal
+      targetX = ball.x + 35;
+      targetY = ball.y;
+      urgency = 1;
+
+      // If we're already behind ball, charge
+      if (aiCar.x > ball.x + 20) {
+        targetX = ball.x;
+        targetY = ball.y;
+        urgency = 2;
+      }
+    } else {
+      // NEUTRAL: position between ball and goal
+      targetX = Math.max(ball.x + 30, ARENA_R - 100);
+      targetY = (ball.y + (GOAL_TOP + ARENA_B)/2) / 2;
+      urgency = 1;
+    }
+
+    // Navigate to target on ground
+    const dxT = targetX - aiCar.x;
+    const dyT = targetY - aiCar.y;
+
+    if (aiCar.grounded) {
+      // Drive toward target
+      if (dxT > 15) lr = 1;
+      else if (dxT < -15) lr = -1;
+      else lr = dxT > 0 ? 0.5 : -0.5;
+
+      // Jump if ball is above us and we're close horizontally
+      if (ball.y < aiCar.y - 30 && Math.abs(ball.x - aiCar.x) < 80 && distBall < 120) {
+        jump = true;
+      }
+
+      // Jump for aerial interception
+      if (ball.y < ARENA_B - 100 && distBall < 150 && urgency >= 2) {
+        jump = true;
+      }
+    } else {
+      // In air: rotate toward ball/target
+      const angleToTarget = Math.atan2(dyT, dxT);
+      let diff = angleToTarget - aiCar.angle;
+      while (diff > Math.PI) diff -= Math.PI*2;
+      while (diff < -Math.PI) diff += Math.PI*2;
+      if (diff > 0.2) lr = 1;
+      else if (diff < -0.2) lr = -1;
+
+      // Air dodge / double jump toward ball
+      if (distBall < 80 && aiCar.jumps > 0 && ball.y < aiCar.y) {
+        jump = true;
+      }
+    }
+
+    // Boost management
+    if (urgency >= 3 && aiCar.boost > 5) boost = true;
+    else if (urgency >= 2 && aiCar.boost > 20 && distBall > 80) boost = true;
+    else if (urgency >= 1 && aiCar.boost > 50 && distBall > 200) boost = true;
+    // Aerial boost
+    if (!aiCar.grounded && distBall < 150 && aiCar.boost > 10) boost = true;
+
+    // Update facing direction
+    if (lr > 0) aiCar.facingRight = true;
+    else if (lr < 0) aiCar.facingRight = false;
+
+    updateCar(aiCar, lr, jump, boost);
+  }
+
+  // === GOAL HANDLING ===
+  function handleGoal(who) {
+    if (who === 'player_goal') {
+      score++;
+      scoreEl.textContent = score;
+      goalMessage = 'GOAL!';
+      spawn(ARENA_R + GOAL_W/2, (GOAL_TOP+ARENA_B)/2, '#f60', 40, 3);
+    } else {
+      aiScore++;
+      bestEl.textContent = aiScore;
+      goalMessage = 'AI SCORES!';
+      spawn(ARENA_L - GOAL_W/2, (GOAL_TOP+ARENA_B)/2, '#4af', 40, 3);
+    }
+    goalTimer = 120;
+    gameState = 'goalScored';
+    if (score >= WIN_SCORE || aiScore >= WIN_SCORE) goalTimer = 150;
+  }
+
+  function endMatch() {
+    gameState = 'gameOver';
+    overlay.style.display = 'flex';
+    overlayTitle.textContent = score > aiScore ? 'YOU WIN!' : (aiScore > score ? 'AI WINS!' : 'DRAW!');
+    overlayText.innerHTML = `Final Score: ${score} - ${aiScore}<br><br>Press any key to play again`;
+    if (typeof stopRecording === 'function') stopRecording();
+  }
+
+  // === MAIN UPDATE ===
+  function update() {
+    if (gameState === 'goalScored') {
+      goalTimer--;
+      // Particles still update
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i]; p.x += p.vx; p.y += p.vy; p.vy += 0.03; p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+      if (goalTimer <= 0) {
+        if (score >= WIN_SCORE || aiScore >= WIN_SCORE) { endMatch(); return; }
+        resetPositions();
+        gameState = 'playing';
+      }
+      return;
+    }
+    if (gameState !== 'playing') return;
 
     // Timer
-    const MATCH_TIME = 180; // seconds
-    const WIN_SCORE = 5;
+    timer--;
+    const secs = Math.max(0, Math.ceil(timer / 60));
+    matchInfo.textContent = `${Math.floor(secs/60)}:${(secs%60).toString().padStart(2,'0')} | First to ${WIN_SCORE}`;
+    if (timer <= 0) { endMatch(); return; }
 
-    // Input
-    const keys = {};
-    document.addEventListener('keydown', e => {
-      keys[e.code] = true;
-      if (gameState === 'start') {
-        startMatch();
-        e.preventDefault();
-      } else if (gameState === 'gameOver') {
-        resetAll();
-        e.preventDefault();
-      }
-      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
-    });
-    document.addEventListener('keyup', e => { keys[e.code] = false; });
+    // Player input
+    const pLR = keys['ArrowRight'] ? 1 : (keys['ArrowLeft'] ? -1 : 0);
+    const pJump = !!justPressed['ArrowUp'];
+    const pBoost = !!keys['Space'];
+    if (pLR > 0) player.facingRight = true;
+    else if (pLR < 0) player.facingRight = false;
 
-    // Boost pads locations
-    let boostPads = [];
-    function initBoostPads() {
-      boostPads = [
-        { x: 100, y: ARENA_BOTTOM - BOOST_PAD_SIZE, timer: 0 },
-        { x: 200, y: ARENA_BOTTOM - BOOST_PAD_SIZE, timer: 0 },
-        { x: 300, y: ARENA_BOTTOM - BOOST_PAD_SIZE, timer: 0 },
-        { x: 400, y: ARENA_BOTTOM - BOOST_PAD_SIZE, timer: 0 },
-        { x: 500, y: ARENA_BOTTOM - BOOST_PAD_SIZE, timer: 0 },
-        // Wall pads
-        { x: ARENA_LEFT + BOOST_PAD_SIZE, y: 200, timer: 0 },
-        { x: ARENA_RIGHT - BOOST_PAD_SIZE, y: 200, timer: 0 },
-        // Ceiling pads
-        { x: 200, y: ARENA_TOP + BOOST_PAD_SIZE, timer: 0 },
-        { x: 400, y: ARENA_TOP + BOOST_PAD_SIZE, timer: 0 },
-      ];
+    updateCar(player, pLR, pJump, pBoost);
+    aiThink();
+
+    // Ball
+    const goalResult = updateBall();
+    if (goalResult) { handleGoal(goalResult); return; }
+
+    // Collisions
+    carBallHit(player);
+    carBallHit(aiCar);
+    carCar();
+
+    // Boost pads
+    checkPads(player);
+    checkPads(aiCar);
+    for (const p of boostPads) {
+      if (!p.active) { p.respawn--; if (p.respawn <= 0) p.active = true; }
     }
 
     // Particles
-    let particles = [];
-    function spawnParticles(x, y, color, count, speedMult) {
-      for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = (Math.random() * 2 + 1) * (speedMult || 1);
-        particles.push({
-          x, y,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed,
-          life: 30 + Math.random() * 20,
-          maxLife: 50,
-          color,
-          size: Math.random() * 3 + 1
-        });
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i]; p.x += p.vx; p.y += p.vy; p.vy += 0.03; p.life--;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+    // Trail fade
+    for (let i = ballTrail.length - 1; i >= 0; i--) {
+      ballTrail[i].life--;
+      if (ballTrail[i].life <= 0) ballTrail.splice(i, 1);
+    }
+
+    // Decay hit timers
+    player.lastHitBall = Math.max(0, player.lastHitBall - 1);
+    aiCar.lastHitBall = Math.max(0, aiCar.lastHitBall - 1);
+
+    // Clear justPressed
+    for (const k in justPressed) justPressed[k] = false;
+  }
+
+  // === RENDERING ===
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = '#0a0a18';
+    ctx.fillRect(0, 0, W, H);
+
+    // Arena field
+    ctx.fillStyle = '#0e0e20';
+    ctx.fillRect(ARENA_L, ARENA_T, ARENA_W, ARENA_H);
+
+    // Grid lines (subtle)
+    ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+    ctx.lineWidth = 1;
+    for (let x = ARENA_L; x <= ARENA_R; x += 40) {
+      ctx.beginPath(); ctx.moveTo(x, ARENA_T); ctx.lineTo(x, ARENA_B); ctx.stroke();
+    }
+    for (let y = ARENA_T; y <= ARENA_B; y += 40) {
+      ctx.beginPath(); ctx.moveTo(ARENA_L, y); ctx.lineTo(ARENA_R, y); ctx.stroke();
+    }
+
+    // Center line
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(W/2, ARENA_T); ctx.lineTo(W/2, ARENA_B); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Center circle
+    ctx.beginPath(); ctx.arc(W/2, (ARENA_T+ARENA_B)/2, 45, 0, Math.PI*2); ctx.stroke();
+
+    // === GOALS ===
+    // Left goal (player defends)
+    drawGoal(ARENA_L, -1, '#f60');
+    // Right goal (AI defends)
+    drawGoal(ARENA_R, 1, '#4af');
+
+    // Goal posts (bright dots)
+    ctx.fillStyle = '#ff0';
+    ctx.shadowBlur = 6; ctx.shadowColor = '#ff0';
+    ctx.beginPath(); ctx.arc(ARENA_L, GOAL_TOP, 4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ARENA_R, GOAL_TOP, 4, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Arena border
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    // Top wall
+    ctx.beginPath(); ctx.moveTo(ARENA_L, ARENA_T); ctx.lineTo(ARENA_R, ARENA_T); ctx.stroke();
+    // Bottom wall
+    ctx.beginPath(); ctx.moveTo(ARENA_L, ARENA_B); ctx.lineTo(ARENA_R, ARENA_B); ctx.stroke();
+    // Left wall (excluding goal)
+    ctx.beginPath(); ctx.moveTo(ARENA_L, ARENA_T); ctx.lineTo(ARENA_L, GOAL_TOP); ctx.stroke();
+    // Right wall (excluding goal)
+    ctx.beginPath(); ctx.moveTo(ARENA_R, ARENA_T); ctx.lineTo(ARENA_R, GOAL_TOP); ctx.stroke();
+
+    // Boost pads
+    for (const p of boostPads) {
+      if (!p.active) {
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = '#555';
+        ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(Math.PI/4 + Date.now()*0.002);
+        const sz = p.big ? 8 : 5;
+        ctx.shadowBlur = 8; ctx.shadowColor = p.big ? '#f80' : '#ff0';
+        ctx.fillStyle = p.big ? '#f80' : '#ffa500';
+        ctx.fillRect(-sz, -sz, sz*2, sz*2);
+        ctx.shadowBlur = 0;
+        ctx.restore();
       }
     }
 
     // Ball trail
-    let ballTrail = [];
-
-    // Game objects
-    let ball, player, ai, timer, goalTimer, goalMessage;
-
-    function createCar(x, y, isAI) {
-      return {
-        x, y,
-        vx: 0, vy: 0,
-        angle: isAI ? Math.PI : 0, // AI faces left
-        angularVel: 0,
-        onGround: false,
-        onWall: false,
-        onCeiling: false,
-        boost: 60,
-        isAI,
-        jumpCooldown: 0,
-        color: isAI ? '#4af' : '#f60',
-        wheelAngle: 0,
-        boostFlame: 0
-      };
+    for (const t of ballTrail) {
+      const a = t.life / 12;
+      ctx.fillStyle = `rgba(255,255,255,${a * 0.15})`;
+      ctx.beginPath(); ctx.arc(t.x, t.y, BALL_R * a * 0.6, 0, Math.PI*2); ctx.fill();
     }
 
-    function resetPositions() {
-      ball = {
-        x: W / 2, y: H / 2,
-        vx: 0, vy: 0,
-        r: BALL_R
-      };
-      player = createCar(150, ARENA_BOTTOM - CAR_H / 2 - 2, false);
-      ai = createCar(450, ARENA_BOTTOM - CAR_H / 2 - 2, true);
-      ballTrail = [];
-      goalTimer = 0;
+    // Ball
+    drawBall();
+
+    // Cars
+    drawCar(player);
+    drawCar(aiCar);
+
+    // Boost meters
+    drawBoostMeter(15, ARENA_B + 9, player.boost, '#f60', 'P1 BOOST');
+    drawBoostMeter(W - 115, ARENA_B + 9, aiCar.boost, '#4af', 'AI BOOST');
+
+    // Particles
+    for (const p of particles) {
+      ctx.globalAlpha = p.life / p.max;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.sz/2, p.y - p.sz/2, p.sz, p.sz);
     }
+    ctx.globalAlpha = 1;
 
-    function resetAll() {
-      score = 0;
-      aiScore = 0;
-      timer = MATCH_TIME * FPS;
-      scoreEl.textContent = '0';
-      bestEl.textContent = '0';
-      initBoostPads();
-      resetPositions();
-      particles = [];
-      gameState = 'start';
-      overlay.style.display = 'flex';
-      overlayTitle.textContent = 'ROCKET LEAGUE 2D';
-      overlayText.innerHTML = 'Arrow keys: drive/rotate | Up: jump | Space: boost<br><br>Press any key to start';
-    }
-
-    function startMatch() {
-      gameState = 'playing';
-      timer = MATCH_TIME * FPS;
-      score = 0;
-      aiScore = 0;
-      scoreEl.textContent = '0';
-      bestEl.textContent = '0';
-      initBoostPads();
-      resetPositions();
-      particles = [];
-      overlay.style.display = 'none';
-      if (typeof startRecording === 'function') startRecording();
-    }
-
-    // Car physics
-    function updateCar(car, inputLeft, inputRight, inputUp, inputDrive, inputBoost) {
-      if (car.jumpCooldown > 0) car.jumpCooldown--;
-
-      // Determine surface contact
-      car.onGround = false;
-      car.onWall = false;
-      car.onCeiling = false;
-
-      const halfW = CAR_W / 2;
-      const halfH = CAR_H / 2;
-      // Check corners of the car against arena walls
-      const cos = Math.cos(car.angle);
-      const sin = Math.sin(car.angle);
-
-      // Bottom of car touches ground
-      if (car.y + halfH >= ARENA_BOTTOM - 1) {
-        car.onGround = true;
-      }
-      // Top touches ceiling
-      if (car.y - halfH <= ARENA_TOP + 1) {
-        car.onCeiling = true;
-      }
-      // Left wall
-      if (car.x - halfW <= ARENA_LEFT + 1) {
-        car.onWall = true;
-      }
-      // Right wall
-      if (car.x + halfW >= ARENA_RIGHT - 1) {
-        car.onWall = true;
-      }
-
-      const onSurface = car.onGround || car.onWall || car.onCeiling;
-
-      // Rotation
-      if (inputLeft) car.angularVel -= ROTATE_SPEED;
-      if (inputRight) car.angularVel += ROTATE_SPEED;
-      car.angularVel *= 0.85;
-      car.angle += car.angularVel;
-
-      // Drive along car's forward direction
-      const forwardX = Math.cos(car.angle);
-      const forwardY = Math.sin(car.angle);
-
-      if (onSurface) {
-        if (inputDrive > 0) {
-          car.vx += forwardX * DRIVE_ACCEL * inputDrive;
-          car.vy += forwardY * DRIVE_ACCEL * inputDrive;
-        } else if (inputDrive < 0) {
-          car.vx -= forwardX * DRIVE_ACCEL * 0.5;
-          car.vy -= forwardY * DRIVE_ACCEL * 0.5;
-        }
-        // Surface friction
-        car.vx *= CAR_FRICTION;
-        car.vy *= CAR_FRICTION;
-      } else {
-        // Air control (reduced)
-        if (inputDrive > 0) {
-          car.vx += forwardX * DRIVE_ACCEL * 0.3;
-          car.vy += forwardY * DRIVE_ACCEL * 0.3;
-        }
-        car.vx *= CAR_AIR_FRICTION;
-        car.vy *= CAR_AIR_FRICTION;
-      }
-
-      // Boost
-      car.boostFlame = Math.max(0, car.boostFlame - 2);
-      if (inputBoost && car.boost > 0) {
-        car.vx += forwardX * BOOST_ACCEL;
-        car.vy += forwardY * BOOST_ACCEL;
-        car.boost -= BOOST_COST;
-        if (car.boost < 0) car.boost = 0;
-        car.boostFlame = 10;
-        // Boost particles
-        if (Math.random() < 0.5) {
-          spawnParticles(
-            car.x - forwardX * halfW,
-            car.y - forwardY * halfW,
-            car.isAI ? '#4af' : '#f60',
-            2, 1.5
-          );
-        }
-      }
-
-      // Jump
-      if (inputUp && onSurface && car.jumpCooldown <= 0) {
-        if (car.onGround) {
-          car.vy = -JUMP_FORCE;
-        } else if (car.onCeiling) {
-          car.vy = JUMP_FORCE;
-        } else if (car.onWall) {
-          if (car.x < W / 2) {
-            car.vx = JUMP_FORCE * 0.7;
-          } else {
-            car.vx = -JUMP_FORCE * 0.7;
-          }
-          car.vy = -JUMP_FORCE * 0.5;
-        }
-        car.jumpCooldown = 15;
-      }
-
-      // Gravity (always)
-      car.vy += GRAVITY;
-
-      // Apply velocity
-      car.x += car.vx;
-      car.y += car.vy;
-
-      // Wall collisions
-      // Ground
-      if (car.y + halfH > ARENA_BOTTOM) {
-        car.y = ARENA_BOTTOM - halfH;
-        car.vy *= -0.2;
-        if (Math.abs(car.vy) < 0.5) car.vy = 0;
-        // Auto-align on ground
-        const targetAngle = 0;
-        car.angle += (targetAngle - car.angle) * 0.15;
-      }
-      // Ceiling
-      if (car.y - halfH < ARENA_TOP) {
-        car.y = ARENA_TOP + halfH;
-        car.vy *= -0.2;
-        if (Math.abs(car.vy) < 0.5) car.vy = 0;
-        const targetAngle = Math.PI;
-        let diff = targetAngle - car.angle;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        car.angle += diff * 0.15;
-      }
-      // Left wall (but not in goal area)
-      if (car.x - halfW < ARENA_LEFT) {
-        if (car.y < GOAL_TOP || car.y > ARENA_BOTTOM) {
-          car.x = ARENA_LEFT + halfW;
-          car.vx *= -0.3;
-        } else {
-          // In goal area, push back gently
-          car.x = ARENA_LEFT + halfW + GOAL_WIDTH;
-          car.vx *= -0.3;
-        }
-      }
-      // Right wall (but not in goal area)
-      if (car.x + halfW > ARENA_RIGHT) {
-        if (car.y < GOAL_TOP || car.y > ARENA_BOTTOM) {
-          car.x = ARENA_RIGHT - halfW;
-          car.vx *= -0.3;
-        } else {
-          car.x = ARENA_RIGHT - halfW - GOAL_WIDTH;
-          car.vx *= -0.3;
-        }
-      }
-
-      // Wall sticking (drive on walls)
-      if (car.x - halfW <= ARENA_LEFT + 2 && car.vy < 0) {
-        // Sticking to left wall - reduce gravity
-        car.vy *= 0.9;
-      }
-      if (car.x + halfW >= ARENA_RIGHT - 2 && car.vy < 0) {
-        car.vy *= 0.9;
-      }
-
-      // Speed limit
-      const speed = Math.sqrt(car.vx * car.vx + car.vy * car.vy);
-      const maxSpeed = inputBoost ? 10 : 7;
-      if (speed > maxSpeed) {
-        car.vx = (car.vx / speed) * maxSpeed;
-        car.vy = (car.vy / speed) * maxSpeed;
-      }
-
-      // Wheel spin animation
-      car.wheelAngle += speed * 0.1 * (car.vx > 0 ? 1 : -1);
-    }
-
-    // Ball physics
-    function updateBall() {
-      ball.vy += GRAVITY;
-      ball.vx *= BALL_FRICTION;
-      ball.vy *= BALL_FRICTION;
-
-      ball.x += ball.vx;
-      ball.y += ball.vy;
-
-      // Ball trail
-      ballTrail.push({ x: ball.x, y: ball.y, life: 15 });
-      if (ballTrail.length > 20) ballTrail.shift();
-
-      // Speed cap
-      const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-      if (speed > BALL_MAX_VEL) {
-        ball.vx = (ball.vx / speed) * BALL_MAX_VEL;
-        ball.vy = (ball.vy / speed) * BALL_MAX_VEL;
-      }
-
-      // Wall bounce
-      // Ceiling
-      if (ball.y - ball.r < ARENA_TOP) {
-        ball.y = ARENA_TOP + ball.r;
-        ball.vy = Math.abs(ball.vy) * BALL_BOUNCE;
-      }
-      // Ground
-      if (ball.y + ball.r > ARENA_BOTTOM) {
-        ball.y = ARENA_BOTTOM - ball.r;
-        ball.vy = -Math.abs(ball.vy) * BALL_BOUNCE;
-        ball.vx *= 0.98; // ground friction
-      }
-
-      // Left wall / Left goal check
-      if (ball.x - ball.r < ARENA_LEFT) {
-        if (ball.y > GOAL_TOP && ball.y < ARENA_BOTTOM) {
-          // GOAL for AI! Ball went into left goal
-          if (ball.x < ARENA_LEFT - 20) {
-            return 'ai_goal';
-          }
-        } else {
-          ball.x = ARENA_LEFT + ball.r;
-          ball.vx = Math.abs(ball.vx) * BALL_BOUNCE;
-        }
-      }
-
-      // Right wall / Right goal check
-      if (ball.x + ball.r > ARENA_RIGHT) {
-        if (ball.y > GOAL_TOP && ball.y < ARENA_BOTTOM) {
-          // GOAL for Player!
-          if (ball.x > ARENA_RIGHT + 20) {
-            return 'player_goal';
-          }
-        } else {
-          ball.x = ARENA_RIGHT - ball.r;
-          ball.vx = -Math.abs(ball.vx) * BALL_BOUNCE;
-        }
-      }
-
-      // Goal post collision (4 posts)
-      const posts = [
-        { x: ARENA_LEFT, y: GOAL_TOP },       // left top post
-        { x: ARENA_LEFT, y: ARENA_BOTTOM },   // left bottom post
-        { x: ARENA_RIGHT, y: GOAL_TOP },      // right top post
-        { x: ARENA_RIGHT, y: ARENA_BOTTOM },  // right bottom post
-      ];
-      for (const post of posts) {
-        const dx = ball.x - post.x;
-        const dy = ball.y - post.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < ball.r + 4) {
-          const nx = dx / dist;
-          const ny = dy / dist;
-          ball.x = post.x + nx * (ball.r + 4);
-          ball.y = post.y + ny * (ball.r + 4);
-          const dot = ball.vx * nx + ball.vy * ny;
-          ball.vx -= 2 * dot * nx * BALL_BOUNCE;
-          ball.vy -= 2 * dot * ny * BALL_BOUNCE;
-          spawnParticles(post.x, post.y, '#ff0', 5, 1);
-        }
-      }
-
-      return null;
-    }
-
-    // Car-Ball collision
-    function carBallCollision(car) {
-      // Use oriented bounding box vs circle
-      const dx = ball.x - car.x;
-      const dy = ball.y - car.y;
-      const cos = Math.cos(-car.angle);
-      const sin = Math.sin(-car.angle);
-      // Rotate ball into car's local space
-      const localX = dx * cos - dy * sin;
-      const localY = dx * sin + dy * cos;
-
-      const halfW = CAR_W / 2 + 2;
-      const halfH = CAR_H / 2 + 2;
-
-      // Find closest point on car rect to ball center (in local space)
-      const closestX = Math.max(-halfW, Math.min(halfW, localX));
-      const closestY = Math.max(-halfH, Math.min(halfH, localY));
-
-      const distX = localX - closestX;
-      const distY = localY - closestY;
-      const dist = Math.sqrt(distX * distX + distY * distY);
-
-      if (dist < ball.r) {
-        // Collision!
-        // Convert collision normal back to world space
-        const cos2 = Math.cos(car.angle);
-        const sin2 = Math.sin(car.angle);
-        let nx, ny;
-        if (dist === 0) {
-          nx = dx / (Math.sqrt(dx*dx+dy*dy) || 1);
-          ny = dy / (Math.sqrt(dx*dx+dy*dy) || 1);
-        } else {
-          const lnx = distX / dist;
-          const lny = distY / dist;
-          nx = lnx * cos2 - lny * sin2;
-          ny = lnx * sin2 + lny * cos2;
-        }
-
-        // Separate ball from car
-        const overlap = ball.r - dist;
-        ball.x += nx * (overlap + 1);
-        ball.y += ny * (overlap + 1);
-
-        // Relative velocity
-        const relVx = ball.vx - car.vx;
-        const relVy = ball.vy - car.vy;
-        const relDot = relVx * nx + relVy * ny;
-
-        if (relDot < 0) {
-          // Impulse based collision
-          const restitution = 0.85;
-          const impulseMag = -(1 + restitution) * relDot / (1/BALL_MASS + 1/CAR_MASS);
-
-          ball.vx += (impulseMag / BALL_MASS) * nx;
-          ball.vy += (impulseMag / BALL_MASS) * ny;
-          car.vx -= (impulseMag / CAR_MASS) * nx * 0.3;
-          car.vy -= (impulseMag / CAR_MASS) * ny * 0.3;
-
-          // Hit particles
-          const hitSpeed = Math.sqrt(relVx*relVx + relVy*relVy);
-          const pCount = Math.min(15, Math.floor(hitSpeed * 2));
-          spawnParticles(ball.x - nx * ball.r, ball.y - ny * ball.r,
-            hitSpeed > 5 ? '#ff0' : '#fff', pCount, hitSpeed * 0.3);
-        }
-      }
-    }
-
-    // Car-Car collision
-    function carCarCollision() {
-      const dx = ai.x - player.x;
-      const dy = ai.y - player.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const minDist = CAR_W * 0.7;
-
-      if (dist < minDist && dist > 0) {
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const overlap = minDist - dist;
-
-        player.x -= nx * overlap * 0.5;
-        player.y -= ny * overlap * 0.5;
-        ai.x += nx * overlap * 0.5;
-        ai.y += ny * overlap * 0.5;
-
-        // Exchange some velocity
-        const relVx = player.vx - ai.vx;
-        const relVy = player.vy - ai.vy;
-        const relDot = relVx * nx + relVy * ny;
-
-        if (relDot > 0) {
-          player.vx -= relDot * nx * 0.4;
-          player.vy -= relDot * ny * 0.4;
-          ai.vx += relDot * nx * 0.4;
-          ai.vy += relDot * ny * 0.4;
-          spawnParticles((player.x + ai.x)/2, (player.y + ai.y)/2, '#fff', 6, 1);
-        }
-      }
-    }
-
-    // Boost pad pickup
-    function checkBoostPads(car) {
-      for (const pad of boostPads) {
-        if (pad.timer > 0) continue;
-        const dx = car.x - pad.x;
-        const dy = car.y - pad.y;
-        if (Math.sqrt(dx*dx + dy*dy) < CAR_W/2 + BOOST_PAD_SIZE) {
-          car.boost = Math.min(MAX_BOOST, car.boost + BOOST_PAD_AMOUNT);
-          pad.timer = BOOST_PAD_RESPAWN;
-          spawnParticles(pad.x, pad.y, '#ff0', 8, 1.5);
-        }
-      }
-    }
-
-    // AI brain
-    function updateAI() {
-      let inputLeft = false, inputRight = false, inputUp = false;
-      let inputDrive = 0, inputBoost = false;
-
-      const aiGoalX = ARENA_RIGHT; // AI defends right goal
-      const playerGoalX = ARENA_LEFT; // AI attacks left goal
-
-      // Predict ball position
-      let predBallX = ball.x + ball.vx * 20;
-      let predBallY = ball.y + ball.vy * 20 + 0.5 * GRAVITY * 400;
-      predBallY = Math.max(ARENA_TOP, Math.min(ARENA_BOTTOM, predBallY));
-      predBallX = Math.max(ARENA_LEFT, Math.min(ARENA_RIGHT, predBallX));
-
-      const distToBall = Math.sqrt((ai.x - ball.x)**2 + (ai.y - ball.y)**2);
-      const ballHeadingToGoal = ball.vx > 1 && ball.x > W * 0.4;
-      const ballInDanger = ball.x > W * 0.6 && ball.vx > 0;
-      const ballOnAISide = ball.x > W / 2;
-
-      let targetX, targetY;
-      let shouldBoost = false;
-      let shouldJump = false;
-
-      // State: Defend if ball heading toward AI goal
-      if (ballInDanger || (ballOnAISide && ballHeadingToGoal)) {
-        // Position between ball and goal
-        targetX = Math.max(ball.x + 30, ARENA_RIGHT - 80);
-        targetY = predBallY;
-        shouldBoost = ball.vx > 3 || distToBall > 150;
-
-        // If ball is very close and heading to goal, rush to intercept
-        if (ball.x > W * 0.7 && ball.vx > 0) {
-          targetX = ball.x;
-          targetY = ball.y;
-          shouldBoost = true;
-        }
-      }
-      // State: Attack - go for ball and push toward player's goal
-      else {
-        // Position behind ball (relative to target goal)
-        targetX = ball.x + 40; // come from the right
-        targetY = ball.y;
-
-        // If aligned, go straight for ball
-        if (ai.x > ball.x + 20) {
-          targetX = ball.x;
-          targetY = ball.y;
-          shouldBoost = distToBall > 100;
-        }
-
-        // Try aerial if ball is high
-        if (ball.y < H * 0.5 && distToBall < 200) {
-          shouldJump = ai.onGround;
-          shouldBoost = true;
-        }
-      }
-
-      // If ball is above, consider jumping
-      if (ball.y < ai.y - 40 && distToBall < 120) {
-        shouldJump = ai.onGround;
-      }
-
-      // Navigate to target
-      const dxTarget = targetX - ai.x;
-      const dyTarget = targetY - ai.y;
-      const angleToTarget = Math.atan2(dyTarget, dxTarget);
-
-      // Determine facing direction
-      let angleDiff = angleToTarget - ai.angle;
-      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-
-      // Steer toward target
-      if (angleDiff > 0.15) inputRight = true;
-      else if (angleDiff < -0.15) inputLeft = true;
-
-      // Drive forward if roughly facing target
-      if (Math.abs(angleDiff) < Math.PI * 0.6) {
-        inputDrive = 1;
-      } else if (Math.abs(angleDiff) > Math.PI * 0.7) {
-        inputDrive = -0.5;
-      }
-
-      // Boost management
-      if (shouldBoost && ai.boost > 15) {
-        inputBoost = true;
-      }
-
-      // Jump logic
-      if (shouldJump && ai.jumpCooldown <= 0) {
-        inputUp = true;
-      }
-
-      // Idle behavior: if on ground and ball far, face toward ball
-      if (ai.onGround && distToBall > 250) {
-        const toBallAngle = Math.atan2(ball.y - ai.y, ball.x - ai.x);
-        let diff = toBallAngle - ai.angle;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        if (diff > 0.1) inputRight = true;
-        else if (diff < -0.1) inputLeft = true;
-        inputDrive = 1;
-        inputBoost = ai.boost > 50 && distToBall > 300;
-      }
-
-      // Wall recovery: if stuck on wall/ceiling, try to get back to ground
-      if (!ai.onGround && ai.y < H * 0.3) {
-        // Try to orient downward
-        const downAngle = Math.PI / 2;
-        let diff = downAngle - ai.angle;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        if (diff > 0.1) inputRight = true;
-        else if (diff < -0.1) inputLeft = true;
-      }
-
-      updateCar(ai, inputLeft, inputRight, inputUp, inputDrive, inputBoost);
-    }
-
-    // Goal scored
-    function handleGoal(who) {
-      if (who === 'player_goal') {
-        score++;
-        scoreEl.textContent = score;
-        goalMessage = 'GOAL! YOU SCORE!';
-        spawnParticles(ARENA_RIGHT, (GOAL_TOP + ARENA_BOTTOM)/2, '#f60', 30, 3);
-      } else {
-        aiScore++;
-        bestEl.textContent = aiScore;
-        goalMessage = 'AI SCORES!';
-        spawnParticles(ARENA_LEFT, (GOAL_TOP + ARENA_BOTTOM)/2, '#4af', 30, 3);
-      }
-      goalTimer = 120; // 2 seconds pause
-      gameState = 'goalScored';
-
-      // Check win
-      if (score >= WIN_SCORE || aiScore >= WIN_SCORE) {
-        goalTimer = 180;
-      }
-    }
-
-    // Particles update
-    function updateParticles() {
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.05;
-        p.life--;
-        if (p.life <= 0) particles.splice(i, 1);
-      }
-      // Ball trail fade
-      for (let i = ballTrail.length - 1; i >= 0; i--) {
-        ballTrail[i].life--;
-        if (ballTrail[i].life <= 0) ballTrail.splice(i, 1);
-      }
-    }
-
-    // Main update
-    function update() {
-      if (gameState !== 'playing' && gameState !== 'goalScored') return;
-
-      if (gameState === 'goalScored') {
-        goalTimer--;
-        updateParticles();
-        if (goalTimer <= 0) {
-          if (score >= WIN_SCORE || aiScore >= WIN_SCORE) {
-            endMatch();
-            return;
-          }
-          resetPositions();
-          gameState = 'playing';
-        }
-        return;
-      }
-
-      // Timer
-      timer--;
-      const secs = Math.max(0, Math.ceil(timer / FPS));
-      const mins = Math.floor(secs / 60);
-      const secStr = (secs % 60).toString().padStart(2, '0');
-      matchInfo.textContent = `${mins}:${secStr} | First to ${WIN_SCORE}`;
-
-      if (timer <= 0) {
-        endMatch();
-        return;
-      }
-
-      // Player input
-      const pLeft = keys['ArrowLeft'];
-      const pRight = keys['ArrowRight'];
-      const pUp = keys['ArrowUp'];
-      const pDrive = keys['ArrowRight'] ? 1 : (keys['ArrowLeft'] ? -1 : 0);
-      const pBoost = keys['Space'];
-
-      // Actually: left/right = rotate, up = jump, drive is separate
-      // Let's use: Left/Right = steer, Up = jump, Right also drives forward
-      // Better mapping: ArrowRight = drive forward + rotate right, ArrowLeft = rotate left + reverse
-      // Most intuitive for side-view: Left/Right = drive left/right, Up = jump, Space = boost
-
-      // Reconsider: side-view car soccer like Rocket League Sideswipe
-      // Left/Right arrows = move left/right, Up = jump, Space = boost in facing direction
-      // Let's make it work: car faces direction of movement, left/right drive
-      updateCar(player,
-        keys['ArrowLeft'],   // rotate left
-        keys['ArrowRight'],  // rotate right
-        keys['ArrowUp'],     // jump
-        keys['ArrowRight'] ? 1 : (keys['ArrowLeft'] ? -1 : 0), // drive
-        keys['Space']        // boost
-      );
-
-      // AI
-      updateAI();
-
-      // Ball
-      const goalResult = updateBall();
-      if (goalResult) {
-        handleGoal(goalResult);
-        return;
-      }
-
-      // Collisions
-      carBallCollision(player);
-      carBallCollision(ai);
-      carCarCollision();
-
-      // Boost pads
-      checkBoostPads(player);
-      checkBoostPads(ai);
-      for (const pad of boostPads) {
-        if (pad.timer > 0) pad.timer--;
-      }
-
-      // Particles
-      updateParticles();
-    }
-
-    function endMatch() {
-      gameState = 'gameOver';
-      overlay.style.display = 'flex';
-      if (score > aiScore) {
-        overlayTitle.textContent = 'YOU WIN!';
-      } else if (aiScore > score) {
-        overlayTitle.textContent = 'AI WINS!';
-      } else {
-        overlayTitle.textContent = 'DRAW!';
-      }
-      overlayText.innerHTML = `Final: ${score} - ${aiScore}<br><br>Press any key to play again`;
-      if (typeof stopRecording === 'function') stopRecording();
-    }
-
-    // RENDERING
-    function draw() {
-      ctx.clearRect(0, 0, W, H);
-
-      // Arena background
-      ctx.fillStyle = '#0d0d1a';
-      ctx.fillRect(0, 0, W, H);
-
-      // Arena field (darker green-ish tint)
-      ctx.fillStyle = '#121225';
-      ctx.fillRect(ARENA_LEFT, ARENA_TOP, ARENA_RIGHT - ARENA_LEFT, ARENA_BOTTOM - ARENA_TOP);
-
-      // Field markings
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-      ctx.lineWidth = 1;
-      // Center line
-      ctx.beginPath();
-      ctx.moveTo(W/2, ARENA_TOP);
-      ctx.lineTo(W/2, ARENA_BOTTOM);
-      ctx.stroke();
-      // Center circle
-      ctx.beginPath();
-      ctx.arc(W/2, (ARENA_TOP + ARENA_BOTTOM)/2, 50, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Goals
-      // Left goal (player defends)
-      ctx.fillStyle = 'rgba(255, 102, 0, 0.15)';
-      ctx.fillRect(ARENA_LEFT - GOAL_WIDTH - 2, GOAL_TOP, GOAL_WIDTH + 2, GOAL_HEIGHT);
-      ctx.strokeStyle = '#f60';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(ARENA_LEFT, GOAL_TOP);
-      ctx.lineTo(ARENA_LEFT - GOAL_WIDTH, GOAL_TOP);
-      ctx.lineTo(ARENA_LEFT - GOAL_WIDTH, ARENA_BOTTOM);
-      ctx.lineTo(ARENA_LEFT, ARENA_BOTTOM);
-      ctx.stroke();
-
-      // Right goal (AI defends)
-      ctx.fillStyle = 'rgba(68, 170, 255, 0.15)';
-      ctx.fillRect(ARENA_RIGHT, GOAL_TOP, GOAL_WIDTH + 2, GOAL_HEIGHT);
-      ctx.strokeStyle = '#4af';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(ARENA_RIGHT, GOAL_TOP);
-      ctx.lineTo(ARENA_RIGHT + GOAL_WIDTH, GOAL_TOP);
-      ctx.lineTo(ARENA_RIGHT + GOAL_WIDTH, ARENA_BOTTOM);
-      ctx.lineTo(ARENA_RIGHT, ARENA_BOTTOM);
-      ctx.stroke();
-
-      // Arena walls
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2;
-      // Top wall
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(0, 0, W, WALL_THICK);
-      ctx.fillRect(0, ARENA_BOTTOM, W, WALL_THICK);
-      ctx.fillRect(0, 0, WALL_THICK, H);
-      ctx.fillRect(W - WALL_THICK, 0, WALL_THICK, H);
-
-      ctx.strokeStyle = '#444';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(ARENA_LEFT, ARENA_TOP, ARENA_RIGHT - ARENA_LEFT, ARENA_BOTTOM - ARENA_TOP);
-
-      // Boost pads
-      for (const pad of boostPads) {
-        if (pad.timer > 0) {
-          // Respawning - faded
-          ctx.fillStyle = 'rgba(255, 200, 0, 0.15)';
-          ctx.beginPath();
-          ctx.arc(pad.x, pad.y, BOOST_PAD_SIZE * 0.5, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          // Active pad - glowing diamond
-          ctx.save();
-          ctx.translate(pad.x, pad.y);
-          ctx.rotate(Math.PI / 4);
-          ctx.shadowBlur = 8;
-          ctx.shadowColor = '#ff0';
-          ctx.fillStyle = '#ffa500';
-          ctx.fillRect(-BOOST_PAD_SIZE/2, -BOOST_PAD_SIZE/2, BOOST_PAD_SIZE, BOOST_PAD_SIZE);
-          ctx.strokeStyle = '#ff0';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(-BOOST_PAD_SIZE/2, -BOOST_PAD_SIZE/2, BOOST_PAD_SIZE, BOOST_PAD_SIZE);
-          ctx.restore();
-          ctx.shadowBlur = 0;
-        }
-      }
-
-      // Ball trail
-      for (const t of ballTrail) {
-        const alpha = t.life / 15;
-        ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.2})`;
-        ctx.beginPath();
-        ctx.arc(t.x, t.y, BALL_R * alpha * 0.7, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Ball
-      const ballSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+    // Goal message
+    if (gameState === 'goalScored' && goalTimer > 0) {
       ctx.save();
-      ctx.shadowBlur = 5 + ballSpeed * 2;
-      ctx.shadowColor = ballSpeed > 5 ? '#f60' : '#fff';
-      // Ball body
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-      ctx.fill();
-      // Ball pentagon pattern
-      ctx.strokeStyle = '#888';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-      ctx.stroke();
-      // Ball segments (soccer ball look)
-      const ballAngle = Math.atan2(ball.vy, ball.vx) * 0.5;
-      for (let i = 0; i < 5; i++) {
-        const a = ballAngle + (i / 5) * Math.PI * 2;
-        const px = ball.x + Math.cos(a) * BALL_R * 0.6;
-        const py = ball.y + Math.sin(a) * BALL_R * 0.6;
-        ctx.fillStyle = '#666';
-        ctx.beginPath();
-        ctx.arc(px, py, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-      ctx.shadowBlur = 0;
-
-      // Draw cars
-      drawCar(player);
-      drawCar(ai);
-
-      // Boost meters
-      drawBoostMeter(20, H - 6, player.boost, '#f60');
-      drawBoostMeter(W - 120, H - 6, ai.boost, '#4af');
-
-      // Particles
-      for (const p of particles) {
-        const alpha = p.life / p.maxLife;
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = alpha;
-        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
-      }
-      ctx.globalAlpha = 1;
-
-      // Goal scored message
-      if (gameState === 'goalScored' && goalTimer > 0) {
-        ctx.save();
-        ctx.fillStyle = goalMessage.includes('YOU') ? '#f60' : '#4af';
-        ctx.font = 'bold 36px "Courier New"';
-        ctx.textAlign = 'center';
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = ctx.fillStyle;
-        const pulse = 1 + Math.sin(goalTimer * 0.15) * 0.1;
-        ctx.setTransform(pulse, 0, 0, pulse, W/2, H/2);
-        ctx.fillText(goalMessage, 0, 0);
-        ctx.restore();
-        ctx.shadowBlur = 0;
-      }
-    }
-
-    function drawCar(car) {
-      ctx.save();
-      ctx.translate(car.x, car.y);
-      ctx.rotate(car.angle);
-
-      const halfW = CAR_W / 2;
-      const halfH = CAR_H / 2;
-
-      // Boost flame
-      if (car.boostFlame > 0) {
-        const flameLen = car.boostFlame * 2 + Math.random() * 8;
-        const gradient = ctx.createLinearGradient(-halfW - flameLen, 0, -halfW, 0);
-        gradient.addColorStop(0, 'rgba(255,100,0,0)');
-        gradient.addColorStop(0.3, car.isAI ? 'rgba(68,170,255,0.8)' : 'rgba(255,100,0,0.8)');
-        gradient.addColorStop(1, '#ff0');
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.moveTo(-halfW, -halfH * 0.5);
-        ctx.lineTo(-halfW - flameLen, 0);
-        ctx.lineTo(-halfW, halfH * 0.5);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // Car body shadow
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = car.color;
-
-      // Car body
-      ctx.fillStyle = car.color;
-      ctx.beginPath();
-      // Rounded car shape
-      const r = 4;
-      ctx.moveTo(-halfW + r, -halfH);
-      ctx.lineTo(halfW - r, -halfH);
-      ctx.quadraticCurveTo(halfW, -halfH, halfW, -halfH + r);
-      // Front slope (nose)
-      ctx.lineTo(halfW + 4, -2);
-      ctx.lineTo(halfW + 4, 2);
-      ctx.lineTo(halfW, halfH - r);
-      ctx.quadraticCurveTo(halfW, halfH, halfW - r, halfH);
-      ctx.lineTo(-halfW + r, halfH);
-      ctx.quadraticCurveTo(-halfW, halfH, -halfW, halfH - r);
-      ctx.lineTo(-halfW, -halfH + r);
-      ctx.quadraticCurveTo(-halfW, -halfH, -halfW + r, -halfH);
-      ctx.closePath();
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Car roof / windshield
-      ctx.fillStyle = car.isAI ? '#2a7ab5' : '#b34700';
-      ctx.fillRect(-5, -halfH, 15, halfH * 0.8);
-
-      // Windshield
-      ctx.fillStyle = 'rgba(150,200,255,0.4)';
-      ctx.beginPath();
-      ctx.moveTo(5, -halfH + 1);
-      ctx.lineTo(12, -halfH + 1);
-      ctx.lineTo(10, -3);
-      ctx.lineTo(3, -3);
-      ctx.closePath();
-      ctx.fill();
-
-      // Wheels
-      ctx.fillStyle = '#222';
-      // Front wheel
-      ctx.save();
-      ctx.translate(halfW - 8, halfH);
-      ctx.fillRect(-4, -2, 8, 5);
-      ctx.fillStyle = '#555';
-      ctx.fillRect(-3, -1, 6, 3);
-      ctx.restore();
-      // Rear wheel
-      ctx.save();
-      ctx.translate(-halfW + 8, halfH);
-      ctx.fillRect(-4, -2, 8, 5);
-      ctx.fillStyle = '#555';
-      ctx.fillRect(-3, -1, 6, 3);
-      ctx.restore();
-
-      // Number/team indicator
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 8px "Courier New"';
+      const pulse = 1 + Math.sin(goalTimer * 0.15) * 0.08;
+      ctx.font = `bold 40px "Courier New"`;
       ctx.textAlign = 'center';
-      ctx.fillText(car.isAI ? 'AI' : 'P1', 0, 3);
-
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = goalMessage.includes('AI') ? '#4af' : '#f60';
+      ctx.shadowBlur = 25;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.setTransform(pulse, 0, 0, pulse, W/2, H/2 - 20);
+      ctx.fillText(goalMessage, 0, 0);
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.font = '16px "Courier New"';
+      ctx.fillStyle = '#aaa';
+      ctx.shadowBlur = 0;
+      ctx.fillText(`${score} - ${aiScore}`, W/2, H/2 + 20);
       ctx.restore();
     }
 
-    function drawBoostMeter(x, y, amount, color) {
-      const w = 100;
-      const h = 4;
-      ctx.fillStyle = '#222';
-      ctx.fillRect(x, y - h, w, h);
-      ctx.fillStyle = color;
-      ctx.fillRect(x, y - h, w * (amount / MAX_BOOST), h);
-      ctx.strokeStyle = '#444';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, y - h, w, h);
+    // Kickoff countdown
+    if (kickoffTimer > 30) {
+      ctx.font = 'bold 30px "Courier New"';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff';
+      ctx.shadowBlur = 10; ctx.shadowColor = '#fff';
+      ctx.fillText(Math.ceil((kickoffTimer-30)/30).toString(), W/2, H/2 - 30);
+      ctx.shadowBlur = 0;
+    } else if (kickoffTimer > 0) {
+      ctx.font = 'bold 24px "Courier New"';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f60';
+      ctx.shadowBlur = 15; ctx.shadowColor = '#f60';
+      ctx.fillText('GO!', W/2, H/2 - 30);
+      ctx.shadowBlur = 0;
+    }
+  }
 
-      ctx.fillStyle = '#888';
-      ctx.font = '8px "Courier New"';
-      ctx.textAlign = 'left';
-      ctx.fillText('BOOST', x, y - h - 2);
+  function drawGoal(x, dir, color) {
+    // Goal net area
+    ctx.fillStyle = color.replace(')', ',0.08)').replace('rgb', 'rgba').replace('#', '');
+    // Convert hex to rgba
+    const r = parseInt(color.slice(1,2),16)*17, g = parseInt(color.slice(2,3),16)*17, b = parseInt(color.slice(3,4),16)*17;
+    ctx.fillStyle = `rgba(${r},${g},${b},0.1)`;
+    const gx = dir < 0 ? x - GOAL_W : x;
+    ctx.fillRect(gx, GOAL_TOP, GOAL_W, GOAL_H);
+
+    // Net lines
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.25)`;
+    ctx.lineWidth = 1;
+    for (let ny = GOAL_TOP; ny <= ARENA_B; ny += 12) {
+      ctx.beginPath(); ctx.moveTo(gx, ny); ctx.lineTo(gx + GOAL_W * (dir < 0 ? -1 : 1) * 0 + GOAL_W, ny); ctx.stroke();
     }
 
-    // Game loop
-    function gameLoop() {
-      update();
-      draw();
-      requestAnimationFrame(gameLoop);
+    // Goal frame
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, GOAL_TOP);
+    ctx.lineTo(x + dir * GOAL_W, GOAL_TOP);
+    ctx.lineTo(x + dir * GOAL_W, ARENA_B);
+    ctx.lineTo(x, ARENA_B);
+    ctx.stroke();
+  }
+
+  function drawBall() {
+    const spd = Math.hypot(ball.vx, ball.vy);
+    ctx.save();
+    ctx.translate(ball.x, ball.y);
+
+    // Glow
+    ctx.shadowBlur = 6 + spd * 2;
+    ctx.shadowColor = spd > 6 ? '#f60' : spd > 3 ? '#fa0' : '#fff';
+
+    // Ball body
+    ctx.fillStyle = '#eee';
+    ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, Math.PI*2); ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // Soccer pattern
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, Math.PI*2); ctx.stroke();
+
+    const rot = Math.atan2(ball.vy, ball.vx + 0.01);
+    for (let i = 0; i < 5; i++) {
+      const a = rot + i * Math.PI * 2 / 5;
+      ctx.fillStyle = '#777';
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * BALL_R * 0.55, Math.sin(a) * BALL_R * 0.55, 2.5, 0, Math.PI*2);
+      ctx.fill();
     }
 
-    // Initialize
-    resetAll();
-    gameLoop();
+    ctx.restore();
+  }
+
+  function drawCar(c) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+
+    // Flip rendering if facing left
+    const flip = c.facingRight ? 1 : -1;
+    ctx.scale(flip, 1);
+    ctx.rotate(c.angle * flip);
+
+    const hw = CAR_W/2, hh = CAR_H/2;
+
+    // Boost flame
+    if (c.flameTimer > 0) {
+      const fLen = c.flameTimer * 3 + Math.random() * 10;
+      const grad = ctx.createLinearGradient(-hw - fLen, 0, -hw, 0);
+      grad.addColorStop(0, 'transparent');
+      grad.addColorStop(0.4, c.isAI ? 'rgba(68,170,255,0.7)' : 'rgba(255,80,0,0.7)');
+      grad.addColorStop(1, 'rgba(255,255,0,0.9)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(-hw, -hh*0.4);
+      ctx.lineTo(-hw - fLen, 0);
+      ctx.lineTo(-hw, hh*0.4);
+      ctx.fill();
+    }
+
+    // Car shadow
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = c.color;
+
+    // Car body
+    ctx.fillStyle = c.color;
+    ctx.beginPath();
+    ctx.moveTo(-hw + 3, -hh);
+    ctx.lineTo(hw - 2, -hh);
+    ctx.lineTo(hw + 5, -3);    // front nose point
+    ctx.lineTo(hw + 5, 3);
+    ctx.lineTo(hw - 2, hh);
+    ctx.lineTo(-hw + 3, hh);
+    ctx.lineTo(-hw, hh - 3);
+    ctx.lineTo(-hw, -hh + 3);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // Cabin / darker stripe
+    ctx.fillStyle = c.darkColor;
+    ctx.fillRect(-4, -hh, 14, hh * 0.7);
+
+    // Windshield
+    ctx.fillStyle = 'rgba(120,180,255,0.35)';
+    ctx.beginPath();
+    ctx.moveTo(6, -hh + 1);
+    ctx.lineTo(12, -hh + 1);
+    ctx.lineTo(10, -4);
+    ctx.lineTo(4, -4);
+    ctx.fill();
+
+    // Headlight
+    ctx.fillStyle = '#ff0';
+    ctx.shadowBlur = 4; ctx.shadowColor = '#ff0';
+    ctx.fillRect(hw + 2, -4, 3, 3);
+    ctx.shadowBlur = 0;
+
+    // Taillight
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(-hw, -3, 2, 6);
+
+    // Wheels
+    ctx.fillStyle = '#111';
+    ctx.fillRect(hw - 10, hh - 2, 10, 5);
+    ctx.fillRect(-hw + 2, hh - 2, 10, 5);
+    // Wheel highlights
+    ctx.fillStyle = '#444';
+    ctx.fillRect(hw - 9, hh - 1, 8, 3);
+    ctx.fillRect(-hw + 3, hh - 1, 8, 3);
+
+    // Label
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 7px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillText(c.isAI ? 'AI' : 'P1', 0, 3);
+
+    ctx.restore();
+  }
+
+  function drawBoostMeter(x, y, amount, color, label) {
+    const w = 100, h = 4;
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(x, y, w, h);
+    const fill = w * (amount / MAX_BOOST);
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, fill, h);
+    // Glow on boost bar
+    if (amount > 50) {
+      ctx.shadowBlur = 4; ctx.shadowColor = color;
+      ctx.fillRect(x, y, fill, h);
+      ctx.shadowBlur = 0;
+    }
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#666';
+    ctx.font = '7px "Courier New"';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, x, y - 2);
+  }
+
+  // === GAME LOOP ===
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  resetAll();
+  loop();
   </script>
 </body>
 </html>

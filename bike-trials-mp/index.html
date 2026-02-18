@@ -104,8 +104,6 @@
     const ANGULAR_DAMPING = 0.92;
     const BOUNCE = 0.3;
     const FRICTION = 0.985;
-    const SUSPENSION_STIFF = 0.3;
-    const SUSPENSION_DAMP = 0.6;
     const MAX_LEAN = Math.PI * 0.55;
 
     // Input
@@ -113,8 +111,19 @@
     document.addEventListener('keydown', e => {
       if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space',' '].includes(e.key)) e.preventDefault();
       keys[e.key] = true;
-      if (gameState === 'waiting') { startGame(); }
-      else if (gameState === 'over' && (e.key === ' ' || e.key === 'Enter')) { initGame(); }
+
+      if (gameState === 'waiting') {
+        startGame();
+      } else if (gameState === 'over') {
+        if (e.key === ' ' || e.key === 'Enter') {
+          if (finished) {
+            nextLevel();
+          } else {
+            initGame();
+            startGame();
+          }
+        }
+      }
     });
     document.addEventListener('keyup', e => { keys[e.key] = false; });
 
@@ -150,7 +159,7 @@
           // Hill
           const hillH = 30 + Math.random() * 50 * difficulty;
           const hillW = 4 + Math.floor(Math.random() * 4);
-          for (let j = 0; j < hillW; j++) {
+          for (let j = 0; j < hillW && i < numSegs; j++) {
             const t = j / (hillW - 1);
             const hf = Math.sin(t * Math.PI);
             terrain.push({ x: x, y: y - hillH * hf });
@@ -164,24 +173,30 @@
           // Ramp up
           terrain.push({ x: x, y: y - 15 });
           x += segW; i++;
-          terrain.push({ x: x, y: y - 30 });
-          x += segW; i++;
+          if (i < numSegs) {
+            terrain.push({ x: x, y: y - 30 });
+            x += segW; i++;
+          }
           // Gap - deep pit
-          for (let j = 0; j < gapW; j++) {
+          for (let j = 0; j < gapW && i < numSegs; j++) {
             terrain.push({ x: x, y: y + 80 });
             x += segW; i++;
           }
           // Landing ramp
-          terrain.push({ x: x, y: y - 15 });
-          x += segW; i++;
-          terrain.push({ x: x, y: y });
-          x += segW; i++;
+          if (i < numSegs) {
+            terrain.push({ x: x, y: y - 15 });
+            x += segW; i++;
+          }
+          if (i < numSegs) {
+            terrain.push({ x: x, y: y });
+            x += segW; i++;
+          }
           lastFeature = i;
         } else if (distSinceLast > 6 && featureChance < 0.4 * difficulty) {
           // Steep incline
           const dir = Math.random() < 0.5 ? -1 : 1;
           const steps = 3 + Math.floor(Math.random() * 3);
-          for (let j = 0; j < steps; j++) {
+          for (let j = 0; j < steps && i < numSegs; j++) {
             y += dir * (8 + Math.random() * 12 * difficulty);
             y = Math.max(100, Math.min(340, y));
             terrain.push({ x: x, y: y });
@@ -192,7 +207,7 @@
         } else if (distSinceLast > 10 && featureChance < 0.5 * difficulty) {
           // Bumpy section
           const bumps = 4 + Math.floor(Math.random() * 4);
-          for (let j = 0; j < bumps; j++) {
+          for (let j = 0; j < bumps && i < numSegs; j++) {
             const bumpH = 10 + Math.random() * 20 * difficulty;
             terrain.push({ x: x, y: y - bumpH * (j % 2 === 0 ? 1 : 0) });
             x += segW;
@@ -239,7 +254,6 @@
     }
 
     function getTerrainY(worldX) {
-      // Find the two terrain points surrounding worldX
       for (let i = 0; i < terrain.length - 1; i++) {
         if (worldX >= terrain[i].x && worldX < terrain[i + 1].x) {
           const t = (worldX - terrain[i].x) / (terrain[i + 1].x - terrain[i].x);
@@ -278,13 +292,10 @@
         this.vy = 0;
         this.angle = 0;
         this.angularVel = 0;
-        this.wheelFrontY = 0;
-        this.wheelRearY = 0;
         this.speed = 0;
         this.crashed = false;
         this.onGround = false;
         this.distance = 0;
-        this.suspension = [0, 0]; // front, rear compression
       }
 
       update(throttle, brake, leanDir) {
@@ -318,15 +329,9 @@
         if (rearWY + WHEEL_RADIUS > groundRear) {
           rearOnGround = true;
           const penetration = (rearWY + WHEEL_RADIUS) - groundRear;
-          const terrAngle = getTerrainAngle(rearWX);
-          const normalX = -Math.sin(terrAngle);
-          const normalY = -Math.cos(terrAngle);
-
           this.y -= penetration * 0.7;
           this.vy *= -BOUNCE;
           if (Math.abs(this.vy) < 1) this.vy = 0;
-
-          // Align bike to terrain
           const targetAngle = getTerrainAngle(this.x);
           this.angle += (targetAngle - this.angle) * 0.08;
         }
@@ -335,12 +340,9 @@
         if (frontWY + WHEEL_RADIUS > groundFront) {
           frontOnGround = true;
           const penetration = (frontWY + WHEEL_RADIUS) - groundFront;
-          const terrAngle = getTerrainAngle(frontWX);
-
           this.y -= penetration * 0.7;
           this.vy *= -BOUNCE;
           if (Math.abs(this.vy) < 1) this.vy = 0;
-
           const targetAngle = getTerrainAngle(this.x);
           this.angle += (targetAngle - this.angle) * 0.08;
         }
@@ -390,7 +392,7 @@
         const headX = this.x - sinA * 28;
         const headY = this.y - cosA * 28;
         const headGround = getTerrainY(headX);
-        if (headY > headGround - 3) {
+        if (headY > headGround - 3 && this.onGround) {
           this.crashed = true;
         }
 
@@ -417,19 +419,20 @@
           ctx.shadowBlur = 12;
         }
 
+        const halfWB = WHEELBASE / 2;
+        const wheelRot = (this.x * 0.15);
+
         // Rear wheel
         ctx.beginPath();
-        ctx.arc(-WHEELBASE / 2, 0, WHEEL_RADIUS, 0, Math.PI * 2);
+        ctx.arc(-halfWB, 0, WHEEL_RADIUS, 0, Math.PI * 2);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
         ctx.stroke();
-        // Spokes
-        const wheelRot = (this.x * 0.15);
         for (let s = 0; s < 4; s++) {
           const sa = wheelRot + s * Math.PI / 2;
           ctx.beginPath();
-          ctx.moveTo(-WHEELBASE / 2, 0);
-          ctx.lineTo(-WHEELBASE / 2 + Math.cos(sa) * WHEEL_RADIUS * 0.8, Math.sin(sa) * WHEEL_RADIUS * 0.8);
+          ctx.moveTo(-halfWB, 0);
+          ctx.lineTo(-halfWB + Math.cos(sa) * WHEEL_RADIUS * 0.8, Math.sin(sa) * WHEEL_RADIUS * 0.8);
           ctx.strokeStyle = color;
           ctx.lineWidth = 1;
           ctx.stroke();
@@ -437,28 +440,27 @@
 
         // Front wheel
         ctx.beginPath();
-        ctx.arc(WHEELBASE / 2, 0, WHEEL_RADIUS, 0, Math.PI * 2);
+        ctx.arc(halfWB, 0, WHEEL_RADIUS, 0, Math.PI * 2);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2.5;
         ctx.stroke();
         for (let s = 0; s < 4; s++) {
           const sa = wheelRot + s * Math.PI / 2;
           ctx.beginPath();
-          ctx.moveTo(WHEELBASE / 2, 0);
-          ctx.lineTo(WHEELBASE / 2 + Math.cos(sa) * WHEEL_RADIUS * 0.8, Math.sin(sa) * WHEEL_RADIUS * 0.8);
+          ctx.moveTo(halfWB, 0);
+          ctx.lineTo(halfWB + Math.cos(sa) * WHEEL_RADIUS * 0.8, Math.sin(sa) * WHEEL_RADIUS * 0.8);
           ctx.strokeStyle = color;
           ctx.lineWidth = 1;
           ctx.stroke();
         }
 
-        // Frame / body
+        // Frame
         ctx.beginPath();
-        // Engine area
-        ctx.moveTo(-WHEELBASE / 2, 0);
+        ctx.moveTo(-halfWB, 0);
         ctx.lineTo(-8, -10);
         ctx.lineTo(5, -12);
-        ctx.lineTo(WHEELBASE / 2 - 2, -4);
-        ctx.lineTo(WHEELBASE / 2, 0);
+        ctx.lineTo(halfWB - 2, -4);
+        ctx.lineTo(halfWB, 0);
         ctx.strokeStyle = bodyColor;
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -475,10 +477,10 @@
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // Forks (front)
+        // Front forks
         ctx.beginPath();
         ctx.moveTo(10, -12);
-        ctx.lineTo(WHEELBASE / 2, 0);
+        ctx.lineTo(halfWB, 0);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.stroke();
@@ -486,7 +488,7 @@
         // Rear swing arm
         ctx.beginPath();
         ctx.moveTo(-6, -4);
-        ctx.lineTo(-WHEELBASE / 2, 0);
+        ctx.lineTo(-halfWB, 0);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.stroke();
@@ -494,8 +496,8 @@
         // Exhaust
         ctx.beginPath();
         ctx.moveTo(-4, -4);
-        ctx.lineTo(-WHEELBASE / 2 + 4, 6);
-        ctx.lineTo(-WHEELBASE / 2 - 2, 6);
+        ctx.lineTo(-halfWB + 4, 6);
+        ctx.lineTo(-halfWB - 2, 6);
         ctx.strokeStyle = this.isGhost ? 'rgba(150,100,50,0.2)' : '#a64';
         ctx.lineWidth = 2;
         ctx.stroke();
@@ -510,7 +512,7 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Rider (stick figure style)
+        // Rider
         ctx.shadowBlur = 0;
 
         // Body
@@ -533,7 +535,7 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Arms (reaching to handlebars)
+        // Arms
         ctx.beginPath();
         ctx.moveTo(2, -28);
         ctx.lineTo(10, -20);
@@ -541,7 +543,7 @@
         ctx.lineWidth = 2.5;
         ctx.stroke();
 
-        // Legs (to pegs area)
+        // Legs
         ctx.beginPath();
         ctx.moveTo(-2, -18);
         ctx.lineTo(-6, -8);
@@ -555,22 +557,18 @@
       }
     }
 
-    // Ghost recording/playback
+    // Ghost AI
     let ghostData = [];
-    let ghostRecording = [];
     let ghostFrame = 0;
 
     function generateGhostRun() {
-      // Pre-compute a decent AI run through the terrain
       const ghost = new Bike(true);
       ghost.reset();
       const recording = [];
-      const maxFrames = 8000;
+      const maxFrames = 12000;
 
       for (let f = 0; f < maxFrames; f++) {
-        // Simple AI: always throttle, lean to match terrain, brake on steep descents
         const terrAngle = getTerrainAngle(ghost.x + 30);
-        const currentTerr = getTerrainAngle(ghost.x);
         const aheadY = getTerrainY(ghost.x + 60);
         const currentY = getTerrainY(ghost.x);
 
@@ -582,7 +580,7 @@
         if (terrAngle > 0.15) lean = 0.5;
         else if (terrAngle < -0.15) lean = -0.3;
 
-        // Brake on very steep descents
+        // Brake on steep descents
         if (terrAngle > 0.5 && ghost.speed > 4) {
           brake = true;
           throttle = false;
@@ -595,7 +593,7 @@
           brake = false;
         }
 
-        // In air - try to stay level
+        // In air - stabilize
         if (!ghost.onGround) {
           if (ghost.angle > 0.2) lean = -0.6;
           else if (ghost.angle < -0.2) lean = 0.6;
@@ -612,8 +610,6 @@
           x: ghost.x,
           y: ghost.y,
           angle: ghost.angle,
-          vx: ghost.vx,
-          vy: ghost.vy,
           speed: ghost.speed,
           crashed: ghost.crashed
         });
@@ -631,22 +627,21 @@
     let checkpointBonus;
     let finished;
     let particles;
+    let crashTimer;
 
     function initGame() {
       gameState = 'waiting';
       score = 0;
       scoreEl.textContent = '0';
-      currentLevel = 1;
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'BIKE TRIALS MP';
-      overlayText.innerHTML = 'Arrow Keys: UP=Gas DOWN=Brake LEFT/RIGHT=Lean<br>Race the ghost to the finish!';
+      overlayText.innerHTML = `Level ${currentLevel}<br>Arrow Keys: UP=Gas DOWN=Brake LEFT/RIGHT=Lean<br>Race the ghost to the finish!`;
 
       generateTerrain(currentLevel);
       player = new Bike(false);
       ghostBike = new Bike(true);
       ghostData = generateGhostRun();
       ghostFrame = 0;
-      ghostRecording = [];
       cameraX = 0;
       cameraY = 0;
       timer = 0;
@@ -654,6 +649,7 @@
       checkpointBonus = 0;
       finished = false;
       particles = [];
+      crashTimer = 0;
 
       for (const cp of checkpoints) cp.reached = false;
     }
@@ -683,23 +679,20 @@
       overlay.style.display = 'flex';
       if (didFinish) {
         overlayTitle.textContent = 'LEVEL COMPLETE!';
-        overlayText.innerHTML = `Distance: ${distScore}m + Checkpoints: ${checkpointBonus} - Time: ${timePenalty}<br>Score: ${score}<br><br>Press ENTER for next level`;
+        overlayText.innerHTML = `Distance: ${distScore}m + Checkpoints: ${checkpointBonus} - Time: ${timePenalty}<br>Score: ${score}<br><br>Press SPACE or ENTER for next level`;
       } else {
         overlayTitle.textContent = 'CRASHED!';
-        overlayText.innerHTML = `Distance: ${distScore}m | Score: ${score}<br><br>Press ENTER to retry`;
+        overlayText.innerHTML = `Distance: ${distScore}m | Score: ${score}<br><br>Press SPACE or ENTER to retry`;
       }
     }
 
     function nextLevel() {
       currentLevel++;
-      score = 0;
-      scoreEl.textContent = '0';
       generateTerrain(currentLevel);
       player = new Bike(false);
       ghostBike = new Bike(true);
       ghostData = generateGhostRun();
       ghostFrame = 0;
-      ghostRecording = [];
       cameraX = 0;
       cameraY = 0;
       timer = 0;
@@ -707,22 +700,13 @@
       checkpointBonus = 0;
       finished = false;
       particles = [];
+      crashTimer = 0;
+      score = 0;
+      scoreEl.textContent = '0';
       for (const cp of checkpoints) cp.reached = false;
       gameState = 'playing';
       overlay.style.display = 'none';
     }
-
-    // Override end-game key handler
-    document.addEventListener('keydown', e => {
-      if (gameState === 'over' && (e.key === 'Enter' || e.key === ' ')) {
-        if (finished) {
-          nextLevel();
-        } else {
-          initGame();
-          startGame();
-        }
-      }
-    });
 
     // Particles
     function spawnParticles(x, y, count, color) {
@@ -739,8 +723,26 @@
       }
     }
 
-    // Main game loop
+    // Main update
     function update() {
+      if (gameState === 'crashed') {
+        // Animate crash for a bit then show overlay
+        crashTimer++;
+        // Update particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.08;
+          p.life--;
+          if (p.life <= 0) particles.splice(i, 1);
+        }
+        if (crashTimer > 50) {
+          endGame(false);
+        }
+        return;
+      }
+
       if (gameState !== 'playing') return;
 
       timer = (performance.now() - startTime) / 1000;
@@ -754,7 +756,7 @@
 
       player.update(throttle, brake, lean);
 
-      // Dirt particles from wheels when on ground with throttle
+      // Dirt particles from rear wheel
       if (player.onGround && throttle && Math.random() < 0.4) {
         const cosA = Math.cos(player.angle);
         const sinA = Math.sin(player.angle);
@@ -796,13 +798,13 @@
       score = Math.max(0, distScore + checkpointBonus - timePenalty);
       scoreEl.textContent = score;
 
-      // Camera
+      // Camera follow
       const targetCamX = player.x - W * 0.3;
       const targetCamY = player.y - H * 0.55;
       cameraX += (targetCamX - cameraX) * 0.08;
       cameraY += (targetCamY - cameraY) * 0.06;
 
-      // Particles
+      // Update particles
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.x += p.vx;
@@ -815,8 +817,8 @@
       // Crash
       if (player.crashed) {
         spawnParticles(player.x, player.y, 15, '#f44');
-        setTimeout(() => endGame(false), 800);
-        gameState = 'over_anim';
+        gameState = 'crashed';
+        crashTimer = 0;
       }
     }
 
@@ -839,7 +841,7 @@
         ctx.fillRect(sx < 0 ? sx + 800 : sx, sy, ss, ss);
       }
 
-      // Mountains (parallax background)
+      // Mountains (parallax)
       ctx.beginPath();
       ctx.moveTo(0, H);
       for (let mx = -50; mx < W + 100; mx += 80) {
@@ -854,12 +856,13 @@
 
       // Terrain
       if (terrain.length > 1) {
-        // Find visible range
         const startX = cameraX - 50;
         const endX = cameraX + W + 50;
 
+        // Terrain fill
         ctx.beginPath();
         let started = false;
+        let firstScreenX = 0;
 
         for (let i = 0; i < terrain.length; i++) {
           const sx = terrain[i].x - cameraX;
@@ -867,6 +870,7 @@
 
           if (terrain[i].x >= startX - 60 && terrain[i].x <= endX + 60) {
             if (!started) {
+              firstScreenX = sx;
               ctx.moveTo(sx, sy);
               started = true;
             } else {
@@ -875,20 +879,19 @@
           }
         }
 
-        // Close terrain polygon (fill downward)
         if (started) {
-          ctx.lineTo(terrain[terrain.length - 1].x - cameraX, H + 100);
-          ctx.lineTo(terrain[0].x - cameraX, H + 100);
+          const lastVisibleX = Math.min(terrain[terrain.length - 1].x - cameraX, W + 100);
+          ctx.lineTo(lastVisibleX, H + 100);
+          ctx.lineTo(firstScreenX, H + 100);
           ctx.closePath();
 
-          // Terrain fill
           const tGrad = ctx.createLinearGradient(0, 0, 0, H);
           tGrad.addColorStop(0, '#2a2a3e');
           tGrad.addColorStop(1, '#1a1a2e');
           ctx.fillStyle = tGrad;
           ctx.fill();
 
-          // Terrain edge glow
+          // Terrain edge with neon glow
           ctx.shadowColor = THEME_GLOW;
           ctx.shadowBlur = 8;
 
@@ -905,11 +908,10 @@
           ctx.strokeStyle = THEME_DIM;
           ctx.lineWidth = 2;
           ctx.stroke();
-
           ctx.shadowBlur = 0;
         }
 
-        // Grass tufts on terrain
+        // Grass tufts
         ctx.strokeStyle = 'rgba(100, 200, 100, 0.3)';
         ctx.lineWidth = 1;
         for (let i = 0; i < terrain.length - 1; i += 3) {
@@ -942,7 +944,6 @@
           ctx.lineWidth = 2;
           ctx.stroke();
 
-          // Flag / banner
           if (cp.isFinish) {
             // Checkered flag
             ctx.shadowColor = '#ff0';
@@ -957,13 +958,12 @@
             }
             ctx.shadowBlur = 0;
 
-            // FINISH text
             ctx.fillStyle = '#ff0';
             ctx.font = '10px Courier New';
             ctx.textAlign = 'center';
             ctx.fillText('FINISH', sx + 12, sy - 24);
           } else {
-            // Checkpoint triangle
+            // Checkpoint flag
             ctx.shadowColor = cp.reached ? '#0f0' : THEME_GLOW;
             ctx.shadowBlur = 8;
             ctx.beginPath();
@@ -989,19 +989,19 @@
       ctx.globalAlpha = 1;
 
       // Ghost bike
-      if (ghostFrame < ghostData.length || ghostFrame > 0) {
+      if (ghostFrame > 0 && !ghostBike.crashed) {
         ghostBike.draw(cameraX, cameraY, 0.35);
       }
 
       // Player bike
-      if (!player.crashed || gameState === 'over_anim') {
+      if (!player.crashed || gameState === 'crashed') {
         player.draw(cameraX, cameraY, 1);
 
-        // Crash explosion effect
+        // Crash explosion
         if (player.crashed) {
           ctx.save();
-          const sx = player.x - cameraX;
-          const sy = player.y - cameraY;
+          const psx = player.x - cameraX;
+          const psy = player.y - cameraY;
           ctx.shadowColor = '#f44';
           ctx.shadowBlur = 20;
           ctx.strokeStyle = '#f44';
@@ -1011,10 +1011,11 @@
             const a = t + r * Math.PI / 3;
             const len = 10 + Math.random() * 20;
             ctx.beginPath();
-            ctx.moveTo(sx + Math.cos(a) * 8, sy + Math.sin(a) * 8);
-            ctx.lineTo(sx + Math.cos(a) * len, sy + Math.sin(a) * len);
+            ctx.moveTo(psx + Math.cos(a) * 8, psy + Math.sin(a) * 8);
+            ctx.lineTo(psx + Math.cos(a) * len, psy + Math.sin(a) * len);
             ctx.stroke();
           }
+          ctx.shadowBlur = 0;
           ctx.restore();
         }
       }
@@ -1038,13 +1039,13 @@
       ctx.textAlign = 'left';
       ctx.fillText('SPEED', pad + 5, H - 40);
 
-      const speedPct = player.speed / MAX_SPEED;
+      const speedPct = Math.min(1, player.speed / MAX_SPEED);
       ctx.fillStyle = '#333';
       ctx.fillRect(pad + 5, H - 34, 100, 8);
       const speedColor = speedPct > 0.8 ? '#f44' : speedPct > 0.5 ? '#fa4' : THEME;
-      ctx.fillStyle = speedColor;
       ctx.shadowColor = speedColor;
       ctx.shadowBlur = 6;
+      ctx.fillStyle = speedColor;
       ctx.fillRect(pad + 5, H - 34, 100 * speedPct, 8);
       ctx.shadowBlur = 0;
 
@@ -1055,9 +1056,11 @@
       ctx.fillStyle = 'rgba(26, 26, 46, 0.7)';
       ctx.fillRect(pad + 130, H - 55, 110, 45);
       ctx.strokeStyle = 'rgba(255,68,170,0.3)';
+      ctx.lineWidth = 1;
       ctx.strokeRect(pad + 130, H - 55, 110, 45);
 
       ctx.fillStyle = THEME;
+      ctx.font = '10px Courier New';
       ctx.fillText('DIST', pad + 135, H - 40);
       ctx.fillStyle = '#ddd';
       ctx.font = '14px Courier New';
@@ -1067,6 +1070,7 @@
       ctx.fillStyle = 'rgba(26, 26, 46, 0.7)';
       ctx.fillRect(W - 130, H - 55, 120, 45);
       ctx.strokeStyle = 'rgba(255,68,170,0.3)';
+      ctx.lineWidth = 1;
       ctx.strokeRect(W - 130, H - 55, 120, 45);
 
       ctx.fillStyle = THEME;
@@ -1083,18 +1087,18 @@
       ctx.fillStyle = 'rgba(26, 26, 46, 0.7)';
       ctx.fillRect(W - 130, H - 108, 120, 45);
       ctx.strokeStyle = 'rgba(255,68,170,0.3)';
+      ctx.lineWidth = 1;
       ctx.strokeRect(W - 130, H - 108, 120, 45);
 
       ctx.fillStyle = THEME;
       ctx.font = '10px Courier New';
       ctx.fillText('LEAN', W - 125, H - 93);
 
-      // Lean visual
+      // Lean gauge arc
       const leanCenterX = W - 70;
       const leanCenterY = H - 76;
       ctx.save();
       ctx.translate(leanCenterX, leanCenterY);
-      // Background arc
       ctx.beginPath();
       ctx.arc(0, 0, 14, -Math.PI, 0);
       ctx.strokeStyle = '#333';
@@ -1117,20 +1121,20 @@
       ctx.fillStyle = '#aaa';
       ctx.font = '10px Courier New';
       ctx.textAlign = 'left';
-      ctx.fillText(`${Math.floor(player.angle * 180 / Math.PI)}°`, W - 55, H - 68);
+      ctx.fillText(`${Math.floor(player.angle * 180 / Math.PI)}deg`, W - 55, H - 68);
 
       // Level indicator
       ctx.fillStyle = THEME;
       ctx.font = '12px Courier New';
       ctx.textAlign = 'right';
-      ctx.fillText(`LVL ${currentLevel}`, W - 15, 20);
+      ctx.fillText(`LVL ${currentLevel}`, W - 15, 25);
       ctx.textAlign = 'left';
 
       // Ghost label
-      if (ghostFrame < ghostData.length && !ghostData[ghostFrame - 1]?.crashed) {
+      if (ghostFrame > 0 && ghostFrame <= ghostData.length && !ghostBike.crashed) {
         const gsx = ghostBike.x - cameraX;
         const gsy = ghostBike.y - cameraY;
-        if (gsx > 0 && gsx < W && gsy > 0 && gsy < H) {
+        if (gsx > -20 && gsx < W + 20 && gsy > 0 && gsy < H) {
           ctx.fillStyle = 'rgba(255,68,170,0.4)';
           ctx.font = '9px Courier New';
           ctx.textAlign = 'center';
@@ -1139,8 +1143,8 @@
         }
       }
 
-      // Checkpoint progress bar at top
-      if (checkpoints.length > 0) {
+      // Progress bar at top
+      if (checkpoints.length > 0 && terrain.length > 1) {
         const barY = 6;
         const barH = 4;
         const barW = W - 20;
@@ -1149,23 +1153,22 @@
         ctx.fillStyle = '#222';
         ctx.fillRect(barX, barY, barW, barH);
 
-        // Player progress
         const totalDist = terrain[terrain.length - 1].x - terrain[0].x;
-        const playerProg = Math.min(1, (player.x - terrain[0].x) / totalDist);
+        const playerProg = Math.max(0, Math.min(1, (player.x - terrain[0].x) / totalDist));
         ctx.fillStyle = THEME;
         ctx.shadowColor = THEME_GLOW;
         ctx.shadowBlur = 4;
         ctx.fillRect(barX, barY, barW * playerProg, barH);
         ctx.shadowBlur = 0;
 
-        // Ghost progress
-        const ghostProg = Math.min(1, (ghostBike.x - terrain[0].x) / totalDist);
+        // Ghost progress marker
+        const ghostProg = Math.max(0, Math.min(1, (ghostBike.x - terrain[0].x) / totalDist));
         ctx.fillStyle = 'rgba(255,68,170,0.4)';
         ctx.fillRect(barX + barW * ghostProg - 2, barY - 1, 4, barH + 2);
 
         // Checkpoint markers
         for (const cp of checkpoints) {
-          const cpProg = (cp.x - terrain[0].x) / totalDist;
+          const cpProg = Math.max(0, Math.min(1, (cp.x - terrain[0].x) / totalDist));
           ctx.fillStyle = cp.reached ? '#0f0' : (cp.isFinish ? '#ff0' : '#888');
           ctx.fillRect(barX + barW * cpProg - 1, barY - 2, 2, barH + 4);
         }
@@ -1173,9 +1176,7 @@
     }
 
     function gameLoop() {
-      if (gameState === 'playing') {
-        update();
-      }
+      update();
       draw();
       requestAnimationFrame(gameLoop);
     }

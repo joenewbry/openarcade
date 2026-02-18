@@ -38,6 +38,7 @@
       border: 2px solid #fc0;
       box-shadow: 0 0 20px rgba(252, 204, 0, 0.2);
       display: block;
+      cursor: pointer;
     }
     .overlay {
       position: absolute;
@@ -53,7 +54,7 @@
       background: rgba(26, 26, 46, 0.85);
     }
     .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 15px rgba(252, 204, 0, 0.6); }
-    .overlay p { font-size: 1rem; color: #aaa; }
+    .overlay p { font-size: 1rem; color: #aaa; margin-top: 4px; }
     .controls { width: 600px; margin-top: 12px; color: #777; font-size: 0.8rem; text-align: center; }
   </style>
 </head>
@@ -71,21 +72,22 @@
     <canvas id="game" width="600" height="300"></canvas>
     <div class="overlay" id="overlay" style="width:600px;height:300px;">
       <h2 id="overlayTitle">NIDHOGG-LIKE</h2>
-      <p id="overlayText">Click to Start — Arrow keys move/jump, Z/X/C attack high/mid/low, S block</p>
+      <p id="overlayText">Click to Start</p>
+      <p style="font-size:0.8rem;color:#888;margin-top:8px;">Arrows: Move/Jump | Z/X/C: Attack High/Mid/Low | S: Block | D: Throw</p>
     </div>
   </div>
   <div class="controls">
-    Arrows: Move/Jump &nbsp;|&nbsp; Z: High Attack &nbsp;|&nbsp; X: Mid Attack &nbsp;|&nbsp; C: Low Attack &nbsp;|&nbsp; S: Block &nbsp;|&nbsp; D: Throw Sword
+    Arrows: Move/Jump &nbsp;|&nbsp; Z: High &nbsp;|&nbsp; X: Mid &nbsp;|&nbsp; C: Low &nbsp;|&nbsp; S: Block &nbsp;|&nbsp; D: Throw Sword
   </div>
 
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const W = 600, H = 300;
-    const GROUND = 240;
-    const GRAVITY = 0.6;
+    const GROUND = 235;
+    const GRAVITY = 0.55;
     const SCREEN_W = 600;
-    const TOTAL_SCREENS = 9; // -4 to +4, center is 0
+    const TOTAL_SCREENS = 9;
     const WORLD_LEFT = -4 * SCREEN_W;
     const WORLD_RIGHT = 4 * SCREEN_W + SCREEN_W;
 
@@ -99,21 +101,26 @@
     let gameState;
     let score;
 
-    // Keys
+    // Input
     const keys = {};
     const keyJustPressed = {};
     document.addEventListener('keydown', e => {
       if (!keys[e.code]) keyJustPressed[e.code] = true;
       keys[e.code] = true;
-      e.preventDefault();
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyZ','KeyX','KeyC','KeyS','KeyD'].includes(e.code)) {
+        e.preventDefault();
+      }
     });
     document.addEventListener('keyup', e => { keys[e.code] = false; });
 
-    // Fighter class
+    // Constants
     const STANCE_HIGH = 0, STANCE_MID = 1, STANCE_LOW = 2;
-    const ATTACK_RANGE = 50;
-    const FIST_RANGE = 25;
-    const SWORD_THROW_SPEED = 12;
+    const SWORD_RANGE = 48;
+    const FIST_RANGE = 22;
+    const SWORD_THROW_SPEED = 11;
+
+    // Dropped swords on the ground
+    let droppedSwords = [];
 
     class Fighter {
       constructor(x, facing, isAI) {
@@ -121,36 +128,29 @@
         this.y = GROUND;
         this.vx = 0;
         this.vy = 0;
-        this.facing = facing; // 1 = right, -1 = left
+        this.facing = facing;
         this.isAI = isAI;
         this.hasSword = true;
         this.stance = STANCE_MID;
         this.attacking = false;
         this.attackTimer = 0;
         this.attackStance = STANCE_MID;
+        this.attackHitRegistered = false;
         this.blocking = false;
         this.dead = false;
         this.deathTimer = 0;
         this.onGround = true;
-        this.width = 16;
-        this.height = 44;
-        this.runSpeed = 3.5;
-        this.color = isAI ? '#f44' : '#fc0';
+        this.runSpeed = 3.2;
+        this.color = isAI ? '#f55' : '#fc0';
         this.throwCooldown = 0;
         this.thrownSword = null;
         this.stunTimer = 0;
-        this.advancing = false; // after kill, run to victory
+        this.advancing = false;
         this.advanceTimer = 0;
-        this.rollTimer = 0;
-        // AI state
-        this.aiActionTimer = 0;
-        this.aiStance = STANCE_MID;
-        this.aiWantsAttack = false;
-        this.aiWantsBlock = false;
-        this.aiWantsJump = false;
-        this.aiThrowCooldown = 0;
-        this.aiReactTimer = 0;
-        this.aiDodgeTimer = 0;
+        this.goalDir = isAI ? -1 : 1; // P1 goes right, AI goes left
+        // AI fields
+        this.aiTimer = 0;
+        this.aiDecision = null;
       }
 
       reset(x, facing) {
@@ -163,6 +163,7 @@
         this.stance = STANCE_MID;
         this.attacking = false;
         this.attackTimer = 0;
+        this.attackHitRegistered = false;
         this.blocking = false;
         this.dead = false;
         this.deathTimer = 0;
@@ -172,33 +173,30 @@
         this.stunTimer = 0;
         this.advancing = false;
         this.advanceTimer = 0;
-        this.rollTimer = 0;
-        this.aiActionTimer = 0;
-        this.aiWantsAttack = false;
-        this.aiWantsBlock = false;
-        this.aiReactTimer = 0;
-        this.aiDodgeTimer = 0;
+        this.aiTimer = 0;
+        this.aiDecision = null;
       }
 
-      get attackRange() { return this.hasSword ? ATTACK_RANGE : FIST_RANGE; }
+      get weaponRange() { return this.hasSword ? SWORD_RANGE : FIST_RANGE; }
 
       attack(stance) {
-        if (this.attacking || this.stunTimer > 0 || this.blocking) return;
+        if (this.attacking || this.stunTimer > 0 || this.dead) return;
         this.attacking = true;
-        this.attackTimer = 12;
+        this.attackTimer = 14;
         this.attackStance = stance;
+        this.attackHitRegistered = false;
         this.blocking = false;
       }
 
       throwSword(opponent) {
-        if (!this.hasSword || this.attacking || this.throwCooldown > 0 || this.stunTimer > 0) return;
+        if (!this.hasSword || this.attacking || this.throwCooldown > 0 || this.stunTimer > 0 || this.dead) return;
         this.hasSword = false;
-        this.throwCooldown = 30;
+        this.throwCooldown = 40;
         this.thrownSword = {
-          x: this.x + this.facing * 20,
+          x: this.x + this.facing * 18,
           y: this.y - 22,
           vx: this.facing * SWORD_THROW_SPEED,
-          vy: -1,
+          vy: -0.5,
           active: true,
           stance: this.stance
         };
@@ -207,13 +205,15 @@
       update() {
         if (this.dead) {
           this.deathTimer++;
-          this.y += 2;
+          this.vy += GRAVITY;
+          this.x += this.vx;
+          this.y += this.vy;
           return;
         }
 
         if (this.stunTimer > 0) {
           this.stunTimer--;
-          this.vx *= 0.8;
+          this.vx *= 0.85;
         }
 
         if (this.attackTimer > 0) {
@@ -236,30 +236,37 @@
           this.onGround = false;
         }
 
-        // Clamp to world
+        // World bounds
         this.x = Math.max(WORLD_LEFT + 20, Math.min(WORLD_RIGHT - 20, this.x));
 
-        // Friction
+        // Ground friction
         if (this.onGround && this.stunTimer <= 0 && !this.advancing) {
-          this.vx *= 0.7;
+          this.vx *= 0.75;
         }
 
         // Thrown sword update
         if (this.thrownSword && this.thrownSword.active) {
           this.thrownSword.x += this.thrownSword.vx;
           this.thrownSword.y += this.thrownSword.vy;
-          // Despawn if off-screen far
-          if (Math.abs(this.thrownSword.x - this.x) > 800) {
+          this.thrownSword.vy += 0.03;
+          // Despawn far away
+          if (Math.abs(this.thrownSword.x - this.x) > 900) {
+            // Drop sword on ground
+            droppedSwords.push({ x: this.thrownSword.x, y: GROUND - 5 });
+            this.thrownSword.active = false;
+          }
+          // Hit ground
+          if (this.thrownSword.y > GROUND) {
+            droppedSwords.push({ x: this.thrownSword.x, y: GROUND - 5 });
             this.thrownSword.active = false;
           }
         }
       }
     }
 
-    // Game variables
+    // Game state
     let p1, p2, cameraX, kills1, kills2, roundTimer, respawnTimer;
-    let winZoneReached, winner, particles, matchStarted;
-    let screenArrows; // direction indicators
+    let winner, particles, enGardeTimer, flashTimer;
 
     function init() {
       gameState = 'waiting';
@@ -271,29 +278,31 @@
       cameraX = 0;
       roundTimer = 0;
       respawnTimer = 0;
-      winZoneReached = false;
       winner = null;
-      matchStarted = false;
       particles = [];
+      droppedSwords = [];
+      enGardeTimer = 0;
+      flashTimer = 0;
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'NIDHOGG-LIKE';
-      overlayText.textContent = 'Click to Start — Arrows move/jump, Z/X/C attack, S block, D throw';
+      overlayText.textContent = 'Click to Start';
       updateUI();
     }
 
     function startMatch() {
       gameState = 'playing';
-      matchStarted = true;
       kills1 = 0;
       kills2 = 0;
-      p1.reset(-100, 1);
-      p2.reset(100, -1);
+      p1.reset(-80, 1);
+      p2.reset(80, -1);
       cameraX = 0;
       roundTimer = 0;
       respawnTimer = 0;
-      winZoneReached = false;
       winner = null;
       particles = [];
+      droppedSwords = [];
+      enGardeTimer = 80;
+      flashTimer = 0;
       overlay.style.display = 'none';
       updateUI();
     }
@@ -301,77 +310,97 @@
     function updateUI() {
       p1ScoreEl.textContent = kills1;
       p2ScoreEl.textContent = kills2;
-      // Determine which screen the "leader" is on
       let leaderX = p1.dead ? p2.x : (p2.dead ? p1.x : (p1.x + p2.x) / 2);
-      let screen = Math.round(leaderX / SCREEN_W);
-      screenPosEl.textContent = screen;
+      screenPosEl.textContent = Math.round(leaderX / SCREEN_W);
     }
 
     function spawnParticles(x, y, color, count) {
       for (let i = 0; i < count; i++) {
         particles.push({
           x, y,
-          vx: (Math.random() - 0.5) * 8,
-          vy: -Math.random() * 6 - 2,
-          life: 20 + Math.random() * 20,
+          vx: (Math.random() - 0.5) * 10,
+          vy: -Math.random() * 7 - 2,
+          life: 20 + Math.random() * 25,
           color,
-          size: 2 + Math.random() * 3
+          size: 1.5 + Math.random() * 3
         });
       }
     }
 
+    // --- Combat ---
     function checkHit(attacker, defender) {
       if (!attacker.attacking || defender.dead || attacker.dead) return false;
-      if (attacker.attackTimer < 6 || attacker.attackTimer > 10) return false; // active frames
+      if (attacker.attackHitRegistered) return false;
+      // Active frames: frames 7-10 of a 14-frame attack
+      if (attacker.attackTimer < 4 || attacker.attackTimer > 8) return false;
 
       let dx = defender.x - attacker.x;
       let dist = Math.abs(dx);
       let inFront = (dx * attacker.facing) > 0;
 
-      if (!inFront || dist > attacker.attackRange + 10) return false;
+      if (!inFront || dist > attacker.weaponRange + 12) return false;
 
-      // Check vertical - only check if roughly same height
+      // Height check
       let dy = Math.abs(defender.y - attacker.y);
-      if (dy > 30) return false;
+      if (dy > 35) return false;
 
       // Block check
-      if (defender.blocking && defender.stance === attacker.attackStance) {
-        // Successful block - clang!
-        attacker.stunTimer = 15;
-        attacker.vx = -attacker.facing * 3;
-        spawnParticles(
-          (attacker.x + defender.x) / 2,
-          attacker.y - 20 - attacker.attackStance * 8,
-          '#fff', 5
-        );
+      if (defender.blocking && !defender.attacking) {
+        if (defender.stance === attacker.attackStance) {
+          // Successful block - parry!
+          attacker.stunTimer = 18;
+          attacker.vx = -attacker.facing * 4;
+          attacker.attackHitRegistered = true;
+          spawnParticles(
+            (attacker.x + defender.x) / 2,
+            attacker.y - 22,
+            '#fff', 6
+          );
+          return false;
+        }
+      }
+
+      // Sword clash check
+      if (defender.attacking && !defender.attackHitRegistered &&
+          defender.attackTimer >= 4 && defender.attackTimer <= 8 &&
+          defender.attackStance === attacker.attackStance) {
+        attacker.stunTimer = 14;
+        defender.stunTimer = 14;
+        attacker.vx = -attacker.facing * 5;
+        defender.vx = -defender.facing * 5;
+        attacker.attackHitRegistered = true;
+        defender.attackHitRegistered = true;
+        spawnParticles((attacker.x + defender.x) / 2, attacker.y - 22, '#fff', 10);
+        // Chance to disarm on clash
+        if (Math.random() < 0.2) {
+          let victim = Math.random() < 0.5 ? attacker : defender;
+          if (victim.hasSword) {
+            victim.hasSword = false;
+            droppedSwords.push({
+              x: (attacker.x + defender.x) / 2,
+              y: GROUND - 5
+            });
+          }
+        }
         return false;
       }
 
-      // Sword clash - both attacking same stance
-      if (defender.attacking && defender.attackStance === attacker.attackStance && defender.attackTimer >= 6) {
-        // Clash
-        attacker.stunTimer = 12;
-        defender.stunTimer = 12;
-        attacker.vx = -attacker.facing * 4;
-        defender.vx = -defender.facing * 4;
-        spawnParticles((attacker.x + defender.x) / 2, attacker.y - 22, '#fff', 8);
-        return false;
-      }
-
-      return true; // Hit!
+      attacker.attackHitRegistered = true;
+      return true;
     }
 
     function checkThrownSwordHit(sword, target) {
       if (!sword || !sword.active || target.dead) return false;
       let dx = Math.abs(sword.x - target.x);
       let dy = Math.abs(sword.y - (target.y - 22));
-      if (dx < 15 && dy < 20) {
-        // Can block thrown swords if blocking right stance
-        if (target.blocking && target.stance === sword.stance) {
+      if (dx < 16 && dy < 22) {
+        if (target.blocking) {
+          // Catch/deflect the sword
           sword.active = false;
-          // Target picks up the sword!
-          target.hasSword = true;
-          spawnParticles(sword.x, sword.y, '#fff', 5);
+          if (!target.hasSword) {
+            target.hasSword = true;
+          }
+          spawnParticles(sword.x, sword.y, '#fff', 6);
           return false;
         }
         return true;
@@ -382,8 +411,8 @@
     function killFighter(victim, killer) {
       victim.dead = true;
       victim.deathTimer = 0;
-      victim.vy = -8;
-      victim.vx = (victim.x < killer.x ? -3 : 3);
+      victim.vy = -9;
+      victim.vx = (victim.x < killer.x ? -4 : 4);
 
       if (killer === p1) {
         kills1++;
@@ -392,14 +421,21 @@
         kills2++;
       }
 
-      spawnParticles(victim.x, victim.y - 20, victim.color, 15);
-      spawnParticles(victim.x, victim.y - 20, '#f00', 10);
+      spawnParticles(victim.x, victim.y - 20, victim.color, 18);
+      spawnParticles(victim.x, victim.y - 20, '#c00', 12);
 
-      // Killer advances
+      // Drop victim's sword if they had one
+      if (victim.hasSword) {
+        droppedSwords.push({ x: victim.x, y: GROUND - 5 });
+      }
+
+      // Killer advances toward their goal side
       killer.advancing = true;
-      killer.advanceTimer = 60;
+      killer.advanceTimer = 70;
+      killer.facing = killer.goalDir;
 
-      respawnTimer = 90;
+      flashTimer = 15;
+      respawnTimer = 100;
       updateUI();
     }
 
@@ -407,119 +443,152 @@
       let alive = p1.dead ? p2 : p1;
       let dead = p1.dead ? p1 : p2;
 
-      // Respawn ahead of the alive player in the alive player's path
-      let spawnX = alive.x - alive.facing * 250;
-      spawnX = Math.max(WORLD_LEFT + 40, Math.min(WORLD_RIGHT - 40, spawnX));
+      // Respawn in front of the advancing killer (blocking their path)
+      let spawnX = alive.x + alive.goalDir * 280;
+      spawnX = Math.max(WORLD_LEFT + 50, Math.min(WORLD_RIGHT - 50, spawnX));
 
       dead.reset(spawnX, dead === p1 ? 1 : -1);
-      // Face opponent
       dead.facing = dead.x < alive.x ? 1 : -1;
       alive.advancing = false;
       alive.advanceTimer = 0;
+      enGardeTimer = 50;
     }
 
-    // --- AI Logic ---
+    // --- AI ---
     function updateAI(ai, player) {
       if (ai.dead || ai.stunTimer > 0) return;
 
       let dx = player.x - ai.x;
       let dist = Math.abs(dx);
-      let facingPlayer = (dx * ai.facing) > 0;
 
-      // Always face the player
+      // Always face player
       ai.facing = dx > 0 ? 1 : -1;
 
-      ai.aiActionTimer--;
-
-      // Check for incoming thrown sword
+      // React to incoming thrown sword
       if (player.thrownSword && player.thrownSword.active) {
         let sw = player.thrownSword;
-        let swordDist = Math.abs(sw.x - ai.x);
-        let swordApproaching = (sw.vx > 0 && sw.x < ai.x) || (sw.vx < 0 && sw.x > ai.x);
-        if (swordDist < 150 && swordApproaching) {
-          // Try to block
+        let sDist = Math.abs(sw.x - ai.x);
+        let approaching = (sw.vx > 0 && sw.x < ai.x) || (sw.vx < 0 && sw.x > ai.x);
+        if (sDist < 180 && approaching) {
           ai.blocking = true;
           ai.stance = sw.stance;
-          ai.aiWantsBlock = true;
-          if (Math.random() < 0.3 && ai.onGround) {
-            ai.vy = -10;
+          // Sometimes jump over it
+          if (Math.random() < 0.2 && ai.onGround && sDist < 100) {
+            ai.vy = -11;
+            ai.blocking = false;
           }
           return;
         }
       }
 
       // React to player attacks
-      if (player.attacking && dist < 80 && facingPlayer) {
-        if (Math.random() < 0.7) {
-          // Block
+      if (player.attacking && player.attackTimer >= 4 && dist < 90) {
+        if (Math.random() < 0.65) {
           ai.blocking = true;
           ai.stance = player.attackStance;
-          ai.aiWantsBlock = true;
-          ai.aiActionTimer = 10;
+          ai.aiTimer = 8;
           return;
-        } else if (Math.random() < 0.4 && ai.onGround) {
-          // Jump dodge
-          ai.vy = -10;
-          ai.vx = -ai.facing * 3;
+        } else if (Math.random() < 0.3 && ai.onGround) {
+          ai.vy = -11;
+          ai.vx = -ai.facing * 2;
+          return;
         }
       }
 
-      if (ai.aiActionTimer <= 0) {
-        ai.aiActionTimer = 8 + Math.floor(Math.random() * 12);
-        ai.aiWantsBlock = false;
-        ai.blocking = false;
+      ai.aiTimer--;
+      if (ai.aiTimer > 0) {
+        // Maintain current action
+        if (ai.blocking) ai.vx *= 0.4;
+        return;
+      }
 
-        if (dist < 60 && facingPlayer) {
-          // Close range - attack!
-          let r = Math.random();
-          if (r < 0.15 && ai.hasSword) {
-            // Throw sword at close range sometimes
-            ai.throwSword(player);
-          } else if (r < 0.7) {
-            // Attack at a stance different from player's block
-            let stances = [STANCE_HIGH, STANCE_MID, STANCE_LOW];
-            if (player.blocking) {
-              stances = stances.filter(s => s !== player.stance);
-            }
-            let chosenStance = stances[Math.floor(Math.random() * stances.length)];
-            ai.attack(chosenStance);
-          } else {
-            // Block preemptively
-            ai.blocking = true;
-            ai.stance = [STANCE_HIGH, STANCE_MID, STANCE_LOW][Math.floor(Math.random() * 3)];
-            ai.aiWantsBlock = true;
+      // New decision
+      ai.aiTimer = 6 + Math.floor(Math.random() * 10);
+      ai.blocking = false;
+
+      if (ai.advancing) {
+        // Just run toward goal
+        ai.vx = ai.goalDir * ai.runSpeed * 1.2;
+        return;
+      }
+
+      // Pick up dropped sword if nearby and unarmed
+      if (!ai.hasSword) {
+        let closest = null;
+        let closestDist = Infinity;
+        for (let s of droppedSwords) {
+          let d = Math.abs(s.x - ai.x);
+          if (d < closestDist) { closestDist = d; closest = s; }
+        }
+        if (closest && closestDist < 40) {
+          ai.hasSword = true;
+          droppedSwords.splice(droppedSwords.indexOf(closest), 1);
+        } else if (closest && closestDist < 200) {
+          // Move toward sword
+          ai.vx = (closest.x > ai.x ? 1 : -1) * ai.runSpeed;
+          return;
+        }
+      }
+
+      if (dist < 55) {
+        // Close range combat
+        let r = Math.random();
+        if (r < 0.12 && ai.hasSword) {
+          ai.throwSword(player);
+        } else if (r < 0.65) {
+          // Attack at stance player isn't blocking
+          let stances = [STANCE_HIGH, STANCE_MID, STANCE_LOW];
+          if (player.blocking) {
+            stances = stances.filter(s => s !== player.stance);
           }
-        } else if (dist < 120) {
-          // Approach carefully
-          if (Math.random() < 0.3) {
-            ai.vx = ai.facing * ai.runSpeed * 0.5;
-          }
-          if (Math.random() < 0.2) {
-            ai.stance = [STANCE_HIGH, STANCE_MID, STANCE_LOW][Math.floor(Math.random() * 3)];
-            ai.blocking = true;
-            ai.aiWantsBlock = true;
-          }
-          if (Math.random() < 0.15 && ai.hasSword && dist > 80) {
-            ai.throwSword(player);
-          }
+          // Mix it up
+          let chosen = stances[Math.floor(Math.random() * stances.length)];
+          ai.stance = chosen;
+          ai.attack(chosen);
+        } else if (r < 0.85) {
+          // Block
+          ai.blocking = true;
+          ai.stance = [STANCE_HIGH, STANCE_MID, STANCE_LOW][Math.floor(Math.random() * 3)];
+          ai.aiTimer = 10 + Math.floor(Math.random() * 8);
         } else {
-          // Far away - approach
-          ai.blocking = false;
-          ai.vx = ai.facing * ai.runSpeed;
-          if (Math.random() < 0.1 && ai.onGround) {
-            ai.vy = -10;
-          }
+          // Back off
+          ai.vx = -ai.facing * ai.runSpeed;
+        }
+      } else if (dist < 130) {
+        // Approach range
+        let r = Math.random();
+        if (r < 0.5) {
+          ai.vx = ai.facing * ai.runSpeed * 0.7;
+        } else if (r < 0.65 && ai.hasSword) {
+          ai.throwSword(player);
+        } else if (r < 0.8) {
+          ai.blocking = true;
+          ai.stance = [STANCE_HIGH, STANCE_MID, STANCE_LOW][Math.floor(Math.random() * 3)];
+          ai.vx = ai.facing * ai.runSpeed * 0.4;
+        } else {
+          // Lunge: run in and attack
+          ai.vx = ai.facing * ai.runSpeed * 1.3;
+          let s = [STANCE_HIGH, STANCE_MID, STANCE_LOW][Math.floor(Math.random() * 3)];
+          ai.stance = s;
+          ai.attack(s);
+        }
+      } else {
+        // Far away - close distance
+        ai.blocking = false;
+        ai.vx = ai.facing * ai.runSpeed * 1.1;
+        if (Math.random() < 0.08 && ai.onGround) {
+          ai.vy = -11;
         }
       }
 
-      // Movement towards player if not blocking
-      if (!ai.aiWantsBlock && !ai.attacking && dist > 50) {
-        ai.vx += ai.facing * 0.3;
+      // Move toward player if not attacking/blocking
+      if (!ai.blocking && !ai.attacking && dist > 55) {
+        ai.vx += ai.facing * 0.2;
         ai.vx = Math.max(-ai.runSpeed, Math.min(ai.runSpeed, ai.vx));
       }
 
-      if (ai.aiWantsBlock && ai.attackTimer <= 0) {
-        ai.vx *= 0.5;
+      if (ai.blocking) {
+        ai.vx *= 0.4;
       }
     }
 
@@ -528,11 +597,9 @@
       if (p.dead || p.stunTimer > 0) return;
 
       if (p.advancing) {
-        p.vx = p.facing * p.runSpeed;
+        p.vx = p.goalDir * p.runSpeed * 1.2;
         p.advanceTimer--;
         if (p.advanceTimer <= 0) p.advancing = false;
-
-        // Clear input during advance
         return;
       }
 
@@ -544,143 +611,200 @@
       if (!p.blocking && !p.attacking) {
         p.vx = moveX * p.runSpeed;
         if (moveX !== 0) p.facing = moveX;
+      } else if (p.blocking) {
+        p.vx = moveX * p.runSpeed * 0.3;
       }
 
       // Jump
-      if (keys['ArrowUp'] && p.onGround && !p.attacking) {
+      if ((keys['ArrowUp'] || keyJustPressed['ArrowUp']) && p.onGround && !p.attacking) {
         p.vy = -11;
       }
 
-      // Crouch / drop through (not used here, but keep duck)
-      // ArrowDown not used currently
-
-      // Stance setting / blocking
+      // Blocking
       p.blocking = false;
       if (keys['KeyS']) {
         p.blocking = true;
-        p.vx *= 0.3;
+      }
+
+      // Set stance with up/down while blocking
+      if (p.blocking) {
+        if (keys['ArrowUp']) p.stance = STANCE_HIGH;
+        else if (keys['ArrowDown']) p.stance = STANCE_LOW;
+        // else keep current stance (defaults mid if not changed)
       }
 
       // Attacks
       if (keyJustPressed['KeyZ']) {
-        p.attack(STANCE_HIGH);
         p.stance = STANCE_HIGH;
+        p.attack(STANCE_HIGH);
       }
       if (keyJustPressed['KeyX']) {
-        p.attack(STANCE_MID);
         p.stance = STANCE_MID;
+        p.attack(STANCE_MID);
       }
       if (keyJustPressed['KeyC']) {
-        p.attack(STANCE_LOW);
         p.stance = STANCE_LOW;
+        p.attack(STANCE_LOW);
       }
 
-      // Throw sword
+      // Throw
       if (keyJustPressed['KeyD']) {
         p.throwSword(opponent);
       }
 
-      // Stance for blocking
-      if (keys['ArrowUp'] && p.blocking) p.stance = STANCE_HIGH;
-      else if (keys['ArrowDown'] && p.blocking) p.stance = STANCE_LOW;
-      else if (p.blocking && !p.attacking) {
-        // Default mid block, but can set with arrows
-        if (keys['ArrowUp']) p.stance = STANCE_HIGH;
-        else if (keys['ArrowDown']) p.stance = STANCE_LOW;
-        else p.stance = STANCE_MID;
+      // Pick up dropped sword
+      if (!p.hasSword) {
+        for (let i = droppedSwords.length - 1; i >= 0; i--) {
+          if (Math.abs(droppedSwords[i].x - p.x) < 30) {
+            p.hasSword = true;
+            droppedSwords.splice(i, 1);
+            break;
+          }
+        }
       }
     }
 
     function checkWinCondition() {
-      // P1 wins by reaching the right end (screen +4 edge)
-      if (p1.x >= WORLD_RIGHT - 60 && !p1.dead) {
+      if (p1.x >= WORLD_RIGHT - 50 && !p1.dead) {
         winner = 'P1';
         return true;
       }
-      // P2 (AI) wins by reaching the left end (screen -4 edge)
-      if (p2.x <= WORLD_LEFT + 60 && !p2.dead) {
+      if (p2.x <= WORLD_LEFT + 50 && !p2.dead) {
         winner = 'AI';
         return true;
       }
       return false;
     }
 
-    // --- Rendering ---
+    // ===== RENDERING =====
+
     function drawBackground(camX) {
-      // Parallax background layers
       ctx.fillStyle = '#0a0a1e';
       ctx.fillRect(0, 0, W, H);
 
-      // Ground
-      ctx.fillStyle = '#1e1e3e';
-      ctx.fillRect(0, GROUND + 20 - 0, W, H - GROUND);
-
-      // Ground line
-      ctx.strokeStyle = '#fc0';
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.3;
-      ctx.beginPath();
-      ctx.moveTo(0, GROUND + 20);
-      ctx.lineTo(W, GROUND + 20);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      // Screen dividers and zone markers
-      for (let s = -4; s <= 4; s++) {
-        let sx = s * SCREEN_W - camX + W / 2;
-        if (sx > -50 && sx < W + 50) {
-          ctx.strokeStyle = 'rgba(252, 204, 0, 0.15)';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([4, 8]);
+      // Far background - subtle vertical lines
+      ctx.strokeStyle = 'rgba(252, 204, 0, 0.03)';
+      ctx.lineWidth = 1;
+      for (let px = WORLD_LEFT; px < WORLD_RIGHT; px += 80) {
+        let sx = px - camX * 0.3 + W / 2;
+        if (sx > -5 && sx < W + 5) {
           ctx.beginPath();
           ctx.moveTo(sx, 0);
           ctx.lineTo(sx, GROUND + 20);
+          ctx.stroke();
+        }
+      }
+
+      // Ground fill
+      ctx.fillStyle = '#151530';
+      ctx.fillRect(0, GROUND + 18, W, H - GROUND);
+
+      // Ground surface
+      let grad = ctx.createLinearGradient(0, GROUND + 12, 0, GROUND + 22);
+      grad.addColorStop(0, 'rgba(252,204,0,0.3)');
+      grad.addColorStop(1, 'rgba(252,204,0,0.0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, GROUND + 12, W, 10);
+
+      ctx.strokeStyle = '#fc0';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.moveTo(0, GROUND + 16);
+      ctx.lineTo(W, GROUND + 16);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Screen dividers
+      for (let s = -4; s <= 4; s++) {
+        let sx = s * SCREEN_W - camX + W / 2;
+        if (sx > -10 && sx < W + 10) {
+          ctx.strokeStyle = 'rgba(252, 204, 0, 0.1)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 10]);
+          ctx.beginPath();
+          ctx.moveTo(sx, 30);
+          ctx.lineTo(sx, GROUND + 16);
           ctx.stroke();
           ctx.setLineDash([]);
         }
       }
 
+      // Pillars for decoration
+      for (let px = WORLD_LEFT + 100; px < WORLD_RIGHT; px += 300) {
+        let sx = px - camX + W / 2;
+        if (sx > -20 && sx < W + 20) {
+          ctx.fillStyle = 'rgba(252, 204, 0, 0.04)';
+          ctx.fillRect(sx - 4, GROUND - 40, 8, 56);
+          ctx.fillRect(sx - 10, GROUND - 42, 20, 4);
+          ctx.fillRect(sx - 8, GROUND + 14, 16, 4);
+        }
+      }
+
       // Win zones
-      // Left win zone (P2/AI wins here)
-      let leftZoneX = WORLD_LEFT - camX + W / 2;
-      if (leftZoneX > -100 && leftZoneX < W + 100) {
-        ctx.fillStyle = 'rgba(255, 68, 68, 0.15)';
-        ctx.fillRect(leftZoneX, 0, 60, GROUND + 20);
-        ctx.fillStyle = '#f44';
-        ctx.font = '10px Courier New';
+      let leftZX = WORLD_LEFT - camX + W / 2;
+      let rightZX = WORLD_RIGHT - 50 - camX + W / 2;
+
+      // AI win zone (left)
+      if (leftZX > -80 && leftZX < W + 80) {
+        ctx.fillStyle = 'rgba(255, 85, 85, 0.12)';
+        ctx.fillRect(leftZX, 0, 60, GROUND + 16);
+        ctx.strokeStyle = '#f55';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.4;
+        ctx.strokeRect(leftZX, 0, 60, GROUND + 16);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#f55';
+        ctx.font = 'bold 11px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('AI WIN', leftZoneX + 30, 20);
+        ctx.fillText('AI GOAL', leftZX + 30, 20);
       }
 
-      // Right win zone (P1 wins here)
-      let rightZoneX = WORLD_RIGHT - 60 - camX + W / 2;
-      if (rightZoneX > -100 && rightZoneX < W + 100) {
-        ctx.fillStyle = 'rgba(252, 204, 0, 0.15)';
-        ctx.fillRect(rightZoneX, 0, 60, GROUND + 20);
+      // P1 win zone (right)
+      if (rightZX > -80 && rightZX < W + 80) {
+        ctx.fillStyle = 'rgba(252, 204, 0, 0.12)';
+        ctx.fillRect(rightZX, 0, 50, GROUND + 16);
+        ctx.strokeStyle = '#fc0';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.4;
+        ctx.strokeRect(rightZX, 0, 50, GROUND + 16);
+        ctx.globalAlpha = 1;
         ctx.fillStyle = '#fc0';
-        ctx.font = '10px Courier New';
+        ctx.font = 'bold 11px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('P1 WIN', rightZoneX + 30, 20);
+        ctx.fillText('P1 GOAL', rightZX + 25, 20);
       }
 
-      // Direction arrows at top showing where each side needs to go
-      ctx.font = '14px Courier New';
-      ctx.globalAlpha = 0.6;
+      // Direction arrows
+      ctx.font = 'bold 13px Courier New';
+      ctx.globalAlpha = 0.5;
       ctx.fillStyle = '#fc0';
       ctx.textAlign = 'left';
-      ctx.fillText('P1 \u2192', 10, 16);
-      ctx.fillStyle = '#f44';
+      ctx.fillText('P1 \u2192', 8, 15);
+      ctx.fillStyle = '#f55';
       ctx.textAlign = 'right';
-      ctx.fillText('\u2190 AI', W - 10, 16);
+      ctx.fillText('\u2190 AI', W - 8, 15);
       ctx.globalAlpha = 1;
+    }
 
-      // Pillars/decoration on ground every 200px
-      for (let px = WORLD_LEFT; px < WORLD_RIGHT; px += 200) {
-        let sx = px - camX + W / 2;
-        if (sx > -30 && sx < W + 30) {
-          ctx.fillStyle = 'rgba(252, 204, 0, 0.06)';
-          ctx.fillRect(sx - 3, GROUND - 30, 6, 50);
-          ctx.fillRect(sx - 8, GROUND - 32, 16, 4);
+    function drawDroppedSwords(camX) {
+      ctx.strokeStyle = '#aaa';
+      ctx.lineWidth = 2;
+      for (let s of droppedSwords) {
+        let sx = s.x - camX + W / 2;
+        if (sx > -20 && sx < W + 20) {
+          ctx.beginPath();
+          ctx.moveTo(sx - 10, s.y + 12);
+          ctx.lineTo(sx + 10, s.y + 12);
+          ctx.stroke();
+          ctx.strokeStyle = '#666';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(sx - 1, s.y + 9);
+          ctx.lineTo(sx - 1, s.y + 15);
+          ctx.stroke();
+          ctx.strokeStyle = '#aaa';
+          ctx.lineWidth = 2;
         }
       }
     }
@@ -688,172 +812,162 @@
     function drawFighter(f, camX) {
       let sx = f.x - camX + W / 2;
       let sy = f.y;
-
-      if (sx < -50 || sx > W + 50) return;
+      if (sx < -60 || sx > W + 60) return;
 
       ctx.save();
 
       if (f.dead) {
-        ctx.globalAlpha = Math.max(0, 1 - f.deathTimer / 40);
+        ctx.globalAlpha = Math.max(0, 1 - f.deathTimer / 50);
+        // Rotate on death
+        ctx.translate(sx, sy - 20);
+        ctx.rotate(f.deathTimer * 0.1 * (f.vx > 0 ? 1 : -1));
+        ctx.translate(-sx, -(sy - 20));
       }
 
       let dir = f.facing;
-
-      // Body color
       let color = f.color;
-      if (f.stunTimer > 0 && Math.floor(f.stunTimer / 2) % 2 === 0) {
-        color = '#fff';
-      }
-      if (f.blocking) {
-        color = f.isAI ? '#c33' : '#da0';
-      }
+
+      if (f.stunTimer > 0 && Math.floor(f.stunTimer / 2) % 2 === 0) color = '#fff';
+      if (f.blocking) color = f.isAI ? '#c44' : '#da0';
 
       ctx.strokeStyle = color;
       ctx.lineWidth = 2.5;
       ctx.lineCap = 'round';
 
-      // Stick figure
-      let headY = sy - 40;
-      let bodyTop = sy - 34;
-      let bodyMid = sy - 20;
-      let bodyBot = sy - 8;
+      let headY = sy - 38;
+      let neckY = sy - 32;
+      let hipY = sy - 8;
+      let armY = sy - 24;
 
       // Head
       ctx.beginPath();
       ctx.arc(sx, headY, 5, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Body
+      // Torso
       ctx.beginPath();
-      ctx.moveTo(sx, bodyTop);
-      ctx.lineTo(sx, bodyBot);
+      ctx.moveTo(sx, neckY);
+      ctx.lineTo(sx, hipY);
       ctx.stroke();
 
-      // Legs
-      let legSpread = 8;
-      if (Math.abs(f.vx) > 1 && f.onGround && !f.dead) {
-        // Running animation
-        let t = Date.now() / 100;
-        let ls = Math.sin(t * 3) * 6;
-        ctx.beginPath();
-        ctx.moveTo(sx, bodyBot);
-        ctx.lineTo(sx + ls, sy);
-        ctx.moveTo(sx, bodyBot);
-        ctx.lineTo(sx - ls, sy);
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.moveTo(sx, bodyBot);
-        ctx.lineTo(sx - legSpread, sy);
-        ctx.moveTo(sx, bodyBot);
-        ctx.lineTo(sx + legSpread, sy);
-        ctx.stroke();
+      // Legs - animated
+      let legA = 0;
+      if (Math.abs(f.vx) > 0.8 && f.onGround && !f.dead) {
+        legA = Math.sin(Date.now() / 80) * 8;
       }
+      ctx.beginPath();
+      ctx.moveTo(sx, hipY);
+      ctx.lineTo(sx + legA, sy + 14);
+      ctx.moveTo(sx, hipY);
+      ctx.lineTo(sx - legA, sy + 14);
+      ctx.stroke();
 
-      // Arms and sword/fist
-      let armY = bodyMid;
-      let swordLen = f.hasSword ? 30 : 12;
-      let swordY;
-      let swordStance = f.attacking ? f.attackStance : f.stance;
-
-      if (swordStance === STANCE_HIGH) swordY = armY - 14;
-      else if (swordStance === STANCE_MID) swordY = armY;
-      else swordY = armY + 10;
+      // Arms and weapon
+      let weaponStance = f.attacking ? f.attackStance : f.stance;
+      let swordTipY;
+      if (weaponStance === STANCE_HIGH) swordTipY = armY - 16;
+      else if (weaponStance === STANCE_MID) swordTipY = armY - 2;
+      else swordTipY = armY + 10;
 
       // Back arm
       ctx.beginPath();
       ctx.moveTo(sx, armY);
-      ctx.lineTo(sx - dir * 8, armY + 4);
+      ctx.lineTo(sx - dir * 7, armY + 6);
       ctx.stroke();
 
       // Front arm + weapon
-      let weaponExtend = 10;
-      if (f.attacking && f.attackTimer > 5) {
-        weaponExtend = 25;
+      let ext = 10;
+      if (f.attacking && f.attackTimer >= 4 && f.attackTimer <= 8) {
+        ext = 26; // Full lunge
+      } else if (f.attacking) {
+        ext = 16; // Wind-up / recovery
       }
-      if (f.blocking) {
-        weaponExtend = 6;
-      }
+      if (f.blocking) ext = 8;
 
+      // Arm
       ctx.beginPath();
       ctx.moveTo(sx, armY);
-      ctx.lineTo(sx + dir * weaponExtend, swordY);
+      ctx.lineTo(sx + dir * ext, swordTipY);
       ctx.stroke();
 
-      // Sword / fist
+      // Weapon
       if (f.hasSword) {
-        // Sword blade
-        let swordColor = f.attacking && f.attackTimer > 5 ? '#fff' : color;
-        ctx.strokeStyle = swordColor;
-        ctx.lineWidth = f.attacking && f.attackTimer > 5 ? 3 : 2;
+        let sLen = 28;
+        let isActive = f.attacking && f.attackTimer >= 4 && f.attackTimer <= 8;
+        ctx.strokeStyle = isActive ? '#fff' : color;
+        ctx.lineWidth = isActive ? 3.5 : 2;
+
+        if (isActive) {
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 12;
+        }
+
         ctx.beginPath();
-        ctx.moveTo(sx + dir * weaponExtend, swordY);
-        ctx.lineTo(sx + dir * (weaponExtend + swordLen), swordY);
+        ctx.moveTo(sx + dir * ext, swordTipY);
+        ctx.lineTo(sx + dir * (ext + sLen), swordTipY);
         ctx.stroke();
+
+        ctx.shadowBlur = 0;
 
         // Guard
         ctx.strokeStyle = '#888';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.moveTo(sx + dir * weaponExtend, swordY - 4);
-        ctx.lineTo(sx + dir * weaponExtend, swordY + 4);
+        ctx.moveTo(sx + dir * ext, swordTipY - 4);
+        ctx.lineTo(sx + dir * ext, swordTipY + 4);
         ctx.stroke();
-
-        // Glow on attack
-        if (f.attacking && f.attackTimer > 5) {
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 10;
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(sx + dir * weaponExtend, swordY);
-          ctx.lineTo(sx + dir * (weaponExtend + swordLen), swordY);
-          ctx.stroke();
-          ctx.shadowBlur = 0;
-        }
       } else {
         // Fist
-        if (f.attacking && f.attackTimer > 5) {
+        let isActive = f.attacking && f.attackTimer >= 4 && f.attackTimer <= 8;
+        if (isActive) {
           ctx.fillStyle = '#fff';
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 8;
           ctx.beginPath();
-          ctx.arc(sx + dir * (weaponExtend + 5), swordY, 3, 0, Math.PI * 2);
+          ctx.arc(sx + dir * (ext + 6), swordTipY, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(sx + dir * (ext + 4), swordTipY, 2.5, 0, Math.PI * 2);
           ctx.fill();
         }
       }
 
-      // Block indicator
+      // Block shield visual
       if (f.blocking) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
         ctx.lineWidth = 2;
-        ctx.setLineDash([3, 3]);
-        let blockY = swordY;
+        ctx.setLineDash([4, 3]);
         ctx.beginPath();
-        ctx.moveTo(sx + dir * 8, blockY - 12);
-        ctx.lineTo(sx + dir * 8, blockY + 12);
+        ctx.moveTo(sx + dir * 10, swordTipY - 14);
+        ctx.lineTo(sx + dir * 10, swordTipY + 14);
         ctx.stroke();
         ctx.setLineDash([]);
-      }
 
-      // Stance indicator (small dot)
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.5;
-      let indY = swordStance === STANCE_HIGH ? armY - 14 : (swordStance === STANCE_MID ? armY : armY + 10);
-      ctx.beginPath();
-      ctx.arc(sx + dir * 2, indY, 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+        // Stance label
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.font = '7px Courier New';
+        ctx.textAlign = 'center';
+        let sName = ['H', 'M', 'L'][f.stance];
+        ctx.fillText(sName, sx + dir * 10, swordTipY - 17);
+      }
 
       // Label
       ctx.fillStyle = color;
-      ctx.font = '9px Courier New';
+      ctx.font = 'bold 10px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText(f.isAI ? 'AI' : 'P1', sx, sy - 48);
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6;
+      ctx.fillText(f.isAI ? 'AI' : 'P1', sx, headY - 10);
+      ctx.shadowBlur = 0;
 
-      // Show if disarmed
-      if (!f.hasSword) {
+      // Disarmed indicator
+      if (!f.hasSword && !f.dead) {
         ctx.fillStyle = '#888';
         ctx.font = '7px Courier New';
-        ctx.fillText('NO SWORD', sx, sy + 14);
+        ctx.fillText('UNARMED', sx, sy + 26);
       }
 
       ctx.restore();
@@ -863,23 +977,22 @@
       if (!sword || !sword.active) return;
       let sx = sword.x - camX + W / 2;
       let sy = sword.y;
-      if (sx < -50 || sx > W + 50) return;
+      if (sx < -30 || sx > W + 30) return;
 
       let dir = sword.vx > 0 ? 1 : -1;
-      let rot = Date.now() / 80;
+      let rot = Date.now() / 60;
 
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(rot * dir);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 10;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.moveTo(-12, 0);
-      ctx.lineTo(12, 0);
+      ctx.moveTo(-14, 0);
+      ctx.lineTo(14, 0);
       ctx.stroke();
-      // Guard
       ctx.strokeStyle = '#888';
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -892,102 +1005,132 @@
     function drawParticles(camX) {
       for (let p of particles) {
         let sx = p.x - camX + W / 2;
-        ctx.globalAlpha = p.life / 40;
+        if (sx < -10 || sx > W + 10) continue;
+        ctx.globalAlpha = Math.min(1, p.life / 25);
         ctx.fillStyle = p.color;
-        ctx.fillRect(sx - p.size / 2, p.y - p.size / 2, p.size, p.size);
+        ctx.beginPath();
+        ctx.arc(sx, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
       }
       ctx.globalAlpha = 1;
     }
 
     function drawProgressBar() {
-      // Tug of war bar at bottom
-      let barY = H - 20;
-      let barW = W - 40;
-      let barH = 8;
-      let barX = 20;
+      let barY = H - 18;
+      let barW = W - 60;
+      let barH = 6;
+      let barX = 30;
 
-      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      // Background
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
       ctx.fillRect(barX, barY, barW, barH);
 
-      // Center marker
+      // Center tick
       ctx.fillStyle = '#555';
-      ctx.fillRect(barX + barW / 2 - 1, barY - 2, 2, barH + 4);
+      ctx.fillRect(barX + barW / 2 - 1, barY - 3, 2, barH + 6);
 
-      // P1 position (gold)
-      let p1Norm = (p1.x - WORLD_LEFT) / (WORLD_RIGHT - WORLD_LEFT);
-      p1Norm = Math.max(0, Math.min(1, p1Norm));
+      // Goal zones
+      ctx.fillStyle = 'rgba(252,204,0,0.2)';
+      ctx.fillRect(barX + barW - 10, barY, 10, barH);
+      ctx.fillStyle = 'rgba(255,85,85,0.2)';
+      ctx.fillRect(barX, barY, 10, barH);
+
+      // Fighter positions
+      let norm1 = (p1.x - WORLD_LEFT) / (WORLD_RIGHT - WORLD_LEFT);
+      norm1 = Math.max(0, Math.min(1, norm1));
       ctx.fillStyle = '#fc0';
-      ctx.fillRect(barX + p1Norm * barW - 3, barY - 1, 6, barH + 2);
+      ctx.shadowColor = '#fc0';
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.arc(barX + norm1 * barW, barY + barH / 2, 4, 0, Math.PI * 2);
+      ctx.fill();
 
-      // P2 position (red)
-      let p2Norm = (p2.x - WORLD_LEFT) / (WORLD_RIGHT - WORLD_LEFT);
-      p2Norm = Math.max(0, Math.min(1, p2Norm));
-      ctx.fillStyle = '#f44';
-      ctx.fillRect(barX + p2Norm * barW - 3, barY - 1, 6, barH + 2);
+      let norm2 = (p2.x - WORLD_LEFT) / (WORLD_RIGHT - WORLD_LEFT);
+      norm2 = Math.max(0, Math.min(1, norm2));
+      ctx.fillStyle = '#f55';
+      ctx.shadowColor = '#f55';
+      ctx.beginPath();
+      ctx.arc(barX + norm2 * barW, barY + barH / 2, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
 
       // Labels
-      ctx.font = '8px Courier New';
-      ctx.fillStyle = '#fc0';
+      ctx.font = '7px Courier New';
       ctx.textAlign = 'left';
+      ctx.fillStyle = '#fc0';
       ctx.fillText('P1\u2192', barX, barY - 4);
-      ctx.fillStyle = '#f44';
       ctx.textAlign = 'right';
+      ctx.fillStyle = '#f55';
       ctx.fillText('\u2190AI', barX + barW, barY - 4);
     }
 
-    function drawRoundStart() {
-      if (roundTimer < 60) {
+    function drawEnGarde() {
+      if (enGardeTimer > 0) {
         ctx.save();
-        ctx.globalAlpha = Math.max(0, 1 - roundTimer / 60);
+        ctx.globalAlpha = Math.min(1, enGardeTimer / 30);
         ctx.fillStyle = '#fc0';
-        ctx.font = '24px Courier New';
+        ctx.font = 'bold 28px Courier New';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#fc0';
-        ctx.shadowBlur = 20;
-        ctx.fillText('EN GARDE!', W / 2, H / 2 - 20);
+        ctx.shadowBlur = 25;
+        ctx.fillText('EN GARDE!', W / 2, H / 2 - 30);
+        ctx.shadowBlur = 0;
         ctx.restore();
       }
     }
 
-    // --- Main Loop ---
+    function drawKillFlash() {
+      if (flashTimer > 0) {
+        ctx.save();
+        ctx.globalAlpha = flashTimer / 15 * 0.3;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      }
+    }
+
+    // ===== MAIN LOOP =====
     function update() {
       if (gameState !== 'playing') return;
 
       roundTimer++;
+      if (enGardeTimer > 0) enGardeTimer--;
+      if (flashTimer > 0) flashTimer--;
+
+      // During en garde, fighters don't move
+      if (enGardeTimer > 20) {
+        for (let k in keyJustPressed) keyJustPressed[k] = false;
+        return;
+      }
 
       // Player input
       updatePlayer(p1, p2);
 
       // AI
-      updateAI(p2, p1);
+      if (!p2.advancing) {
+        updateAI(p2, p1);
+      }
 
-      // Advancing fighters
+      // Advancing
       if (p1.advancing) {
-        p1.vx = p1.facing * p1.runSpeed * 1.2;
+        p1.vx = p1.goalDir * p1.runSpeed * 1.3;
         p1.advanceTimer--;
         if (p1.advanceTimer <= 0) p1.advancing = false;
       }
       if (p2.advancing) {
-        p2.vx = p2.facing * p2.runSpeed * 1.2;
+        p2.vx = p2.goalDir * p2.runSpeed * 1.3;
         p2.advanceTimer--;
         if (p2.advanceTimer <= 0) p2.advancing = false;
       }
 
-      // Update fighters
       p1.update();
       p2.update();
 
-      // Combat checks (only if both alive)
+      // Combat
       if (!p1.dead && !p2.dead) {
-        // Melee
-        if (checkHit(p1, p2)) {
-          killFighter(p2, p1);
-        }
-        if (checkHit(p2, p1)) {
-          killFighter(p1, p2);
-        }
+        if (checkHit(p1, p2)) killFighter(p2, p1);
+        if (checkHit(p2, p1)) killFighter(p1, p2);
 
-        // Thrown swords
         if (checkThrownSwordHit(p1.thrownSword, p2)) {
           p1.thrownSword.active = false;
           killFighter(p2, p1);
@@ -997,51 +1140,48 @@
           killFighter(p1, p2);
         }
 
-        // Pick up swords on ground (if opponent's thrown sword stopped)
-        // A fighter without a sword can pick up a stopped thrown sword nearby
-        [p1, p2].forEach(f => {
-          if (!f.hasSword) {
-            let other = f === p1 ? p2 : p1;
-            if (other.thrownSword && !other.thrownSword.active) {
-              // Sword is on ground
-            }
-          }
-        });
-
-        // Push apart if overlapping
+        // Push apart
         let dx = p2.x - p1.x;
         let dist = Math.abs(dx);
-        if (dist < 20) {
-          let push = (20 - dist) / 2;
-          let dir = dx > 0 ? 1 : -1;
-          p1.x -= dir * push;
-          p2.x += dir * push;
+        if (dist < 18) {
+          let push = (18 - dist) / 2;
+          let d = dx > 0 ? 1 : -1;
+          p1.x -= d * push;
+          p2.x += d * push;
+        }
+      }
+
+      // AI picks up dropped swords
+      if (!p2.dead && !p2.hasSword) {
+        for (let i = droppedSwords.length - 1; i >= 0; i--) {
+          if (Math.abs(droppedSwords[i].x - p2.x) < 30) {
+            p2.hasSword = true;
+            droppedSwords.splice(i, 1);
+            break;
+          }
         }
       }
 
       // Respawn
       if ((p1.dead || p2.dead) && respawnTimer > 0) {
         respawnTimer--;
-        if (respawnTimer <= 0) {
-          respawn();
-          roundTimer = 0;
-        }
+        if (respawnTimer <= 0) respawn();
       }
 
-      // Camera follows the midpoint, biased toward the alive player
+      // Camera
       let targetCamX;
       if (p1.dead) targetCamX = p2.x;
       else if (p2.dead) targetCamX = p1.x;
       else targetCamX = (p1.x + p2.x) / 2;
-
-      cameraX += (targetCamX - cameraX) * 0.08;
+      cameraX += (targetCamX - cameraX) * 0.06;
 
       // Particles
       for (let i = particles.length - 1; i >= 0; i--) {
         let p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
-        p.vy += 0.2;
+        p.vy += 0.15;
+        p.vx *= 0.98;
         p.life--;
         if (p.life <= 0) particles.splice(i, 1);
       }
@@ -1050,13 +1190,11 @@
       if (checkWinCondition()) {
         gameState = 'over';
         overlay.style.display = 'flex';
-        overlayTitle.textContent = winner === 'P1' ? 'YOU WIN!' : 'AI WINS!';
-        overlayText.textContent = `P1 Kills: ${kills1} | AI Kills: ${kills2} — Click to play again`;
+        overlayTitle.textContent = winner === 'P1' ? 'VICTORY!' : 'DEFEAT!';
+        overlayText.textContent = 'P1: ' + kills1 + ' kills | AI: ' + kills2 + ' kills \u2014 Click to play again';
       }
 
-      // Clear just-pressed
       for (let k in keyJustPressed) keyJustPressed[k] = false;
-
       updateUI();
     }
 
@@ -1064,21 +1202,18 @@
       ctx.clearRect(0, 0, W, H);
 
       drawBackground(cameraX);
-      drawRoundStart();
+      drawDroppedSwords(cameraX);
 
-      // Draw fighters
       drawFighter(p1, cameraX);
       drawFighter(p2, cameraX);
 
-      // Thrown swords
       drawThrownSword(p1.thrownSword, cameraX, '#fc0');
-      drawThrownSword(p2.thrownSword, cameraX, '#f44');
+      drawThrownSword(p2.thrownSword, cameraX, '#f55');
 
-      // Particles
       drawParticles(cameraX);
-
-      // Progress bar
       drawProgressBar();
+      drawEnGarde();
+      drawKillFlash();
     }
 
     function gameLoop() {
@@ -1087,16 +1222,11 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // Click to start/restart
     canvas.addEventListener('click', () => {
-      if (gameState === 'waiting' || gameState === 'over') {
-        startMatch();
-      }
+      if (gameState === 'waiting' || gameState === 'over') startMatch();
     });
     document.addEventListener('click', () => {
-      if (gameState === 'waiting') {
-        startMatch();
-      }
+      if (gameState === 'waiting') startMatch();
     });
 
     init();
