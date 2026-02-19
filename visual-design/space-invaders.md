@@ -104,6 +104,10 @@ The alien type diversity is the game's real strength — there are genuinely int
 
 The classic Space Invaders march is iconic — reinterpret it as a synthesized 4-note bass pattern. Use a square wave oscillator cycling through F1, A1, G1, E1 at a tempo that speeds up as fewer aliens remain alive. At maximum speed (last 5 aliens), add a high-pitched tremolo overlay at 800 Hz. During boss (mothership) wave, replace the march with a long drone pad: sawtooth at 55 Hz with a slow LFO tremolo at 0.5 Hz.
 
+## Visual Style
+**Style:** Retro CRT
+**Rationale:** Space Invaders is the definitive CRT arcade game — the march cadence, phosphor glow, and formation movement all belong on a glowing green phosphor screen. The alien designs should look hand-pixelated as if lit by a CRT gun, and the player ship should feel like a 1978 Taito cabinet sprite.
+
 ## Implementation Priority
 - High: Formation march sound (speed-scaling), alien destruction particle burst, player ship redesign, mothership visual rework
 - Medium: Tank armor integrity display, diver fire trail, phaser particle-dissolve effect, wave banner beam-in animation

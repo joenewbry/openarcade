@@ -51,7 +51,7 @@
       font-size: 1.4rem;
       color: #f0f;
     }
-    #nextCanvas {
+    #nextCanvas, #next2Canvas {
       display: block;
       margin: 0 auto;
     }
@@ -75,6 +75,7 @@
     }
     .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
     .overlay p { font-size: 1rem; color: #aaa; }
+    .overlay .controls { font-size: 0.75rem; color: #666; margin-top: 8px; line-height: 1.6; }
   </style>
 </head>
 <body>
@@ -88,12 +89,17 @@
       <div class="overlay" id="overlay" style="width:300px;height:600px;">
         <h2 id="overlayTitle">TETRIS</h2>
         <p id="overlayText">Press any key to start</p>
+        <p class="controls" id="overlayControls">← → Move &nbsp;|&nbsp; ↑ Rotate<br>↓ Soft Drop &nbsp;|&nbsp; Space Hard Drop<br>C Hold</p>
       </div>
     </div>
     <div class="side-panel">
       <div class="panel-box">
         <label>NEXT</label>
         <canvas id="nextCanvas" width="100" height="80"></canvas>
+      </div>
+      <div class="panel-box">
+        <label>NEXT 2</label>
+        <canvas id="next2Canvas" width="100" height="60"></canvas>
       </div>
       <div class="panel-box">
         <label>SCORE</label>
@@ -115,12 +121,15 @@
     const ctx = canvas.getContext('2d');
     const nextCanvas = document.getElementById('nextCanvas');
     const nctx = nextCanvas.getContext('2d');
+    const next2Canvas = document.getElementById('next2Canvas');
+    const n2ctx = next2Canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
     const linesEl = document.getElementById('lines');
     const levelEl = document.getElementById('level');
     const overlay = document.getElementById('overlay');
     const overlayTitle = document.getElementById('overlayTitle');
     const overlayText = document.getElementById('overlayText');
+    const overlayControls = document.getElementById('overlayControls');
 
     const CELL = 30;
     const COLS = 10;
@@ -137,10 +146,11 @@
     };
     const PIECE_NAMES = Object.keys(PIECES);
 
-    let board, current, next, pos, score, lines, level, gameState, timer, dropInterval;
-    let flashRows = [], flashTimer = 0, flashPhase = 0, showTetrisText = 0;
+    let board, current, next, next2, pos, score, lines, level, gameState, timer, dropInterval;
+    let flashRows = [], flashPhase = 0, showTetrisText = 0;
+    let levelUpFlash = 0;
     let softDropping = false;
-    const SOFT_DROP_INTERVAL = 50; // ms between drops when holding ArrowDown
+    const SOFT_DROP_INTERVAL = 50;
 
     function init() {
       board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
@@ -149,14 +159,18 @@
       scoreEl.textContent = '0';
       linesEl.textContent = '0';
       levelEl.textContent = '1';
+      levelUpFlash = 0;
       next = randomPiece();
+      next2 = randomPiece();
       spawnPiece();
       gameState = 'waiting';
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'TETRIS';
       overlayText.textContent = 'Press any key to start';
+      overlayControls.style.display = 'block';
       draw();
       drawNext();
+      drawNext2();
     }
 
     function randomPiece() {
@@ -166,16 +180,13 @@
 
     function spawnPiece() {
       current = next;
-      next = randomPiece();
-      // Center the piece
+      next = next2;
+      next2 = randomPiece();
       const minX = Math.min(...current.shape.map(p => p[0]));
       const maxX = Math.max(...current.shape.map(p => p[0]));
       pos = { x: Math.floor((COLS - (maxX - minX + 1)) / 2) - minX, y: 0 };
-
-      // Adjust y so piece starts with its topmost row at y=0
       const minY = Math.min(...current.shape.map(p => p[1]));
       pos.y = -minY;
-
       if (collides(current.shape, pos)) {
         gameOver();
       }
@@ -194,14 +205,12 @@
         if (ny >= 0 && ny < ROWS) board[ny][nx] = current.color;
       });
 
-      // Find full rows
       flashRows = [];
       for (let r = 0; r < ROWS; r++) {
         if (board[r].every(c => c !== null)) flashRows.push(r);
       }
 
       if (flashRows.length > 0) {
-        // Pause game and run flash animation
         clearTimeout(timer);
         gameState = 'animating';
         flashPhase = 0;
@@ -210,6 +219,7 @@
       } else {
         spawnPiece();
         drawNext();
+        drawNext2();
       }
     }
 
@@ -220,7 +230,6 @@
       if (flashPhase <= 12) {
         setTimeout(animateFlash, 40);
       } else {
-        // Remove rows and update score
         const cleared = flashRows.length;
         flashRows.sort((a, b) => b - a).forEach(r => {
           board.splice(r, 1);
@@ -229,8 +238,12 @@
         const points = [0, 100, 300, 500, 800];
         score += points[cleared] * level;
         lines += cleared;
-        level = Math.floor(lines / 10) + 1;
-        dropInterval = Math.max(100, 800 - (level - 1) * 70);
+        const newLevel = Math.floor(lines / 10) + 1;
+        if (newLevel > level) {
+          levelUpFlash = 90;
+        }
+        level = newLevel;
+        dropInterval = Math.max(100, 800 - (level - 1) * 55);
         scoreEl.textContent = score;
         linesEl.textContent = lines;
         levelEl.textContent = level;
@@ -238,6 +251,7 @@
         showTetrisText = 0;
         spawnPiece();
         drawNext();
+        drawNext2();
         gameState = 'playing';
         draw();
         timer = setTimeout(tick, dropInterval);
@@ -245,12 +259,9 @@
     }
 
     function rotate() {
-      // Rotate 90 degrees clockwise around center of bounding box
       const maxX = Math.max(...current.shape.map(p => p[0]));
       const maxY = Math.max(...current.shape.map(p => p[1]));
       const newShape = current.shape.map(([x, y]) => [maxY - y, x]);
-
-      // Wall kick attempts
       const kicks = [{ x: 0, y: 0 }, { x: -1, y: 0 }, { x: 1, y: 0 }, { x: -2, y: 0 }, { x: 2, y: 0 }, { x: 0, y: -1 }];
       for (const kick of kicks) {
         const testPos = { x: pos.x + kick.x, y: pos.y + kick.y };
@@ -314,15 +325,22 @@
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'GAME OVER';
       overlayText.textContent = `Score: ${score} — Press any key to restart`;
+      overlayControls.style.display = 'none';
     }
 
+    // Enhanced 3D beveled block rendering
     function drawBlock(context, x, y, color, size) {
+      // Main fill
       context.fillStyle = color;
       context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-      // Highlight
-      context.fillStyle = 'rgba(255,255,255,0.15)';
-      context.fillRect(x * size + 1, y * size + 1, size - 2, 3);
-      context.fillRect(x * size + 1, y * size + 1, 3, size - 2);
+      // Top-left highlight strips
+      context.fillStyle = 'rgba(255,255,255,0.22)';
+      context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+      context.fillRect(x * size + 1, y * size + 1, 4, size - 2);
+      // Bottom-right shadow strips
+      context.fillStyle = 'rgba(0,0,0,0.35)';
+      context.fillRect(x * size + 1, y * size + size - 5, size - 2, 4);
+      context.fillRect(x * size + size - 5, y * size + 1, 4, size - 2);
     }
 
     function draw() {
@@ -350,11 +368,10 @@
       if (flashRows.length > 0 && flashPhase > 0) {
         const pulse = Math.sin(flashPhase * 0.8) * 0.5 + 0.5;
         flashRows.forEach(r => {
-          ctx.fillStyle = `rgba(255, 255, 255, ${pulse * 0.8})`;
+          ctx.fillStyle = `rgba(255, 255, 255, ${pulse * 0.9})`;
           ctx.fillRect(0, r * CELL, canvas.width, CELL);
         });
 
-        // "TETRIS!" text for 4-line clear
         if (showTetrisText) {
           const scale = 1 + Math.sin(flashPhase * 0.6) * 0.15;
           ctx.save();
@@ -363,8 +380,8 @@
           ctx.font = 'bold 48px Courier New';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillStyle = `rgba(255, 0, 255, ${pulse})`;
-          ctx.shadowColor = '#f0f';
+          ctx.fillStyle = `rgba(255, 215, 0, ${pulse})`;
+          ctx.shadowColor = '#ffd700';
           ctx.shadowBlur = 30;
           ctx.fillText('TETRIS!', 0, 0);
           ctx.shadowBlur = 0;
@@ -372,14 +389,32 @@
         }
       }
 
+      // LEVEL UP flash
+      if (levelUpFlash > 0) {
+        levelUpFlash--;
+        const alpha = Math.min(1, levelUpFlash / 30);
+        const slideX = (90 - levelUpFlash) / 90 * 20; // slides in from right
+        ctx.save();
+        ctx.font = 'bold 28px Courier New';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = `rgba(255, 215, 0, ${alpha})`;
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = 20;
+        ctx.fillText('LEVEL UP!', canvas.width / 2 + slideX, canvas.height * 0.4);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+
       if (gameState === 'playing' || gameState === 'waiting') {
-        // Ghost
+        // Ghost — outline only
         const gy = ghostY();
         current.shape.forEach(([sx, sy]) => {
           const gx = pos.x + sx, gpy = gy + sy;
           if (gpy >= 0) {
-            ctx.fillStyle = 'rgba(255,255,255,0.1)';
-            ctx.fillRect(gx * CELL + 1, gpy * CELL + 1, CELL - 2, CELL - 2);
+            ctx.strokeStyle = current.color + '60';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(gx * CELL + 1, gpy * CELL + 1, CELL - 2, CELL - 2);
           }
         });
 
@@ -391,21 +426,28 @@
       }
     }
 
-    function drawNext() {
-      nctx.fillStyle = '#16213e';
-      nctx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
-      const size = 20;
-      const minX = Math.min(...next.shape.map(p => p[0]));
-      const maxX = Math.max(...next.shape.map(p => p[0]));
-      const minY = Math.min(...next.shape.map(p => p[1]));
-      const maxY = Math.max(...next.shape.map(p => p[1]));
+    function drawNextPiece(context, canvasEl, piece, size) {
+      context.fillStyle = '#16213e';
+      context.fillRect(0, 0, canvasEl.width, canvasEl.height);
+      const minX = Math.min(...piece.shape.map(p => p[0]));
+      const maxX = Math.max(...piece.shape.map(p => p[0]));
+      const minY = Math.min(...piece.shape.map(p => p[1]));
+      const maxY = Math.max(...piece.shape.map(p => p[1]));
       const pw = (maxX - minX + 1) * size;
       const ph = (maxY - minY + 1) * size;
-      const ox = Math.floor((nextCanvas.width - pw) / 2) / size - minX;
-      const oy = Math.floor((nextCanvas.height - ph) / 2) / size - minY;
-      next.shape.forEach(([sx, sy]) => {
-        drawBlock(nctx, ox + sx, oy + sy, next.color, size);
+      const ox = Math.floor((canvasEl.width - pw) / 2) / size - minX;
+      const oy = Math.floor((canvasEl.height - ph) / 2) / size - minY;
+      piece.shape.forEach(([sx, sy]) => {
+        drawBlock(context, ox + sx, oy + sy, piece.color, size);
       });
+    }
+
+    function drawNext() {
+      drawNextPiece(nctx, nextCanvas, next, 20);
+    }
+
+    function drawNext2() {
+      drawNextPiece(n2ctx, next2Canvas, next2, 16);
     }
 
     document.addEventListener('keydown', (e) => {
@@ -422,7 +464,6 @@
           case 'ArrowDown':
             if (!softDropping) {
               softDropping = true;
-              // Restart tick at fast rate immediately
               clearTimeout(timer);
               tick();
             }
@@ -437,7 +478,6 @@
     document.addEventListener('keyup', (e) => {
       if (e.key === 'ArrowDown' && softDropping) {
         softDropping = false;
-        // Resume normal speed
         clearTimeout(timer);
         timer = setTimeout(tick, dropInterval);
       }

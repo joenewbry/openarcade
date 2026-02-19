@@ -88,6 +88,10 @@ This gives each cell a beveled cube appearance with consistent lighting from upp
 
 A synthesized Korobeiniki-inspired loop (no samples): Triangle wave playing the famous Tetris A melody in A minor at 140 BPM, transposed into pure synthesis. Main melody notes on triangle wave (gain 0.06): A4, E4, F4, G4, E4, D4, C4, D4, E4, F4, G4, A4, A4, A4... (sequence approximating the classic theme). A bass accompaniment on sawtooth at one octave below the melody roots (gain 0.03). The tempo increases by 5 BPM per level (starting 120 BPM, max 200 BPM), matching the increasing fall speed. At level 10+, a second triangle voice enters a third above the melody (harmonized version) at gain 0.04, making the music richer as gameplay intensifies.
 
+## Visual Style
+**Style:** Neon Arcade
+**Rationale:** Fast-paced puzzle with neon blocks on dark grid — the established modern look for competitive Tetris. Glowing-on-dark palette is perfectly suited to the existing infrastructure and the piece-color vocabulary.
+
 ## Implementation Priority
 - High: 3D block beveled rendering (highlight/shadow strips), line clear white flash + row collapse animation, ghost piece outline style
 - Medium: Piece lock particle burst, Tetris gold flash + TETRIS text, danger zone red overlay pulse, score pop animation

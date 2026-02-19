@@ -75,6 +75,10 @@ This is essentially a wireframe game. The bird has minimal charm, the sky is a f
 ### Music/Ambience
 Looping lo-fi ambient night music: a slow guitar-style chord strum synthesized via 3 detuned triangle waves (root, major third, fifth) with a 30 ms reverb impulse, strummed once every 2 beats at 70 BPM. A soft bass note (sine, 80 Hz) plays on beat 1 of each bar. Very low overall gain (0.08). City atmosphere is reinforced by an extremely quiet distant traffic hum (bandpass noise, 200 Hz, gain 0.02).
 
+## Visual Style
+**Style:** Cartoon 2D
+**Rationale:** Flappy Bird's appeal is its chunky, warm character design. Bright saturated sky colors, a plump golden bird, and bold green pipes call for a cheerful cartoon aesthetic — not dark neon. The warm-to-dusk sky gradient adds drama as score rises without abandoning the cartoon warmth.
+
 ## Implementation Priority
 - High: Sky gradient background layers, moon with glow, bird wing animation and eye directional shift, bird death feather particles, pipe glow and highlight
 - Medium: Skyscraper silhouettes, cloud drift, ground grass blades, pipe-pass confetti, all sound events

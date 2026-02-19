@@ -36,9 +36,25 @@ Vertical fixed-shooter (classic Space Invaders style with modern enemy variety)
 ### Difficulty Curve Assessment
 Waves 1–3 provide a solid, well-paced introduction with one new enemy type each wave. The jump from wave 5 to wave 6 is rough — phasers are hard to track, and pairing them with tanks (3 HP) on the same wave creates dense, cluttered conditions. Wave 10's mothership is effectively a bullet-sponge boss firing aimed shots every 25 frames that can trivially kill an inattentive player. The game also has no continues or checkpoints — dying on wave 8 means starting from wave 1.
 
+## Extra Life Awards
+- **Wave 3:** +1 life at wave start (reward for surviving diver introduction)
+- **Wave 5:** +1 life at wave start (reward for surviving splitter wave)
+- **Wave 7:** +1 life at wave start (reward for surviving phaser+tank gauntlet)
+- Lives cap at 6 maximum
+
+## Wave Title Overlays
+Each wave shows a 120-frame (2s) intro overlay with:
+1. `WAVE N` (large heading)
+2. Wave name (e.g. "Dive Bombers")
+3. Enemy introduction text (e.g. "NEW: Divers — break formation to attack")
+4. A scanline-wipe animation sweeping from top-to-bottom as the overlay fades in
+
+Harder waves (7–10) use the full 120-frame duration. All waves show the intro before gameplay begins.
+
 ## Suggested Improvements
-- [ ] Add 1 life back at the start of every other wave (waves 3, 5, 7, 9) to compensate for the difficulty spikes and reward players who have made it to mid-game
-- [ ] Reduce the mothership `shootChance` from `1.0` to `0.7` — always hitting (100% chance) combined with aimed bullets at a 25-frame interval is extremely punishing with no shields to hide behind
+- [x] Add 1 life at waves 3, 5, 7 (was "every other wave 3/5/7/9"; tuned to 3 grants for balance)
+- [x] Wave title overlays already implemented with 120-frame intro; scanline wipe animation added
+- [ ] Reduce the mothership `shootChance` from `1.0` to `0.75` — always hitting (100% chance) combined with aimed bullets at a 25-frame interval is extremely punishing with no shields to hide behind
 - [ ] Slow wave 8's `formSpeed` from `1.1` to `0.9` — speedster dashes already create lateral unpredictability; adding the fastest formation speed in the game simultaneously is too much
 - [ ] Reduce the shooter interval drop on wave 9 from `30` to `35` frames — the gauntlet wave is already the hardest combination of types without also having the second-fastest fire rate
 - [ ] Add a "safe zone" indicator showing where the formation will drop next 12 px — the drops feel arbitrary and punish players who are not tracking formation width precisely

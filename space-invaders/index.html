@@ -92,14 +92,15 @@
     const BULLET_SPEED = 7;
     const AW = 32, AH = 24, PAD = 8;
 
-    // ── Creature types ──────────────────────────────────────────
-    // Each has: color, glow, hp, points, movement fn, shoot behavior, draw fn
+    // Waves that grant an extra life at start
+    const EXTRA_LIFE_WAVES = new Set([3, 5, 7]);
+
     const TYPES = {
       grunt: {
         color: '#0f0', glow: '#0f0', hp: 1, points: 10,
         bulletSpeed: 3, shootChance: 0.5,
-        move(a, t) { /* default march — handled by formation */ },
-        draw(a) { drawBasicAlien(a, '#0f0'); }
+        move(a, t) { },
+        draw(a) { drawGrunt(a); }
       },
       zigzagger: {
         color: '#ff0', glow: '#ff0', hp: 1, points: 20,
@@ -132,7 +133,7 @@
       tank: {
         color: '#4af', glow: '#4af', hp: 3, points: 40,
         bulletSpeed: 2.5, shootChance: 0.7,
-        move(a, t) { /* standard march */ },
+        move(a, t) { },
         draw(a) { drawTank(a); }
       },
       splitter: {
@@ -140,7 +141,6 @@
         bulletSpeed: 3, shootChance: 0.4,
         move(a, t) { a.offsetX = Math.sin(t * 0.03 + a.phase) * 15; },
         onDeath(a) {
-          // Spawn two mini aliens
           for (let d = -1; d <= 1; d += 2) {
             aliens.push(makeAlien('mini', a.formX + a.offsetX + d * 18, a.formY + a.offsetY, 0, 0));
           }
@@ -151,10 +151,8 @@
         color: '#e8f', glow: '#e8f', hp: 1, points: 15,
         bulletSpeed: 3.5, shootChance: 0.3,
         move(a, t) {
-          // Erratic fast movement
           a.offsetX += Math.sin(t * 0.1 + a.phase) * 2;
           a.offsetY += Math.cos(t * 0.08 + a.phase) * 0.3;
-          // Keep on screen
           const ax = a.formX + a.offsetX;
           if (ax < 5) a.offsetX += 3;
           if (ax + AW > W - 5) a.offsetX -= 3;
@@ -173,7 +171,7 @@
         color: '#f33', glow: '#f33', hp: 2, points: 45,
         bulletSpeed: 2, shootChance: 0.8,
         shootStyle: 'spread',
-        move(a, t) { /* standard march */ },
+        move(a, t) { },
         draw(a) { drawBomber(a); }
       },
       speedster: {
@@ -185,7 +183,6 @@
           if (a.dashTimer > 120 && Math.random() < 0.02) {
             a.offsetX += (Math.random() > 0.5 ? 1 : -1) * 60;
             a.dashTimer = 0;
-            // Clamp
             const ax = a.formX + a.offsetX;
             if (ax < 5) a.offsetX = 5 - a.formX;
             if (ax + AW > W - 5) a.offsetX = W - 5 - AW - a.formX;
@@ -205,131 +202,43 @@
       }
     };
 
-    // ── Level definitions ────────────────────────────────────────
-    // rows: array of { type, count } from top to bottom
     const LEVELS = [
-      { // 1: Basic grunts
-        name: 'The Swarm Arrives',
-        intro: 'Grunts — basic invaders',
-        rows: [
-          { type: 'grunt', count: 8 },
-          { type: 'grunt', count: 8 },
-          { type: 'grunt', count: 8 },
-          { type: 'grunt', count: 8 },
-        ],
-        formSpeed: 0.6, shootInterval: 55,
-      },
-      { // 2: Zigzaggers appear
-        name: 'Evasive Maneuvers',
-        intro: 'NEW: Zigzaggers — weave side to side',
-        rows: [
-          { type: 'zigzagger', count: 8 },
-          { type: 'zigzagger', count: 8 },
-          { type: 'grunt', count: 8 },
-          { type: 'grunt', count: 8 },
-        ],
-        formSpeed: 0.7, shootInterval: 50,
-      },
-      { // 3: Divers introduced
-        name: 'Dive Bombers',
-        intro: 'NEW: Divers — break formation to attack',
-        rows: [
-          { type: 'grunt', count: 8 },
-          { type: 'diver', count: 6 },
-          { type: 'diver', count: 6 },
-          { type: 'grunt', count: 8 },
-        ],
-        formSpeed: 0.8, shootInterval: 50,
-      },
-      { // 4: Tanks appear
-        name: 'Heavy Armor',
-        intro: 'NEW: Tanks — take 3 hits to destroy',
-        rows: [
-          { type: 'tank', count: 6 },
-          { type: 'grunt', count: 8 },
-          { type: 'zigzagger', count: 8 },
-          { type: 'grunt', count: 8 },
-        ],
-        formSpeed: 0.7, shootInterval: 45,
-      },
-      { // 5: Splitters
-        name: 'Mitosis',
-        intro: 'NEW: Splitters — split in two when killed',
-        rows: [
-          { type: 'splitter', count: 7 },
-          { type: 'splitter', count: 7 },
-          { type: 'diver', count: 6 },
-          { type: 'grunt', count: 8 },
-        ],
-        formSpeed: 0.8, shootInterval: 45,
-      },
-      { // 6: Phasers
-        name: 'Now You See Me',
-        intro: 'NEW: Phasers — phase in and out of reality',
-        rows: [
-          { type: 'phaser', count: 8 },
-          { type: 'phaser', count: 8 },
-          { type: 'zigzagger', count: 8 },
-          { type: 'tank', count: 6 },
-        ],
-        formSpeed: 0.9, shootInterval: 40,
-      },
-      { // 7: Bombers
-        name: 'Carpet Bombing',
-        intro: 'NEW: Bombers — fire spread shots',
-        rows: [
-          { type: 'bomber', count: 5 },
-          { type: 'tank', count: 6 },
-          { type: 'grunt', count: 8 },
-          { type: 'diver', count: 6 },
-          { type: 'grunt', count: 8 },
-        ],
-        formSpeed: 0.9, shootInterval: 38,
-      },
-      { // 8: Speedsters
-        name: 'Warp Speed',
-        intro: 'NEW: Speedsters — dash unpredictably',
-        rows: [
-          { type: 'speedster', count: 8 },
-          { type: 'speedster', count: 8 },
-          { type: 'diver', count: 6 },
-          { type: 'zigzagger', count: 8 },
-          { type: 'bomber', count: 5 },
-        ],
-        formSpeed: 1.1, shootInterval: 35,
-      },
-      { // 9: Elite mix
-        name: 'The Gauntlet',
-        intro: 'All enemy types combined',
-        rows: [
-          { type: 'phaser', count: 8 },
-          { type: 'bomber', count: 5 },
-          { type: 'splitter', count: 7 },
-          { type: 'tank', count: 6 },
-          { type: 'speedster', count: 8 },
-          { type: 'diver', count: 6 },
-        ],
-        formSpeed: 1.2, shootInterval: 30,
-      },
-      { // 10: Mothership boss
-        name: 'The Mothership',
-        intro: 'BOSS: Mothership — spawns minions',
-        rows: [
-          { type: 'mothership', count: 1 },
-          { type: 'tank', count: 6 },
-          { type: 'speedster', count: 8 },
-          { type: 'bomber', count: 5 },
-          { type: 'phaser', count: 8 },
-          { type: 'diver', count: 6 },
-        ],
-        formSpeed: 1.0, shootInterval: 25,
-      },
+      { name: 'The Swarm Arrives', intro: 'Grunts — basic invaders',
+        rows: [{ type: 'grunt', count: 8 },{ type: 'grunt', count: 8 },{ type: 'grunt', count: 8 },{ type: 'grunt', count: 8 }],
+        formSpeed: 0.6, shootInterval: 55 },
+      { name: 'Evasive Maneuvers', intro: 'NEW: Zigzaggers — weave side to side',
+        rows: [{ type: 'zigzagger', count: 8 },{ type: 'zigzagger', count: 8 },{ type: 'grunt', count: 8 },{ type: 'grunt', count: 8 }],
+        formSpeed: 0.7, shootInterval: 50 },
+      { name: 'Dive Bombers', intro: 'NEW: Divers — break formation to attack',
+        rows: [{ type: 'grunt', count: 8 },{ type: 'diver', count: 6 },{ type: 'diver', count: 6 },{ type: 'grunt', count: 8 }],
+        formSpeed: 0.8, shootInterval: 50 },
+      { name: 'Heavy Armor', intro: 'NEW: Tanks — take 3 hits to destroy',
+        rows: [{ type: 'tank', count: 6 },{ type: 'grunt', count: 8 },{ type: 'zigzagger', count: 8 },{ type: 'grunt', count: 8 }],
+        formSpeed: 0.7, shootInterval: 45 },
+      { name: 'Mitosis', intro: 'NEW: Splitters — split in two when killed',
+        rows: [{ type: 'splitter', count: 7 },{ type: 'splitter', count: 7 },{ type: 'diver', count: 6 },{ type: 'grunt', count: 8 }],
+        formSpeed: 0.8, shootInterval: 45 },
+      { name: 'Now You See Me', intro: 'NEW: Phasers — phase in and out of reality',
+        rows: [{ type: 'phaser', count: 8 },{ type: 'phaser', count: 8 },{ type: 'zigzagger', count: 8 },{ type: 'tank', count: 6 }],
+        formSpeed: 0.9, shootInterval: 40 },
+      { name: 'Carpet Bombing', intro: 'NEW: Bombers — fire spread shots',
+        rows: [{ type: 'bomber', count: 5 },{ type: 'tank', count: 6 },{ type: 'grunt', count: 8 },{ type: 'diver', count: 6 },{ type: 'grunt', count: 8 }],
+        formSpeed: 0.9, shootInterval: 38 },
+      { name: 'Warp Speed', intro: 'NEW: Speedsters — dash unpredictably',
+        rows: [{ type: 'speedster', count: 8 },{ type: 'speedster', count: 8 },{ type: 'diver', count: 6 },{ type: 'zigzagger', count: 8 },{ type: 'bomber', count: 5 }],
+        formSpeed: 1.1, shootInterval: 35 },
+      { name: 'The Gauntlet', intro: 'All enemy types combined',
+        rows: [{ type: 'phaser', count: 8 },{ type: 'bomber', count: 5 },{ type: 'splitter', count: 7 },{ type: 'tank', count: 6 },{ type: 'speedster', count: 8 },{ type: 'diver', count: 6 }],
+        formSpeed: 1.2, shootInterval: 30 },
+      { name: 'The Mothership', intro: 'BOSS: Mothership — spawns minions',
+        rows: [{ type: 'mothership', count: 1 },{ type: 'tank', count: 6 },{ type: 'speedster', count: 8 },{ type: 'bomber', count: 5 },{ type: 'phaser', count: 8 },{ type: 'diver', count: 6 }],
+        formSpeed: 1.0, shootInterval: 25 },
     ];
 
     let player, bullets, alienBullets, aliens, particles;
     let score, lives, wave, gameState, keys, animFrame, tick;
     let formX, formDir, formSpeed, shootInterval, shootTimer;
-    let waveIntroTimer;
+    let waveIntroTimer, waveIntroScanY;
 
     function makeAlien(type, fx, fy, row, col) {
       const t = TYPES[type];
@@ -360,8 +269,15 @@
 
     function startWave() {
       wave++;
-      if (wave > 10) wave = 10; // repeat level 10
+      if (wave > 10) wave = 10;
       waveEl.textContent = wave;
+
+      // Extra life at milestone waves
+      if (EXTRA_LIFE_WAVES.has(wave)) {
+        lives = Math.min(6, lives + 1);
+        livesEl.textContent = lives;
+      }
+
       const lvl = LEVELS[wave - 1];
       formSpeed = lvl.formSpeed;
       shootInterval = lvl.shootInterval;
@@ -379,17 +295,17 @@
         for (let c = 0; c < count; c++) {
           aliens.push(makeAlien(rowDef.type, sx + c * (AW + PAD), y, r, c));
         }
-        // Mothership is taller
         y += rowDef.type === 'mothership' ? AH * 2 + PAD : AH + PAD;
       });
 
-      // Show wave intro
+      // Show wave intro with scanline wipe
       gameState = 'waveIntro';
       overlay.style.display = 'flex';
       overlayTitle.textContent = `WAVE ${wave}`;
       overlayText.textContent = lvl.name;
       overlayEnemy.textContent = lvl.intro;
       waveIntroTimer = 120;
+      waveIntroScanY = 0;
     }
 
     function start() {
@@ -406,6 +322,7 @@
 
       if (gameState === 'waveIntro') {
         waveIntroTimer--;
+        waveIntroScanY = (1 - waveIntroTimer / 120) * H * 1.5;
         if (waveIntroTimer <= 0) {
           gameState = 'playing';
           overlay.style.display = 'none';
@@ -421,11 +338,9 @@
     }
 
     function update() {
-      // Player movement
       if (keys['ArrowLeft']) player.x = Math.max(0, player.x - PLAYER_SPEED);
       if (keys['ArrowRight']) player.x = Math.min(W - PLAYER_W, player.x + PLAYER_SPEED);
 
-      // Formation movement (side to side)
       const liveAliens = aliens.filter(a => a.alive);
       if (liveAliens.length === 0) { startWave(); return; }
 
@@ -434,16 +349,13 @@
 
       if ((formDir === 1 && rightMost >= W - 5) || (formDir === -1 && leftMost <= 5)) {
         formDir *= -1;
-        // Drop formation
         aliens.forEach(a => { if (a.type !== 'mini') a.formY += 12; });
-        // Check if any reached player
         if (liveAliens.some(a => a.alive && a.formY + a.offsetY + AH >= player.y)) {
           gameOver(); return;
         }
       }
       formX += formSpeed * formDir;
 
-      // Per-alien movement
       aliens.forEach(a => {
         if (!a.alive) return;
         TYPES[a.type].move(a, tick);
@@ -457,7 +369,6 @@
         let hit = false;
         for (const a of aliens) {
           if (!a.alive) continue;
-          // Phasers can't be hit while invisible
           if (a.type === 'phaser' && a.visible === false) continue;
           const ax = (a.type === 'mini' ? a.formX : a.formX + formX) + a.offsetX;
           const ay = a.formY + a.offsetY;
@@ -473,7 +384,6 @@
               scoreEl.textContent = score;
               spawnExplosion(ax + aw/2, ay + ah/2, TYPES[a.type].color);
               if (TYPES[a.type].onDeath) TYPES[a.type].onDeath(a);
-              // Mothership spawns minions periodically as it takes damage
               if (a.type === 'mothership') {
                 for (let d = -1; d <= 1; d += 2) {
                   aliens.push(makeAlien('mini', ax + d * 40, ay + ah, 0, 0));
@@ -576,66 +486,101 @@
     }
     function alienScreenY(a) { return a.formY + a.offsetY; }
 
-    function drawBasicAlien(a, color) {
+    // Grunt: classic Space Invaders crab design
+    function drawGrunt(a) {
       const x = alienScreenX(a), y = alienScreenY(a);
-      ctx.fillStyle = color;
-      ctx.shadowColor = color;
+      ctx.fillStyle = '#0f0';
+      ctx.shadowColor = '#0f0';
       ctx.shadowBlur = 6;
-      ctx.fillRect(x + 4, y, AW - 8, AH - 4);
-      ctx.fillRect(x, y + 6, AW, AH - 12);
-      // Eyes
+      // Crab body (wide center block)
+      ctx.fillRect(x + 5, y + 2, AW - 10, AH - 6);
+      // Side arms
+      ctx.fillRect(x + 1, y + 8, 4, AH - 14);
+      ctx.fillRect(x + AW - 5, y + 8, 4, AH - 14);
+      // Legs (4 per side)
+      ctx.fillRect(x, y + 12, 2, 4);
+      ctx.fillRect(x, y + 18, 3, 3);
+      ctx.fillRect(x + AW - 2, y + 12, 2, 4);
+      ctx.fillRect(x + AW - 3, y + 18, 3, 3);
+      // Antennae
+      ctx.fillRect(x + 6, y, 3, 4);
+      ctx.fillRect(x + AW - 9, y, 3, 4);
+      // Eyes (dark squares)
       ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(x + 8, y + 8, 4, 4);
-      ctx.fillRect(x + AW - 12, y + 8, 4, 4);
+      ctx.fillRect(x + 8, y + 7, 4, 4);
+      ctx.fillRect(x + AW - 12, y + 7, 4, 4);
       ctx.shadowBlur = 0;
     }
 
+    // Zigzagger: diamond with trailing side fins
     function drawZigzagger(a) {
       const x = alienScreenX(a), y = alienScreenY(a);
       ctx.fillStyle = '#ff0';
       ctx.shadowColor = '#ff0';
       ctx.shadowBlur = 6;
-      // Wavy body
+      // Main diamond
       ctx.beginPath();
-      ctx.moveTo(x + AW/2, y);
-      ctx.lineTo(x + AW, y + AH/2);
-      ctx.lineTo(x + AW/2, y + AH);
-      ctx.lineTo(x, y + AH/2);
+      ctx.moveTo(x + AW/2, y + 2);
+      ctx.lineTo(x + AW - 2, y + AH/2);
+      ctx.lineTo(x + AW/2, y + AH - 2);
+      ctx.lineTo(x + 2, y + AH/2);
       ctx.closePath();
       ctx.fill();
-      // Eyes
+      // Side fins
+      ctx.fillStyle = 'rgba(255,220,0,0.7)';
+      ctx.beginPath();
+      ctx.moveTo(x + 2, y + AH/2);
+      ctx.lineTo(x - 9, y + AH * 0.3);
+      ctx.lineTo(x - 7, y + AH * 0.65);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x + AW - 2, y + AH/2);
+      ctx.lineTo(x + AW + 9, y + AH * 0.3);
+      ctx.lineTo(x + AW + 7, y + AH * 0.65);
+      ctx.closePath();
+      ctx.fill();
+      // Center eye
       ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(x + 10, y + 9, 3, 3);
-      ctx.fillRect(x + AW - 13, y + 9, 3, 3);
+      ctx.beginPath();
+      ctx.arc(x + AW/2, y + AH/2, 3, 0, Math.PI*2);
+      ctx.fill();
       ctx.shadowBlur = 0;
     }
 
+    // Diver: V-wing dive bomber silhouette
     function drawDiver(a) {
       const x = alienScreenX(a), y = alienScreenY(a);
       ctx.fillStyle = '#f80';
       ctx.shadowColor = '#f80';
       ctx.shadowBlur = 8;
-      // Arrow/dive shape
+      // V-wing shape pointing downward (dive direction)
       ctx.beginPath();
-      ctx.moveTo(x + AW/2, y + AH);
-      ctx.lineTo(x, y);
-      ctx.lineTo(x + AW * 0.3, y + AH * 0.4);
-      ctx.lineTo(x + AW/2, y);
-      ctx.lineTo(x + AW * 0.7, y + AH * 0.4);
-      ctx.lineTo(x + AW, y);
+      ctx.moveTo(x + AW/2, y + AH);       // bottom tip (dive point)
+      ctx.lineTo(x, y + AH * 0.25);        // left wingtip
+      ctx.lineTo(x + AW * 0.28, y + AH * 0.5); // left inner
+      ctx.lineTo(x + AW/2, y + AH * 0.12); // cockpit
+      ctx.lineTo(x + AW * 0.72, y + AH * 0.5); // right inner
+      ctx.lineTo(x + AW, y + AH * 0.25);   // right wingtip
       ctx.closePath();
       ctx.fill();
-      // Eye
-      ctx.fillStyle = '#1a1a2e';
+      // Cockpit dome
+      ctx.fillStyle = 'rgba(255,160,60,0.85)';
       ctx.beginPath();
-      ctx.arc(x + AW/2, y + AH * 0.5, 3, 0, Math.PI * 2);
+      ctx.arc(x + AW/2, y + AH * 0.28, 4, 0, Math.PI * 2);
       ctx.fill();
+      // Fire trail when diving
+      if (a.diving) {
+        ctx.fillStyle = 'rgba(255,100,0,0.5)';
+        ctx.beginPath();
+        ctx.arc(x + AW/2, y - 4 + Math.random() * 6, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.shadowBlur = 0;
     }
 
     function drawTank(a) {
       const x = alienScreenX(a), y = alienScreenY(a);
-      // Health-based color
       const pct = a.hp / a.maxHp;
       const r = Math.round(70 + (1-pct) * 180);
       const g = Math.round(170 * pct);
@@ -644,14 +589,11 @@
       ctx.fillStyle = color;
       ctx.shadowColor = '#4af';
       ctx.shadowBlur = 6;
-      // Bulky body
       ctx.fillRect(x + 2, y + 2, AW - 4, AH - 4);
       ctx.fillRect(x - 2, y + 6, AW + 4, AH - 12);
-      // Armor lines
       ctx.strokeStyle = '#1a1a2e';
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 4, y + 4, AW - 8, AH - 8);
-      // Eyes
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(x + 8, y + 8, 5, 5);
       ctx.fillRect(x + AW - 13, y + 8, 5, 5);
@@ -663,18 +605,15 @@
       ctx.fillStyle = '#c4f';
       ctx.shadowColor = '#c4f';
       ctx.shadowBlur = 8;
-      // Cell/blob shape
       ctx.beginPath();
       ctx.arc(x + AW/2, y + AH/2, AW/2 - 2, 0, Math.PI * 2);
       ctx.fill();
-      // Division line
       ctx.strokeStyle = '#1a1a2e';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x + AW/2, y + 2);
       ctx.lineTo(x + AW/2, y + AH - 2);
       ctx.stroke();
-      // Two eyes
       ctx.fillStyle = '#1a1a2e';
       ctx.beginPath(); ctx.arc(x + AW/2 - 6, y + AH/2, 2.5, 0, Math.PI*2); ctx.fill();
       ctx.beginPath(); ctx.arc(x + AW/2 + 6, y + AH/2, 2.5, 0, Math.PI*2); ctx.fill();
@@ -701,11 +640,9 @@
       ctx.fillStyle = `rgba(255, 0, 255, ${alpha})`;
       ctx.shadowColor = '#f0f';
       ctx.shadowBlur = a.visible !== false ? 10 : 2;
-      // Ghost shape
       ctx.beginPath();
       ctx.arc(x + AW/2, y + AH/3, AW/2 - 2, Math.PI, 0);
       ctx.lineTo(x + AW - 2, y + AH);
-      // Wavy bottom
       for (let i = AW - 2; i >= 2; i -= 8) {
         ctx.lineTo(x + i, y + AH - (i % 16 === 0 ? 6 : 0));
       }
@@ -728,13 +665,10 @@
       ctx.fillStyle = pct > 0.5 ? '#f33' : '#f66';
       ctx.shadowColor = '#f33';
       ctx.shadowBlur = 8;
-      // Wide threatening shape
       ctx.fillRect(x, y + 4, AW, AH - 8);
       ctx.fillRect(x + 4, y, AW - 8, AH);
-      // Bomb bay
       ctx.fillStyle = '#800';
       ctx.fillRect(x + AW/2 - 4, y + AH - 6, 8, 6);
-      // Eyes (angry)
       ctx.fillStyle = '#ff0';
       ctx.fillRect(x + 6, y + 6, 6, 4);
       ctx.fillRect(x + AW - 12, y + 6, 6, 4);
@@ -749,7 +683,6 @@
       ctx.fillStyle = '#fff';
       ctx.shadowColor = '#aaf';
       ctx.shadowBlur = 10;
-      // Sleek shape
       ctx.beginPath();
       ctx.moveTo(x + AW/2, y);
       ctx.lineTo(x + AW + 4, y + AH/2);
@@ -757,7 +690,6 @@
       ctx.lineTo(x - 4, y + AH/2);
       ctx.closePath();
       ctx.fill();
-      // Speed lines
       ctx.strokeStyle = 'rgba(170, 170, 255, 0.4)';
       ctx.lineWidth = 1;
       for (let i = 0; i < 3; i++) {
@@ -766,7 +698,6 @@
         ctx.lineTo(x - 2 - i * 4, y + 6 + i * 6);
         ctx.stroke();
       }
-      // Eye
       ctx.fillStyle = '#1a1a2e';
       ctx.beginPath(); ctx.arc(x + AW/2 + 2, y + AH/2 - 1, 3, 0, Math.PI*2); ctx.fill();
       ctx.shadowBlur = 0;
@@ -775,28 +706,23 @@
     function drawMothership(a) {
       const x = alienScreenX(a), y = alienScreenY(a);
       const mw = AW * 3, mh = AH * 2;
-      // Pulsing glow
       const pulse = Math.sin(tick * 0.05) * 0.3 + 0.7;
       ctx.fillStyle = `rgba(255, 220, 0, ${pulse})`;
       ctx.shadowColor = '#fd0';
       ctx.shadowBlur = 20;
-      // Saucer shape
       ctx.beginPath();
       ctx.ellipse(x + mw/2, y + mh * 0.6, mw/2, mh * 0.25, 0, 0, Math.PI * 2);
       ctx.fill();
-      // Dome
       ctx.fillStyle = `rgba(255, 180, 0, ${pulse})`;
       ctx.beginPath();
       ctx.ellipse(x + mw/2, y + mh * 0.5, mw * 0.3, mh * 0.35, 0, Math.PI, 0);
       ctx.fill();
-      // Lights
       for (let i = 0; i < 5; i++) {
         const lx = x + mw * 0.2 + i * (mw * 0.15);
         const blink = Math.sin(tick * 0.1 + i) > 0;
         ctx.fillStyle = blink ? '#f00' : '#600';
         ctx.beginPath(); ctx.arc(lx, y + mh * 0.6, 3, 0, Math.PI*2); ctx.fill();
       }
-      // Health bar
       ctx.fillStyle = '#400';
       ctx.fillRect(x + 10, y - 8, mw - 20, 5);
       ctx.fillStyle = '#0f0';
@@ -804,11 +730,57 @@
       ctx.shadowBlur = 0;
     }
 
+    // Redesigned player ship: swept delta wings with cockpit dome
+    function drawPlayer() {
+      const px = player.x, py = player.y;
+      const pw = PLAYER_W, ph = PLAYER_H;
+      const cx = px + pw / 2;
+
+      ctx.fillStyle = '#00ff44';
+      ctx.shadowColor = '#00ff44';
+      ctx.shadowBlur = 12;
+
+      // Left wing (swept delta)
+      ctx.beginPath();
+      ctx.moveTo(cx, py - 8);          // nose
+      ctx.lineTo(cx - 7, py + 2);      // left cockpit edge
+      ctx.lineTo(px, py + ph);         // left wingtip
+      ctx.lineTo(cx - 2, py + ph - 3); // left inner tail
+      ctx.closePath();
+      ctx.fill();
+
+      // Right wing (swept delta)
+      ctx.beginPath();
+      ctx.moveTo(cx, py - 8);
+      ctx.lineTo(cx + 7, py + 2);
+      ctx.lineTo(px + pw, py + ph);
+      ctx.lineTo(cx + 2, py + ph - 3);
+      ctx.closePath();
+      ctx.fill();
+
+      // Fuselage center strip
+      ctx.fillRect(cx - 4, py - 2, 8, ph + 2);
+
+      // Engine nacelles at wingtips (small glow rects)
+      const exhaustFlicker = 0.5 + Math.sin(tick * 0.15) * 0.3;
+      ctx.fillStyle = `rgba(0, 255, 68, ${exhaustFlicker})`;
+      ctx.fillRect(px - 1, py + ph, 4, 4);
+      ctx.fillRect(px + pw - 3, py + ph, 4, 4);
+
+      // Cockpit dome
+      ctx.fillStyle = 'rgba(100, 255, 150, 0.75)';
+      ctx.beginPath();
+      ctx.arc(cx, py - 2, 5, Math.PI, 0);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+    }
+
     function drawFrame() {
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
 
-      // Stars
+      // Stars (with subtle twinkling)
       ctx.fillStyle = '#ffffff10';
       for (let i = 0; i < 60; i++) {
         const sx = ((i * 137 + 83) % W);
@@ -817,28 +789,31 @@
         ctx.fillRect(sx, sy, twinkle, twinkle);
       }
 
+      // Scanline wipe during wave intro
+      if (gameState === 'waveIntro' && waveIntroScanY > 0) {
+        const progress = 1 - waveIntroTimer / 120;
+        const scanAlpha = Math.max(0, 0.15 * (1 - progress * 2));
+        if (scanAlpha > 0) {
+          ctx.fillStyle = `rgba(0, 255, 60, ${scanAlpha})`;
+          ctx.fillRect(0, waveIntroScanY - 6, W, 12);
+          // Trailing glow
+          ctx.fillStyle = `rgba(0, 255, 60, ${scanAlpha * 0.4})`;
+          ctx.fillRect(0, waveIntroScanY - 20, W, 14);
+        }
+      }
+
       // Aliens
       aliens.forEach(a => {
         if (!a.alive) return;
         TYPES[a.type].draw(a);
       });
 
-      // Player ship
-      ctx.fillStyle = '#0f0';
-      ctx.shadowColor = '#0f0';
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.moveTo(player.x + PLAYER_W / 2, player.y - 8);
-      ctx.lineTo(player.x, player.y + PLAYER_H);
-      ctx.lineTo(player.x + PLAYER_W, player.y + PLAYER_H);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillRect(player.x + 4, player.y + PLAYER_H - 4, PLAYER_W - 8, 4);
-      ctx.shadowBlur = 0;
+      // Player ship (redesigned)
+      drawPlayer();
 
       // Player bullets
-      ctx.fillStyle = '#0f0';
-      ctx.shadowColor = '#0f0';
+      ctx.fillStyle = '#00ff44';
+      ctx.shadowColor = '#00ff44';
       ctx.shadowBlur = 8;
       bullets.forEach(b => { ctx.fillRect(b.x - 1.5, b.y, 3, 10); });
 

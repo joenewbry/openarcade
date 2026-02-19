@@ -85,9 +85,11 @@
     const COLS = canvas.width / CELL;
     const ROWS = canvas.height / CELL;
     const BASE_INTERVAL = 100;
-    const MIN_INTERVAL = 60;
+    const MIN_INTERVAL = 75;
 
     let snake, dir, nextDir, food, score, best = 0, gameState, interval, timer;
+    let particles = [];
+    let graceUntil = 0;
 
     function init() {
       snake = [{ x: Math.floor(COLS / 2), y: Math.floor(ROWS / 2) }];
@@ -95,6 +97,8 @@
       nextDir = { x: 1, y: 0 };
       score = 0;
       interval = BASE_INTERVAL;
+      particles = [];
+      graceUntil = 0;
       scoreEl.textContent = '0';
       placeFood();
       gameState = 'waiting';
@@ -112,8 +116,41 @@
       food = pos;
     }
 
+    function spawnEatParticles(fx, fy) {
+      for (let i = 0; i < 10; i++) {
+        const angle = (Math.PI * 2 / 10) * i + Math.random() * 0.4;
+        const speed = 1.5 + Math.random() * 2.5;
+        particles.push({
+          x: fx * CELL + CELL / 2,
+          y: fy * CELL + CELL / 2,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          color: Math.random() > 0.5 ? '#f22' : '#ff0',
+          life: 18, maxLife: 18,
+          size: 2 + Math.random() * 3
+        });
+      }
+    }
+
+    function spawnDeathParticles(hx, hy) {
+      for (let i = 0; i < 20; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 0.8 + Math.random() * 3;
+        particles.push({
+          x: hx * CELL + CELL / 2,
+          y: hy * CELL + CELL / 2,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          color: '#0ff',
+          life: 40, maxLife: 40,
+          size: 3
+        });
+      }
+    }
+
     function start() {
       gameState = 'playing';
+      graceUntil = Date.now() + 2000;
       overlay.style.display = 'none';
       tick();
     }
@@ -133,6 +170,7 @@
 
       if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS ||
           snake.some(s => s.x === head.x && s.y === head.y)) {
+        spawnDeathParticles(snake[0].x, snake[0].y);
         gameOver();
         return;
       }
@@ -146,7 +184,11 @@
           best = score;
           bestEl.textContent = best;
         }
-        interval = Math.max(MIN_INTERVAL, BASE_INTERVAL - score * 3);
+        spawnEatParticles(food.x, food.y);
+        // Respect grace period
+        if (Date.now() >= graceUntil) {
+          interval = Math.max(MIN_INTERVAL, BASE_INTERVAL - score * 1.5);
+        }
         placeFood();
       } else {
         snake.pop();
@@ -156,9 +198,13 @@
     function gameOver() {
       gameState = 'over';
       clearTimeout(timer);
-      overlay.style.display = 'flex';
-      overlayTitle.textContent = 'GAME OVER';
-      overlayText.textContent = `Score: ${score} — Press any key to restart`;
+      // Draw final frame with death particles
+      draw();
+      setTimeout(() => {
+        overlay.style.display = 'flex';
+        overlayTitle.textContent = 'GAME OVER';
+        overlayText.textContent = `Score: ${score} — Press any key to restart`;
+      }, 400);
     }
 
     function draw() {
@@ -175,24 +221,56 @@
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
       }
 
-      // Food
-      ctx.fillStyle = '#f00';
+      // Food with pulsing glow
+      const pulse = (Math.sin(Date.now() * 0.006) + 1) / 2;
+      ctx.fillStyle = '#f22';
       ctx.shadowColor = '#f00';
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 6 + pulse * 10;
       ctx.beginPath();
       ctx.arc(food.x * CELL + CELL / 2, food.y * CELL + CELL / 2, CELL / 2 - 2, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Snake
+      // Snake with body gradient (bright teal at neck, fades to tail)
       snake.forEach((seg, i) => {
-        const brightness = 1 - (i / snake.length) * 0.5;
-        ctx.fillStyle = `rgba(0, 255, 255, ${brightness})`;
+        const t = i / Math.max(snake.length - 1, 1);
+        // Interpolate from bright teal (#00ffcc) to dark teal (#005544)
+        const r = 0;
+        const g = Math.round(255 * (1 - t * 0.7));
+        const b = Math.round(204 * (1 - t * 0.6));
+        const brightness = 1 - t * 0.45;
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.shadowColor = '#0ff';
-        ctx.shadowBlur = i === 0 ? 12 : 4;
+        ctx.shadowBlur = i === 0 ? 14 : Math.max(0, 6 - i * 0.3);
         ctx.fillRect(seg.x * CELL + 1, seg.y * CELL + 1, CELL - 2, CELL - 2);
       });
       ctx.shadowBlur = 0;
+
+      // Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        ctx.globalAlpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.05; // slight gravity
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+      ctx.globalAlpha = 1;
+
+      // Speed indicator bar at bottom of canvas
+      if (gameState === 'playing') {
+        const speedPct = Math.max(0, (BASE_INTERVAL - interval) / (BASE_INTERVAL - MIN_INTERVAL));
+        ctx.fillStyle = `rgba(0, 255, 255, 0.25)`;
+        ctx.fillRect(0, canvas.height - 3, canvas.width, 3);
+        ctx.fillStyle = '#0ff';
+        ctx.shadowColor = '#0ff';
+        ctx.shadowBlur = 4;
+        ctx.fillRect(0, canvas.height - 3, canvas.width * speedPct, 3);
+        ctx.shadowBlur = 0;
+      }
     }
 
     document.addEventListener('keydown', (e) => {

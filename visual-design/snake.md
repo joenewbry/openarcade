@@ -64,6 +64,10 @@ Replace the static grid with a deep dark background featuring a subtle hexagonal
 
 A generative ambient drone: two sine waves at 55 Hz and 82.5 Hz (perfect fifth) at very low volume (~5%), slowly modulated with an LFO at 0.07 Hz. As the snake grows longer, add a third overtone at 110 Hz and increase the LFO rate slightly, building tension organically. No looped music file — pure synthesis.
 
+## Visual Style
+**Style:** Neon Arcade
+**Rationale:** The existing glow-on-dark treatment is already the right genre aesthetic for a reflex-twitch snake game. Bright cyan head, fading teal body, pulsing red food — this is the canonical Neon Arcade execution for Snake.
+
 ## Implementation Priority
 - High: Food eat particles, death particle burst, food pulse animation
 - Medium: Snake body tapering and gradient, rounded segment corners, ambient drone

@@ -86,19 +86,45 @@
     const GRAVITY = 0.45;
     const FLAP_FORCE = -7.5;
     const PIPE_WIDTH = 60;
-    const GAP_START = 240;
-    const GAP_MIN = 130;
     const PIPE_SPEED = 3;
-    const PIPE_SPACING = 200;
     const BIRD_SIZE = 18;
 
-    let bird, pipes, score, best = 0, gameState, animFrame, frameCount;
+    // Zone thresholds
+    const ZONE_GAP = [180, 160, 140, 120];      // grace, early, mid, late
+    const ZONE_SPACING = [240, 200, 200, 200];  // pipe spacing per zone
+    const GRACE_PIPES = 5;  // first N pipes use zone 0 settings
+
+    // Pipe color palettes per zone
+    const PIPE_ZONES = [
+      { body: '#2a7a2a', cap: '#4aba4a', highlight: '#6ddc6d' }, // day green
+      { body: '#2a7a2a', cap: '#4aba4a', highlight: '#6ddc6d' }, // day green (score 5-9)
+      { body: '#8a6a20', cap: '#c49a40', highlight: '#dcb860' }, // golden hour
+      { body: '#3a2a7a', cap: '#5a4aba', highlight: '#7a6adc' }, // dusk purple
+    ];
+
+    // Sky color palettes per zone [top, bottom]
+    const SKY_ZONES = [
+      ['#87ceeb', '#b0e2ff'],  // bright day
+      ['#87ceeb', '#b0e2ff'],  // day (score 5-9)
+      ['#f4a460', '#ff7050'],  // golden hour
+      ['#4b0082', '#6a2090'],  // dusk
+    ];
+
+    let bird, pipes, score, best = 0, gameState, animFrame, frameCount, pipesSpawned;
+
+    function getZone(sc, pCount) {
+      if (pCount < GRACE_PIPES) return 0;
+      if (sc < 10) return 1;
+      if (sc < 25) return 2;
+      return 3;
+    }
 
     function init() {
       bird = { x: 80, y: H / 2, vy: 0, rotation: 0 };
       pipes = [];
       score = 0;
       frameCount = 0;
+      pipesSpawned = 0;
       scoreEl.textContent = '0';
       gameState = 'waiting';
       overlay.style.display = 'flex';
@@ -134,7 +160,6 @@
       bird.y += bird.vy;
       bird.rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 4, bird.vy * 0.08));
 
-      // Ground/ceiling
       if (bird.y - BIRD_SIZE < 0) {
         bird.y = BIRD_SIZE;
         bird.vy = 0;
@@ -144,26 +169,29 @@
         return;
       }
 
-      // Spawn pipes — gap shrinks as score increases
-      if (pipes.length === 0 || pipes[pipes.length - 1].x < W - PIPE_SPACING) {
-        const gap = Math.max(GAP_MIN, GAP_START - score * 5);
+      // Determine current zone settings
+      const zone = getZone(score, pipesSpawned);
+      const gap = ZONE_GAP[zone];
+      const spacing = ZONE_SPACING[zone];
+
+      // Spawn pipes
+      if (pipes.length === 0 || pipes[pipes.length - 1].x < W - spacing) {
         const minTop = 80;
         const maxTop = H - gap - 80;
         const topH = minTop + Math.random() * (maxTop - minTop);
-        pipes.push({ x: W, topH, gap, scored: false });
+        pipes.push({ x: W, topH, gap, scored: false, zone });
+        pipesSpawned++;
       }
 
       // Move pipes
       for (let i = pipes.length - 1; i >= 0; i--) {
         pipes[i].x -= PIPE_SPEED;
 
-        // Remove off-screen
         if (pipes[i].x + PIPE_WIDTH < 0) {
           pipes.splice(i, 1);
           continue;
         }
 
-        // Score
         if (!pipes[i].scored && pipes[i].x + PIPE_WIDTH < bird.x - BIRD_SIZE) {
           pipes[i].scored = true;
           score++;
@@ -174,7 +202,6 @@
           }
         }
 
-        // Collision
         const p = pipes[i];
         const bx = bird.x, by = bird.y, br = BIRD_SIZE;
         if (bx + br > p.x && bx - br < p.x + PIPE_WIDTH) {
@@ -194,94 +221,163 @@
       overlayText.textContent = `Score: ${score} — Press any key to restart`;
     }
 
+    function lerpColor(c1, c2, t) {
+      // Parse hex colors and interpolate
+      const r1 = parseInt(c1.slice(1,3),16), g1 = parseInt(c1.slice(3,5),16), b1 = parseInt(c1.slice(5,7),16);
+      const r2 = parseInt(c2.slice(1,3),16), g2 = parseInt(c2.slice(3,5),16), b2 = parseInt(c2.slice(5,7),16);
+      const r = Math.round(r1 + (r2-r1)*t);
+      const g = Math.round(g1 + (g2-g1)*t);
+      const b = Math.round(b1 + (b2-b1)*t);
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function getSkyColors() {
+      // Smooth transition between zones based on score
+      let z = 0, t = 0;
+      if (score >= 25) { z = 2; t = Math.min(1, (score - 25) / 10); }
+      else if (score >= 10) { z = 1; t = (score - 10) / 15; }
+      else { z = 0; t = score / 10; }
+      const s1 = SKY_ZONES[z], s2 = SKY_ZONES[Math.min(z + 1, SKY_ZONES.length - 1)];
+      return [lerpColor(s1[0], s2[0], t), lerpColor(s1[1], s2[1], t)];
+    }
+
+    function drawPipe(p) {
+      const pz = PIPE_ZONES[Math.min(p.zone, PIPE_ZONES.length - 1)];
+
+      // Pipe body gradient
+      const bodyGrad = ctx.createLinearGradient(p.x, 0, p.x + PIPE_WIDTH, 0);
+      bodyGrad.addColorStop(0, pz.body);
+      bodyGrad.addColorStop(0.4, pz.cap);
+      bodyGrad.addColorStop(1, pz.body);
+
+      // Top pipe
+      ctx.fillStyle = bodyGrad;
+      ctx.fillRect(p.x, 0, PIPE_WIDTH, p.topH);
+      // Top pipe cap
+      ctx.fillStyle = pz.cap;
+      ctx.fillRect(p.x - 5, p.topH - 22, PIPE_WIDTH + 10, 22);
+      // Cap highlight
+      ctx.fillStyle = pz.highlight;
+      ctx.fillRect(p.x - 5, p.topH - 22, PIPE_WIDTH + 10, 4);
+      // Cap outline
+      ctx.strokeStyle = pz.body;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(p.x - 5, p.topH - 22, PIPE_WIDTH + 10, 22);
+
+      // Bottom pipe
+      const botY = p.topH + p.gap;
+      ctx.fillStyle = bodyGrad;
+      ctx.fillRect(p.x, botY, PIPE_WIDTH, H - botY);
+      // Bottom pipe cap
+      ctx.fillStyle = pz.cap;
+      ctx.fillRect(p.x - 5, botY, PIPE_WIDTH + 10, 22);
+      // Cap highlight
+      ctx.fillStyle = pz.highlight;
+      ctx.fillRect(p.x - 5, botY, PIPE_WIDTH + 10, 4);
+      ctx.strokeStyle = pz.body;
+      ctx.strokeRect(p.x - 5, botY, PIPE_WIDTH + 10, 22);
+    }
+
     function draw() {
-      // Background gradient
-      const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, '#0a0a1a');
-      grad.addColorStop(1, '#1a1a2e');
+      // Sky gradient (zone-based warm colors)
+      const [skyTop, skyBot] = getSkyColors();
+      const grad = ctx.createLinearGradient(0, 0, 0, H - 30);
+      grad.addColorStop(0, skyTop);
+      grad.addColorStop(1, skyBot);
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
 
-      // Stars
-      ctx.fillStyle = '#ffffff08';
-      for (let i = 0; i < 40; i++) {
-        const sx = ((i * 137 + 83) % W);
-        const sy = ((i * 251 + 47) % (H - 100));
-        ctx.fillRect(sx, sy, 2, 2);
-      }
+      // Clouds (simple fluffy shapes that move slowly)
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      const cloudOffsets = [
+        { x: ((frameCount * 0.2) % (W + 100)) - 50, y: 80 },
+        { x: ((frameCount * 0.15 + 200) % (W + 100)) - 50, y: 150 },
+        { x: ((frameCount * 0.1 + 350) % (W + 100)) - 50, y: 60 },
+      ];
+      cloudOffsets.forEach(c => {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 22, 0, Math.PI * 2);
+        ctx.arc(c.x + 22, c.y - 6, 16, 0, Math.PI * 2);
+        ctx.arc(c.x + 38, c.y, 18, 0, Math.PI * 2);
+        ctx.fill();
+      });
 
       // Pipes
-      pipes.forEach(p => {
-        // Top pipe
-        const topGrad = ctx.createLinearGradient(p.x, 0, p.x + PIPE_WIDTH, 0);
-        topGrad.addColorStop(0, '#2a7a2a');
-        topGrad.addColorStop(0.5, '#3a9a3a');
-        topGrad.addColorStop(1, '#2a7a2a');
-        ctx.fillStyle = topGrad;
-        ctx.fillRect(p.x, 0, PIPE_WIDTH, p.topH);
-        // Top pipe cap
-        ctx.fillStyle = '#4aba4a';
-        ctx.fillRect(p.x - 4, p.topH - 20, PIPE_WIDTH + 8, 20);
-        ctx.strokeStyle = '#1a5a1a';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(p.x - 4, p.topH - 20, PIPE_WIDTH + 8, 20);
+      pipes.forEach(p => drawPipe(p));
 
-        // Bottom pipe
-        const botY = p.topH + p.gap;
-        ctx.fillStyle = topGrad;
-        ctx.fillRect(p.x, botY, PIPE_WIDTH, H - botY);
-        // Bottom pipe cap
-        ctx.fillStyle = '#4aba4a';
-        ctx.fillRect(p.x - 4, botY, PIPE_WIDTH + 8, 20);
-        ctx.strokeStyle = '#1a5a1a';
-        ctx.strokeRect(p.x - 4, botY, PIPE_WIDTH + 8, 20);
-      });
+      // Ground strip with texture
+      ctx.fillStyle = '#3a6a20';
+      ctx.fillRect(0, H - 30, W, 30);
+      ctx.fillStyle = '#2a5a18';
+      ctx.fillRect(0, H - 30, W, 6);
+      // Grass blades
+      ctx.fillStyle = '#4a8030';
+      for (let gx = 3; gx < W; gx += 8) {
+        const h = 4 + Math.sin(gx * 0.5) * 3;
+        ctx.fillRect(gx, H - 30 - h, 2, h);
+      }
 
       // Bird
       ctx.save();
       ctx.translate(bird.x, bird.y);
       ctx.rotate(bird.rotation);
 
-      // Body
-      ctx.fillStyle = '#ff0';
-      ctx.shadowColor = '#ff0';
-      ctx.shadowBlur = 12;
+      // Body (chunky rounded oval)
+      ctx.fillStyle = '#ffdd22';
+      ctx.shadowColor = '#ffaa00';
+      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.ellipse(0, 0, BIRD_SIZE, BIRD_SIZE * 0.8, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, BIRD_SIZE, BIRD_SIZE * 0.78, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Wing
-      ctx.fillStyle = '#ffa500';
+      // Body shine highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
       ctx.beginPath();
-      const wingY = Math.sin(frameCount * 0.3) * 4;
-      ctx.ellipse(-4, wingY, 10, 5, -0.3, 0, Math.PI * 2);
+      ctx.ellipse(-3, -4, BIRD_SIZE * 0.5, BIRD_SIZE * 0.35, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Wing (animated flap)
+      const wingBeat = Math.sin(frameCount * 0.35) * 5;
+      ctx.fillStyle = '#ff9900';
+      ctx.beginPath();
+      ctx.ellipse(-3, wingBeat, 11, 5, -0.3, 0, Math.PI * 2);
       ctx.fill();
 
       // Eye
       ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(8, -4, 5, 0, Math.PI * 2);
+      ctx.arc(8, -4, 5.5, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#000';
+      // Pupil shifts with velocity
+      const pupilShift = bird.vy > 0 ? 1.5 : -1;
+      ctx.fillStyle = '#111';
       ctx.beginPath();
-      ctx.arc(9, -4, 2.5, 0, Math.PI * 2);
+      ctx.arc(9, -4 + pupilShift, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      // Eye shine
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(10, -5.5 + pupilShift, 1, 0, Math.PI * 2);
       ctx.fill();
 
-      // Beak
-      ctx.fillStyle = '#f80';
+      // Beak (chunky wedge)
+      ctx.fillStyle = '#ff7700';
       ctx.beginPath();
-      ctx.moveTo(BIRD_SIZE - 2, -3);
-      ctx.lineTo(BIRD_SIZE + 10, 0);
-      ctx.lineTo(BIRD_SIZE - 2, 4);
+      ctx.moveTo(BIRD_SIZE - 3, -4);
+      ctx.lineTo(BIRD_SIZE + 9, -1);
+      ctx.lineTo(BIRD_SIZE - 3, 4);
       ctx.closePath();
       ctx.fill();
+      // Beak split line
+      ctx.strokeStyle = '#cc5500';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(BIRD_SIZE - 3, 0);
+      ctx.lineTo(BIRD_SIZE + 7, 0);
+      ctx.stroke();
 
       ctx.restore();
-
-      // Ground line
-      ctx.fillStyle = '#2a5a2a';
-      ctx.fillRect(0, H - 4, W, 4);
     }
 
     document.addEventListener('keydown', (e) => {

@@ -96,6 +96,10 @@ Score display: large bold text with a subtle glow matching the most recently bro
 ### Music/Ambience
 Breakout traditionally has no music — the sound effects ARE the music. The satisfying rhythm of brick-break-paddle-wall-paddle becomes its own percussion. To enhance this: when playing a continuous sequence, the brick break pitches escalate (each consecutive break within 2 seconds raises the pitch by +10%). This creates a natural crescendo as the player goes on a run. The tone frequencies match the original Atari 2600 behavior: TIA sound chip style square wave with pitch tied to brick row (higher row = higher pitch), rewarding skill by making runs sound musical.
 
+## Visual Style
+**Style:** Retro CRT
+**Rationale:** Paddle games originate from the 1976 Atari 2600 era. Scanlines, phosphor bloom, and candy-colored bricks on a dark CRT background evoke the authentic arcade cabinet feel. The beveled 3D bricks read as colored plastic tiles under screen glass.
+
 ## Implementation Priority
 - High: Brick break particle burst with sparks and chunks, ball motion trail, brick beveled 3D rendering
 - Medium: Background scanline effect, paddle energy ripple on hit, ball lost red vignette
