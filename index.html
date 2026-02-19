@@ -61,6 +61,7 @@
         <button class="filter-btn" data-category="casual">Casual</button>
         <button class="filter-btn" data-category="racing">Racing</button>
         <button class="filter-btn" data-category="multiplayer">Multiplayer</button>
+        <button class="filter-btn" data-category="remix">Remix</button>
       </div>
     </div>
 
@@ -980,6 +981,33 @@
         <p class="description">Defend your fort from zombie hordes! Build walls, place turrets, and grab weapons to survive endless waves of the undead.</p>
         <p class="controls"><span>Controls:</span> Arrow keys to move, Space to shoot, 1-3 build structure</p>
       </a>
+
+      <!-- ── Remix Games ── -->
+      <a href="worm-pong/v2.html" class="game-card card-remix-wormpong" data-game="worm-pong">
+        <div class="card-header"><h2>Worm Pong</h2><span class="plays-badge" data-game="worm-pong"></span></div>
+        <p class="description">Pong, but each paddle is a living snake! Return the ball to grow your worm. Watch out — longer snake means more self-collision risk.</p>
+        <p class="controls"><span>Controls:</span> Up/Down to steer your snake-paddle</p>
+      </a>
+      <a href="brickfall/v2.html" class="game-card card-remix-brickfall" data-game="brickfall">
+        <div class="card-header"><h2>Brickfall</h2><span class="plays-badge" data-game="brickfall"></span></div>
+        <p class="description">Tetrominos rain down and stack up. Your only tool is a Breakout ball — bounce it to smash blocks and clear rows before the stack reaches the top!</p>
+        <p class="controls"><span>Controls:</span> Left/Right to move paddle</p>
+      </a>
+      <a href="snake-invaders/v2.html" class="game-card card-remix-snakeinvaders" data-game="snake-invaders">
+        <div class="card-header"><h2>Snake Invaders</h2><span class="plays-badge" data-game="snake-invaders"></span></div>
+        <p class="description">A snake that shoots! Alien invaders march down. Your tail is your shield — bullets that hit body segments remove them instead of killing you. Eat alien wreckage to grow.</p>
+        <p class="controls"><span>Controls:</span> Arrow keys to move, Space to fire</p>
+      </a>
+      <a href="flapomino/v2.html" class="game-card card-remix-flapomino" data-game="flapomino">
+        <div class="card-header"><h2>Flapomino</h2><span class="plays-badge" data-game="flapomino"></span></div>
+        <p class="description">Flappy Bird meets Tetris! Navigate through tetromino-shaped obstacles. Pieces that slip past stack up at the bottom, shrinking your play area. Clear rows to reclaim space!</p>
+        <p class="controls"><span>Controls:</span> Space or Up to flap</p>
+      </a>
+      <a href="gravity-pong/v2.html" class="game-card card-remix-gravitypong" data-game="gravity-pong">
+        <div class="card-header"><h2>Gravity Pong</h2><span class="plays-badge" data-game="gravity-pong"></span></div>
+        <p class="description">Asteroids physics meets air hockey! Fly your ship freely to deflect the puck into the CPU's goal. Asteroids drift through the arena as wild obstacles. First to 5 wins!</p>
+        <p class="controls"><span>Controls:</span> ←→ rotate, ↑ thrust, Space brake</p>
+      </a>
     </div>
   </div>
   <script>
@@ -1278,7 +1306,8 @@
         puzzle: ['2048','minesweeper','lights-out','sokoban','columns','simon','bejeweled','dr-mario','puyo-puyo','pipe-dream','puzzle-bobble','nonogram','sudoku','klotski','tower-of-hanoi','peggle','lemmings','tower-defense','blokus','go-baduk','mahjong-competitive','competitive-minesweeper','competitive-tetris','puzzle-race','stratego-digital','tactical-card-battler','dungeon-tactician','hex-empire','wizard-card-game','splendor-online','advance-wars-online','pocket-generals','xcom-tactics','wesnoth-lite','deck-builder-duels','bridge-building-race','portal-2d-coop','creep-td-versus','tower-wars','mech-arena-tactics'],
         casual: ['cookie-clicker','snake','flappy','dino','whack-a-mole','doodle-jump','crossy-road','air-hockey','slot-racer','nibbler','arkanoid','dx-ball','brick-breaker','pinball','paperboy','simcity','plants-vs-zombies','temple-run','curling-simulator','golf-it','idle-clicker-pvp','pool-billiards','sandbox-physics','soccer-heads','volleyball-2d','trivia-royale','speed-typing-racer','wrestling-physics','auction-house','real-estate-mogul','restaurant-tycoon','stock-market-sim','merchant-routes','territory-control-mmo','tile-kingdoms','settlers-online','space-trader','trading-card-mmo','poker-arena','factory-chain','factory-coop','kingdom-clash','ant-colony-wars'],
         racing: ['tron','outrun','road-fighter','night-driver','super-sprint','spy-hunter','geometry-dash','canabalt','jetpack-joyride','temple-run','slot-racer','kart-racer','drag-race-showdown','micro-machines','obstacle-course-race','bike-trials-mp','spaceship-circuit','rocket-league-2d'],
-        multiplayer: ['advance-wars-online','ant-colony-wars','auction-house','base-builder-blitz','battle-royale-2d','battleship-evolved','bike-trials-mp','blokus','boxing-ring','bridge-building-race','browser-mmo-rpg','capture-the-flag','civilization-micro','competitive-minesweeper','competitive-tetris','coop-dungeon-crawler','creep-td-versus','curling-simulator','deck-builder-duels','drag-race-showdown','dungeon-tactician','factory-chain','factory-coop','gladiator-pit','go-baduk','golf-it','hex-empire','idle-clicker-pvp','kart-racer','kingdom-clash','mahjong-competitive','mech-arena-tactics','mech-assault','merchant-routes','micro-machines','micro-rts','naval-commander','nidhogg-like','obstacle-course-race','paintball-skirmish','pirate-conquest','pixel-fighter','pocket-generals','poker-arena','pool-billiards','portal-2d-coop','puzzle-race','real-estate-mogul','restaurant-tycoon','rocket-league-2d','sandbox-physics','settlers-online','smash-arena','sniper-duel','soccer-heads','space-dogfight','space-trader','spaceship-circuit','speed-typing-racer','splendor-online','spy-vs-spy','stick-fight-online','stock-market-sim','stratego-digital','sumo-push','survival-island','swarm-control','tactical-card-battler','terraria-lite','territory-control-mmo','tile-kingdoms','top-down-shooter','tower-wars','trading-card-mmo','trivia-royale','volleyball-2d','warzone-diplomacy','wesnoth-lite','wizard-card-game','wizard-duels','wrestling-physics','xcom-tactics','zombie-siege']
+        multiplayer: ['advance-wars-online','ant-colony-wars','auction-house','base-builder-blitz','battle-royale-2d','battleship-evolved','bike-trials-mp','blokus','boxing-ring','bridge-building-race','browser-mmo-rpg','capture-the-flag','civilization-micro','competitive-minesweeper','competitive-tetris','coop-dungeon-crawler','creep-td-versus','curling-simulator','deck-builder-duels','drag-race-showdown','dungeon-tactician','factory-chain','factory-coop','gladiator-pit','go-baduk','golf-it','hex-empire','idle-clicker-pvp','kart-racer','kingdom-clash','mahjong-competitive','mech-arena-tactics','mech-assault','merchant-routes','micro-machines','micro-rts','naval-commander','nidhogg-like','obstacle-course-race','paintball-skirmish','pirate-conquest','pixel-fighter','pocket-generals','poker-arena','pool-billiards','portal-2d-coop','puzzle-race','real-estate-mogul','restaurant-tycoon','rocket-league-2d','sandbox-physics','settlers-online','smash-arena','sniper-duel','soccer-heads','space-dogfight','space-trader','spaceship-circuit','speed-typing-racer','splendor-online','spy-vs-spy','stick-fight-online','stock-market-sim','stratego-digital','sumo-push','survival-island','swarm-control','tactical-card-battler','terraria-lite','territory-control-mmo','tile-kingdoms','top-down-shooter','tower-wars','trading-card-mmo','trivia-royale','volleyball-2d','warzone-diplomacy','wesnoth-lite','wizard-card-game','wizard-duels','wrestling-physics','xcom-tactics','zombie-siege'],
+        remix: ['worm-pong','brickfall','snake-invaders','flapomino','gravity-pong']
       };
       // Build reverse map: game -> categories
       var gameCats = {};
