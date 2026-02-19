@@ -55,6 +55,34 @@ function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function massToRadius(mass) { return Math.sqrt(mass) * 4; }
 function randColor() { return CELL_COLORS[Math.floor(Math.random() * CELL_COLORS.length)]; }
 
+// --- Safe spawn location (avoid large AI cells) ---
+function findSafeSpawn() {
+  const margin = 400;
+  let bestX = WORLD_SIZE / 2;
+  let bestY = WORLD_SIZE / 2;
+  let bestMinDist = 0;
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const x = rand(margin, WORLD_SIZE - margin);
+    const y = rand(margin, WORLD_SIZE - margin);
+
+    let minDist = Infinity;
+    for (const ai of aiCells) {
+      if (ai.mass < 40) continue; // only avoid meaningful threats
+      const d = Math.hypot(x - ai.x, y - ai.y);
+      if (d < minDist) minDist = d;
+    }
+    if (minDist === Infinity) minDist = 9999;
+
+    if (minDist > bestMinDist) {
+      bestMinDist = minDist;
+      bestX = x;
+      bestY = y;
+    }
+  }
+  return { x: bestX, y: bestY };
+}
+
 // --- Spawn helpers ---
 function spawnFood() {
   food.push({
@@ -377,9 +405,10 @@ export function createGame() {
       if (input.wasPressed(' ') || input.wasPressed('ArrowUp') || input.wasPressed('ArrowDown')
           || input.wasPressed('ArrowLeft') || input.wasPressed('ArrowRight')) {
         // Start game
+        const spawn = findSafeSpawn();
         playerCells = [{
-          x: WORLD_SIZE / 2,
-          y: WORLD_SIZE / 2,
+          x: spawn.x,
+          y: spawn.y,
           mass: 20,
           vx: 0,
           vy: 0,
@@ -715,6 +744,16 @@ export function createGame() {
 
     // Draw minimap
     drawMinimapUI(renderer);
+
+    // Draw mouse target indicator so player can see where they're guiding the blob
+    if (mouse.active && game.state === 'playing') {
+      const cr = 10;
+      renderer.setGlow('#fff', 0.5);
+      renderer.drawLine(mouse.x - cr, mouse.y, mouse.x + cr, mouse.y, 'rgba(255,255,255,0.7)', 1.5);
+      renderer.drawLine(mouse.x, mouse.y - cr, mouse.x, mouse.y + cr, 'rgba(255,255,255,0.7)', 1.5);
+      renderer.fillCircle(mouse.x, mouse.y, 2.5, '#fff');
+      renderer.setGlow(null);
+    }
   };
 
   // --- Drawing helpers ---

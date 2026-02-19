@@ -123,6 +123,10 @@ export class Game {
     this.width = canvas.width;
     this.height = canvas.height;
 
+    // Difficulty: 1=easiest, 5=hardest, persists across restarts
+    this.difficulty = 3;
+    this._baseOverlayText = '';
+
     // Create renderer (falls back to legacy if WebGL 2 not supported)
     try {
       this.renderer = new Renderer(canvas);
@@ -185,6 +189,7 @@ export class Game {
       if (this.overlay) this.overlay.style.display = 'none';
     } else if (newState === 'over' && oldState === 'playing') {
       this.recorder.endSession();
+      // Difficulty overlay is applied when game calls showOverlay()
     } else if (newState === 'waiting') {
       if (this.overlay) this.overlay.style.display = 'flex';
     }
@@ -193,11 +198,25 @@ export class Game {
   }
 
   showOverlay(title, text) {
+    this._baseOverlayText = text;
     if (this.overlay) {
       this.overlay.style.display = 'flex';
       if (this.overlayTitle) this.overlayTitle.textContent = title;
-      if (this.overlayText) this.overlayText.textContent = text;
+      if (this._state === 'over') {
+        this._applyDifficultyToOverlay();
+      } else {
+        if (this.overlayText) this.overlayText.textContent = text;
+      }
     }
+  }
+
+  _applyDifficultyToOverlay() {
+    if (!this.overlayText) return;
+    const filled = '■'.repeat(this.difficulty);
+    const empty = '□'.repeat(5 - this.difficulty);
+    const label = ['', 'Very Easy', 'Easy', 'Normal', 'Hard', 'Very Hard'][this.difficulty];
+    const base = this._baseOverlayText ? this._baseOverlayText + '\n\n' : '';
+    this.overlayText.textContent = base + `[${filled}${empty}] ${label}\n← Easier   Harder →`;
   }
 
   hideOverlay() {
@@ -229,6 +248,20 @@ export class Game {
 
       // Fixed timestep updates
       while (this._accumulator >= FIXED_DT) {
+        // Intercept difficulty keys in 'over' state before game sees them
+        if (this._state === 'over') {
+          if (this.input.wasPressed('ArrowLeft')) {
+            this.difficulty = Math.max(1, this.difficulty - 1);
+            this.input._pressed.delete('ArrowLeft');
+            this._applyDifficultyToOverlay();
+          }
+          if (this.input.wasPressed('ArrowRight')) {
+            this.difficulty = Math.min(5, this.difficulty + 1);
+            this.input._pressed.delete('ArrowRight');
+            this._applyDifficultyToOverlay();
+          }
+        }
+
         if (this.onUpdate) {
           this.onUpdate(FIXED_DT);
         }

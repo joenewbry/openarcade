@@ -45,6 +45,7 @@ let lastGoalScorer;
 let goalTextAlpha;
 let goalText;
 let cpuIdlePhase; // for CPU idle oscillation without Date.now()
+let puckIdleTimer; // auto-serve if puck sits still too long
 
 // ── DOM refs ──
 const scoreEl = document.getElementById('score');
@@ -80,6 +81,7 @@ function resetTable() {
   goalPauseTimer = 0;
   goalTextAlpha = 0;
   cpuIdlePhase = 0;
+  puckIdleTimer = 0;
 }
 
 function collideMalletPuck(mallet) {
@@ -221,9 +223,9 @@ export function createGame() {
       targetX = puck.x + puck.vx * 10;
       targetY = CENTER_Y * 0.4;
     } else {
-      targetX = CENTER_X + (puck.x - CENTER_X) * 0.2;
-      // Use frame counter for idle oscillation instead of Date.now()
-      targetY = 70 + Math.sin(cpuIdlePhase * 0.12) * 15;
+      // Sweep left-right when idle (not chasing puck)
+      targetX = CENTER_X + Math.sin(cpuIdlePhase * 0.05) * 130;
+      targetY = 70;
     }
 
     targetX = clamp(targetX, TABLE_MARGIN + MALLET_R, W - TABLE_MARGIN - MALLET_R);
@@ -278,6 +280,19 @@ export function createGame() {
 
     // ── Playing state ──
     cpuIdlePhase++;
+
+    // Auto-serve: if puck is nearly stationary for 3s, give it a nudge
+    const pSpeed0 = magnitude(puck.vx, puck.vy);
+    if (goalPauseTimer === 0 && pSpeed0 < 0.5) {
+      puckIdleTimer++;
+      if (puckIdleTimer > 180) { // 3 seconds at 60Hz
+        puck.vx = (Math.random() - 0.5) * 4;
+        puck.vy = lastGoalScorer === 1 ? -3 : 3;
+        puckIdleTimer = 0;
+      }
+    } else {
+      puckIdleTimer = 0;
+    }
 
     // Goal pause countdown
     if (goalPauseTimer > 0) {
