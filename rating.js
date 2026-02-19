@@ -29,7 +29,7 @@
     var parts = path.split('/').filter(Boolean);
     // e.g. /tetris/index.html -> tetris
     for (var i = parts.length - 1; i >= 0; i--) {
-      if (parts[i] !== 'index.html' && parts[i] !== 'keypad.html') return parts[i];
+      if (parts[i] !== 'index.html' && parts[i] !== 'keypad.html' && parts[i] !== 'v2.html' && parts[i] !== 'autoplay.html') return parts[i];
     }
     return 'unknown';
   }

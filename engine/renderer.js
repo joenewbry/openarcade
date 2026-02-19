@@ -3,6 +3,7 @@
 import {
   batchVert, batchFrag,
   dashedVert, dashedFrag,
+  triVert, triFrag,
   fullscreenVert,
   bloomExtractFrag, bloomBlurFrag, bloomCompositeFrag,
 } from './shaders.js';
@@ -10,6 +11,7 @@ import {
 const MAX_INSTANCES = 4096;
 const FLOATS_PER_INSTANCE = 12; // a_rect(4) + a_color(4) + a_params(4)
 const MAX_DASHED_VERTS = 512;
+const MAX_TRI_VERTS = 8192;
 
 function compileShader(gl, type, source) {
   const s = gl.createShader(type);
@@ -93,6 +95,10 @@ export class Renderer {
     this.dashedProg = createProgram(gl, dashedVert, dashedFrag);
     this._initDashed();
 
+    // ── Triangle program (lines, polygons, filled shapes) ──
+    this.triProg = createProgram(gl, triVert, triFrag);
+    this._initTris();
+
     // ── Bloom pipeline ──
     this._initBloom();
 
@@ -103,6 +109,8 @@ export class Renderer {
     this._glowIntensity = 0;
     this._dashedVerts = [];
     this._dashedDists = [];
+    this._triData = new Float32Array(MAX_TRI_VERTS * 6); // pos(2) + color(4)
+    this._triCount = 0;
 
     // Bloom config
     this.bloomEnabled = true;
@@ -187,6 +195,32 @@ export class Renderer {
     this.u_dashed_gapLen = gl.getUniformLocation(prog, 'u_gapLen');
   }
 
+  _initTris() {
+    const gl = this.gl;
+    const prog = this.triProg;
+
+    this.triVAO = gl.createVertexArray();
+    gl.bindVertexArray(this.triVAO);
+
+    this.triBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.triBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, MAX_TRI_VERTS * 6 * 4, gl.DYNAMIC_DRAW);
+
+    const stride = 24; // 6 floats * 4 bytes
+    const aPos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, stride, 0);
+
+    const aColor = gl.getAttribLocation(prog, 'a_color');
+    gl.enableVertexAttribArray(aColor);
+    gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 8);
+
+    gl.bindVertexArray(null);
+
+    gl.useProgram(prog);
+    this.u_tri_resolution = gl.getUniformLocation(prog, 'u_resolution');
+  }
+
   // ── Bloom FBOs ──
 
   _initBloom() {
@@ -254,6 +288,7 @@ export class Renderer {
     this._instanceCount = 0;
     this._dashedVerts.length = 0;
     this._dashedDists.length = 0;
+    this._triCount = 0;
     this._glowIntensity = 0;
     this._bgColor = parseColor(bgColor);
 
@@ -375,6 +410,59 @@ export class Renderer {
     this._dashedGapLen = gapLen;
   }
 
+  // ── Triangle-based line/polygon drawing ──
+
+  _addTriVert(x, y, r, g, b, a) {
+    if (this._triCount >= MAX_TRI_VERTS) this._flushTris();
+    const i = this._triCount * 6;
+    this._triData[i] = x;
+    this._triData[i + 1] = y;
+    this._triData[i + 2] = r;
+    this._triData[i + 3] = g;
+    this._triData[i + 4] = b;
+    this._triData[i + 5] = a;
+    this._triCount++;
+  }
+
+  drawLine(x1, y1, x2, y2, color, width = 2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.001) return;
+
+    const nx = -dy / len * width * 0.5;
+    const ny = dx / len * width * 0.5;
+    const c = parseColor(color);
+
+    this._addTriVert(x1 + nx, y1 + ny, c[0], c[1], c[2], c[3]);
+    this._addTriVert(x1 - nx, y1 - ny, c[0], c[1], c[2], c[3]);
+    this._addTriVert(x2 + nx, y2 + ny, c[0], c[1], c[2], c[3]);
+
+    this._addTriVert(x1 - nx, y1 - ny, c[0], c[1], c[2], c[3]);
+    this._addTriVert(x2 - nx, y2 - ny, c[0], c[1], c[2], c[3]);
+    this._addTriVert(x2 + nx, y2 + ny, c[0], c[1], c[2], c[3]);
+  }
+
+  strokePoly(points, color, width = 1.5, closed = true) {
+    for (let i = 0; i < points.length - 1; i++) {
+      this.drawLine(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, color, width);
+    }
+    if (closed && points.length > 2) {
+      const last = points[points.length - 1];
+      this.drawLine(last.x, last.y, points[0].x, points[0].y, color, width);
+    }
+  }
+
+  fillPoly(points, color) {
+    if (points.length < 3) return;
+    const c = parseColor(color);
+    for (let i = 1; i < points.length - 1; i++) {
+      this._addTriVert(points[0].x, points[0].y, c[0], c[1], c[2], c[3]);
+      this._addTriVert(points[i].x, points[i].y, c[0], c[1], c[2], c[3]);
+      this._addTriVert(points[i + 1].x, points[i + 1].y, c[0], c[1], c[2], c[3]);
+    }
+  }
+
   _addInstance(x, y, w, h, color, shape, lineWidth = 0) {
     if (this._instanceCount >= MAX_INSTANCES) {
       this._flushBatch();
@@ -441,10 +529,27 @@ export class Renderer {
     gl.bindVertexArray(null);
   }
 
+  _flushTris() {
+    if (this._triCount === 0) return;
+    const gl = this.gl;
+
+    gl.useProgram(this.triProg);
+    gl.uniform2f(this.u_tri_resolution, this.width, this.height);
+
+    gl.bindVertexArray(this.triVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.triBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, this._triData.subarray(0, this._triCount * 6));
+    gl.drawArrays(gl.TRIANGLES, 0, this._triCount);
+    gl.bindVertexArray(null);
+
+    this._triCount = 0;
+  }
+
   // Public method to flush batched primitives (called by core before text rendering)
   flushBatch() {
     this._flushBatch();
     this._flushDashed();
+    this._flushTris();
   }
 
   end() {

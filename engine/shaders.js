@@ -148,6 +148,36 @@ void main() {
 }
 `;
 
+// ── Vertex-colored triangle shader (for lines, polygons, filled shapes) ──
+export const triVert = `#version 300 es
+precision highp float;
+
+in vec2 a_pos;
+in vec4 a_color;
+
+uniform vec2 u_resolution;
+
+out vec4 v_color;
+
+void main() {
+  vec2 clip = (a_pos / u_resolution) * 2.0 - 1.0;
+  clip.y = -clip.y;
+  gl_Position = vec4(clip, 0.0, 1.0);
+  v_color = a_color;
+}
+`;
+
+export const triFrag = `#version 300 es
+precision highp float;
+
+in vec4 v_color;
+out vec4 fragColor;
+
+void main() {
+  fragColor = v_color;
+}
+`;
+
 // ── Bloom shaders: extract bright → blur → composite ──
 export const bloomExtractFrag = `#version 300 es
 precision highp float;

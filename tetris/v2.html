@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tetris</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+    .back { color: #f0f; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 0, 255, 0.5); }
+    h1 { color: #f0f; font-size: 2rem; text-shadow: 0 0 15px rgba(255, 0, 255, 0.4); }
+    .game-area {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+    .side-panel { width: 130px; }
+    .panel-box {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .panel-box label {
+      display: block;
+      font-size: 0.8rem;
+      color: #888;
+      margin-bottom: 6px;
+    }
+    .panel-box .value {
+      font-size: 1.4rem;
+      color: #f0f;
+    }
+    #nextCanvas { display: block; margin: 0 auto; }
+    canvas#game {
+      border: 2px solid #f0f;
+      box-shadow: 0 0 20px rgba(255, 0, 255, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #f0f;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>TETRIS</h1>
+  </div>
+  <div class="game-area">
+    <div style="position: relative; display: inline-block;">
+      <canvas id="game" width="300" height="600"></canvas>
+      <div class="overlay" id="overlay" style="width:300px;height:600px;">
+        <h2 id="overlayTitle">TETRIS</h2>
+        <p id="overlayText">Press any key to start</p>
+      </div>
+    </div>
+    <div class="side-panel">
+      <div class="panel-box">
+        <label>NEXT</label>
+        <canvas id="nextCanvas" width="100" height="80"></canvas>
+      </div>
+      <div class="panel-box">
+        <label>SCORE</label>
+        <div class="value" id="score">0</div>
+      </div>
+      <div class="panel-box">
+        <label>LINES</label>
+        <div class="value" id="lines">0</div>
+      </div>
+      <div class="panel-box">
+        <label>LEVEL</label>
+        <div class="value" id="level">1</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { createGame } from './game.js';
+    createGame();
+  </script>
+  <script src="../rating.js?v=2"></script>
+</body>
+</html>
