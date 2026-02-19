@@ -193,23 +193,26 @@ export function createGame() {
         alienBullets.push({ x: x + INV_W / 2, y: y + INV_H });
       }
     }
+    const HR = CELL / 2 - 1; // hit radius — tighter than full cell
     for (let i = alienBullets.length - 1; i >= 0; i--) {
       alienBullets[i].y += 4;
-      if (alienBullets[i].y > H) { alienBullets.splice(i, 1); continue; }
+      if (alienBullets[i].y >= H) { alienBullets.splice(i, 1); continue; }
       const bx = alienBullets[i].x, by = alienBullets[i].y;
-      // Hit snake head?
+      // Hit snake head? (center-based collision)
       const head = snake[0];
-      if (bx > head.x * CELL && bx < (head.x + 1) * CELL &&
-          by > head.y * CELL && by < (head.y + 1) * CELL) {
+      const headCX = head.x * CELL + CELL / 2;
+      const headCY = head.y * CELL + CELL / 2;
+      if (Math.abs(bx - headCX) < HR && Math.abs(by - headCY) < HR) {
         game.showOverlay('GAME OVER', `Score: ${score}  •  Space to restart`);
         game.setState('over');
         return;
       }
-      // Hit tail segment? Remove that segment
+      // Hit tail segment? Remove that segment (center-based collision)
       let hitTail = false;
       for (let s = 1; s < snake.length; s++) {
-        if (bx > snake[s].x * CELL && bx < (snake[s].x + 1) * CELL &&
-            by > snake[s].y * CELL && by < (snake[s].y + 1) * CELL) {
+        const segCX = snake[s].x * CELL + CELL / 2;
+        const segCY = snake[s].y * CELL + CELL / 2;
+        if (Math.abs(bx - segCX) < HR && Math.abs(by - segCY) < HR) {
           snake.splice(s, 1);
           alienBullets.splice(i, 1);
           lengthEl.textContent = snake.length;

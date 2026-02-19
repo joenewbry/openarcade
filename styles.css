@@ -621,14 +621,8 @@ body {
 .card-remix-wormpong h2 { color: #5af; }
 .card-remix-wormpong:hover { border-color: #5af; box-shadow: 0 8px 30px rgba(85, 170, 255, 0.15); }
 
-.card-remix-brickfall h2 { color: #f80; }
-.card-remix-brickfall:hover { border-color: #f80; box-shadow: 0 8px 30px rgba(255, 136, 0, 0.15); }
-
 .card-remix-snakeinvaders h2 { color: #a0f; }
 .card-remix-snakeinvaders:hover { border-color: #a0f; box-shadow: 0 8px 30px rgba(170, 0, 255, 0.15); }
 
 .card-remix-flapomino h2 { color: #fe0; }
 .card-remix-flapomino:hover { border-color: #fe0; box-shadow: 0 8px 30px rgba(255, 238, 0, 0.15); }
-
-.card-remix-gravitypong h2 { color: #0cf; }
-.card-remix-gravitypong:hover { border-color: #0cf; box-shadow: 0 8px 30px rgba(0, 204, 255, 0.15); }

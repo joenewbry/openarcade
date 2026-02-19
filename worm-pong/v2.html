@@ -61,15 +61,15 @@
     <h1>WORM PONG</h1>
   </div>
   <div class="score-bar">
-    <div>Player: <span id="playerScore">0</span></div>
-    <div>Lives: <span id="playerLives">3</span> | <span id="cpuLives">3</span></div>
-    <div>CPU: <span id="cpuScore">0</span></div>
+    <div>You: <span id="playerScore">0</span> &nbsp;&#10084; <span id="playerLives">3</span></div>
+    <div id="centerMsg" style="color:#fe0;"></div>
+    <div>CPU: <span id="cpuScore">0</span> &nbsp;&#10084; <span id="cpuLives">3</span></div>
   </div>
   <div style="position: relative; display: inline-block;">
     <canvas id="game" width="480" height="400"></canvas>
     <div class="overlay" id="overlay" style="width:480px;height:400px;">
       <h2 id="overlayTitle">WORM PONG</h2>
-      <p id="overlayText">Press UP/DOWN or SPACE to start</p>
+      <p id="overlayText">Arrow keys to move &bull; Eat pellets to grow &bull; Hit ball with head to score</p>
     </div>
   </div>
 
