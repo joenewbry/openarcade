@@ -323,7 +323,7 @@ function drawPlayerCar(renderer, input) {
   // Shadow
   renderer.fillRect(cx - carW / 2 + 3, cy - 2, carW, 8, 'rgba(0,0,0,0.4)');
 
-  // Car body (trapezoid)
+  // Car body (trapezoid) — use fillPoly, then flush so details layer on top
   renderer.setGlow('#f4e', 0.7);
   renderer.fillPoly([
     { x: cx - carW / 2 + steerOffset, y: cy },
@@ -332,6 +332,7 @@ function drawPlayerCar(renderer, input) {
     { x: cx - carW / 2 + 3,           y: cy - carH }
   ], '#f4e');
   renderer.setGlow(null);
+  renderer.flushBatch();
 
   // Roof
   renderer.fillRect(cx - carW * 0.3, cy - carH - 12, carW * 0.6, 14, '#c3b');
