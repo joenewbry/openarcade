@@ -608,6 +608,14 @@
         ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
       }
       ctx.globalAlpha = 1;
+
+      // CRT scanlines overlay
+      ctx.globalAlpha = 0.07;
+      ctx.fillStyle = '#000';
+      for (let sy = 0; sy < H; sy += 2) {
+        ctx.fillRect(0, sy, W, 1);
+      }
+      ctx.globalAlpha = 1;
     }
 
     function drawMushrooms() {
@@ -630,6 +638,18 @@
           // Cap shape
           ctx.beginPath();
           ctx.ellipse(x + CELL / 2, y + CELL - CELL * 0.35, CELL * 0.45, capH, 0, Math.PI, 0);
+          ctx.fill();
+
+          // 3D bevel: top highlight
+          ctx.fillStyle = `rgba(255, 255, 255, ${0.28 * frac})`;
+          ctx.beginPath();
+          ctx.ellipse(x + CELL / 2 - 2, y + CELL - CELL * 0.35 - capH * 0.4, CELL * 0.28, capH * 0.35, -0.2, Math.PI, 0);
+          ctx.fill();
+
+          // Bottom shadow arc
+          ctx.fillStyle = `rgba(0, 0, 0, ${0.3 * frac})`;
+          ctx.beginPath();
+          ctx.ellipse(x + CELL / 2, y + CELL - CELL * 0.22, CELL * 0.3, CELL * 0.12, 0, 0, Math.PI);
           ctx.fill();
 
           // Stem
@@ -678,18 +698,24 @@
           ctx.lineTo(cx + 8, cy - r - 6);
           ctx.stroke();
         } else {
-          // Body segment
+          // Body segment — pill shape (ellipse, elongated horizontally)
           ctx.fillStyle = '#6f8';
           ctx.shadowColor = '#6f8';
           ctx.shadowBlur = 6;
           ctx.beginPath();
-          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.ellipse(cx, cy, r * 1.25, r * 0.8, 0, 0, Math.PI * 2);
           ctx.fill();
 
-          // Segment detail - stripe
+          // Segment detail - center stripe
           ctx.fillStyle = '#4d6';
           ctx.beginPath();
-          ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
+          ctx.ellipse(cx, cy, r * 0.6, r * 0.4, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Highlight sheen
+          ctx.fillStyle = 'rgba(200,255,220,0.25)';
+          ctx.beginPath();
+          ctx.ellipse(cx - 2, cy - 2, r * 0.5, r * 0.25, -0.3, 0, Math.PI * 2);
           ctx.fill();
 
           // Legs

@@ -582,10 +582,13 @@
       const margin = 5;
       const h = CELL - margin * 2;
 
+      // Log body — rounded rect
       ctx.fillStyle = '#6a3a1a';
       ctx.shadowColor = '#a05020';
-      ctx.shadowBlur = 4;
-      ctx.fillRect(x + 2, y + margin, len - 4, h);
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.roundRect(x + 2, y + margin, len - 4, h, 5);
+      ctx.fill();
       ctx.shadowBlur = 0;
 
       // Wood grain lines
@@ -598,9 +601,17 @@
         ctx.stroke();
       }
 
-      // Bark highlight on top
+      // Bark highlight on top (rounded)
       ctx.fillStyle = '#8a5a2a';
-      ctx.fillRect(x + 2, y + margin, len - 4, 3);
+      ctx.beginPath();
+      ctx.roundRect(x + 2, y + margin, len - 4, 3, [5, 5, 0, 0]);
+      ctx.fill();
+
+      // Sheen highlight
+      ctx.fillStyle = 'rgba(200,150,80,0.18)';
+      ctx.beginPath();
+      ctx.roundRect(x + 4, y + margin + 1, len - 8, h * 0.4, 4);
+      ctx.fill();
     }
 
     function drawTurtles(x, y, len, obj) {
@@ -662,7 +673,7 @@
 
         ctx.save();
         ctx.translate(cx, cy);
-        ctx.rotate(progress * Math.PI * 4);
+        ctx.rotate(progress * Math.PI * 6); // 3 full flips
         ctx.scale(scale, scale);
         ctx.globalAlpha = alpha;
 

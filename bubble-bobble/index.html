@@ -897,40 +897,51 @@
 
     function drawBubble(b) {
       if (b.popping) {
-        // Pop animation
+        // Pop animation — expanding ring
         const alpha = 1 - b.popTimer / 10;
-        const r = b.radius + b.popTimer * 2;
+        const r = b.radius + b.popTimer * 3;
+        const hue = (b.age * 3) % 360;
         ctx.beginPath();
         ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(68, 238, 255, ${alpha * 0.5})`;
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = `hsla(${hue}, 100%, 75%, ${alpha * 0.6})`;
+        ctx.lineWidth = 2;
         ctx.stroke();
         return;
       }
 
-      // Main bubble
+      // Rainbow shimmer: hue shifts with bubble age
+      const hue = (b.age * 3) % 360;
+      const hue2 = (hue + 60) % 360;
+
+      // Main bubble fill
       ctx.beginPath();
       ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${hue}, 100%, 70%, ${b.floating ? 0.1 : 0.18})`;
+      ctx.fill();
 
-      if (b.floating) {
-        ctx.fillStyle = 'rgba(68, 238, 255, 0.12)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(68, 238, 255, 0.5)';
-      } else {
-        ctx.fillStyle = 'rgba(68, 238, 255, 0.2)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(68, 238, 255, 0.8)';
-        ctx.shadowColor = '#4ef';
-        ctx.shadowBlur = 8;
+      // Rainbow stroke
+      ctx.strokeStyle = `hsla(${hue}, 100%, 75%, ${b.floating ? 0.5 : 0.85})`;
+      if (!b.floating) {
+        ctx.shadowColor = `hsl(${hue}, 100%, 70%)`;
+        ctx.shadowBlur = 10;
       }
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.8;
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Highlight
+      // Shimmer highlight spot (shifts position slowly)
+      const shimmerAngle = b.age * 0.04;
+      const hx = b.x + Math.cos(shimmerAngle) * b.radius * 0.4 - 2;
+      const hy = b.y + Math.sin(shimmerAngle) * b.radius * 0.4 - 2;
       ctx.beginPath();
-      ctx.arc(b.x - 3, b.y - 3, b.radius * 0.3, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.arc(hx, hy, b.radius * 0.25, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${hue2}, 100%, 95%, 0.5)`;
+      ctx.fill();
+
+      // Static highlight top-left
+      ctx.beginPath();
+      ctx.arc(b.x - 3, b.y - 3, b.radius * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.fill();
     }
 
@@ -992,26 +1003,30 @@
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
 
+      // Platform slide-in: during level transition, platforms slide in from bottom
+      const slideY = levelTransitionTimer > 0 ? Math.round((levelTransitionTimer / 90) * H) : 0;
+
       // Draw platforms
       for (const p of platforms) {
         if (p.x < 0 || p.x >= W) continue; // Skip wall platforms for drawing
+        const py = p.y + slideY;
         // Main platform color
         ctx.fillStyle = '#16213e';
-        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillRect(p.x, py, p.w, p.h);
         // Top edge highlight
         ctx.fillStyle = '#0f3460';
-        ctx.fillRect(p.x, p.y, p.w, 2);
+        ctx.fillRect(p.x, py, p.w, 2);
         // Bottom edge
         ctx.fillStyle = '#0a1a30';
-        ctx.fillRect(p.x, p.y + p.h - 2, p.w, 2);
+        ctx.fillRect(p.x, py + p.h - 2, p.w, 2);
 
         // Brick pattern
         ctx.strokeStyle = '#0f3460';
         ctx.lineWidth = 0.5;
         for (let bx = p.x; bx < p.x + p.w; bx += TILE / 2) {
           ctx.beginPath();
-          ctx.moveTo(bx, p.y);
-          ctx.lineTo(bx, p.y + p.h);
+          ctx.moveTo(bx, py);
+          ctx.lineTo(bx, py + p.h);
           ctx.stroke();
         }
       }

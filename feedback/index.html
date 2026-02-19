@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenArcade Feedback</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0a0a0f;
+    color: #ddd;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  h1 {
+    color: #0ff;
+    font-size: 1.5rem;
+    letter-spacing: 0.12em;
+    margin-bottom: 24px;
+    text-shadow: 0 0 12px #0ff;
+  }
+
+  .filter-bar {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+    align-items: center;
+  }
+
+  .filter-bar label {
+    font-size: 0.72rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  select {
+    background: #111;
+    color: #ccc;
+    border: 1px solid #2a2a3a;
+    border-radius: 4px;
+    padding: 7px 12px;
+    font-family: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    appearance: none;
+  }
+
+  select:focus { outline: none; border-color: #0ff; }
+
+  .filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .count-badge {
+    font-size: 0.72rem;
+    color: #666;
+    margin-left: auto;
+  }
+
+  #feedbackList {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .card {
+    background: #111;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 14px 18px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: #3a3a5a; }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+
+  .game-tag {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid #3a3a5a;
+    color: #0ff;
+    border-color: #0ff4;
+  }
+
+  .stars {
+    color: #fd0;
+    font-size: 0.9rem;
+    letter-spacing: 1px;
+    text-shadow: 0 0 6px #fd0;
+  }
+
+  .category-badge {
+    font-size: 0.68rem;
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .cat-bug_report    { background: #f442; color: #f88; border: 1px solid #f444; }
+  .cat-feature_suggestion { background: #4f42; color: #8f8; border: 1px solid #4f44; }
+  .cat-feedback      { background: #44f2; color: #88f; border: 1px solid #44f4; }
+  .cat-other         { background: #8882; color: #aaa; border: 1px solid #8884; }
+
+  .ago {
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: #555;
+  }
+
+  .card-text {
+    font-size: 0.87rem;
+    color: #bbb;
+    line-height: 1.5;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 48px;
+    color: #444;
+    font-size: 0.85rem;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 48px;
+    color: #555;
+  }
+
+  .status-bar {
+    font-size: 0.7rem;
+    color: #444;
+    margin-top: 20px;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<h1>&#9646; FEEDBACK</h1>
+
+<div class="filter-bar">
+  <div class="filter-group">
+    <label>Game</label>
+    <select id="gameFilter">
+      <option value="">All Games</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Stars</label>
+    <select id="starsFilter">
+      <option value="0">All Ratings</option>
+      <option value="5">&#9733;&#9733;&#9733;&#9733;&#9733; 5 stars</option>
+      <option value="4">&#9733;&#9733;&#9733;&#9733; 4 stars</option>
+      <option value="3">&#9733;&#9733;&#9733; 3 stars</option>
+      <option value="2">&#9733;&#9733; 2 stars</option>
+      <option value="1">&#9733; 1 star</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Category</label>
+    <select id="catFilter">
+      <option value="">All Categories</option>
+      <option value="bug_report">Bug Report</option>
+      <option value="feature_suggestion">Feature Request</option>
+      <option value="feedback">Feedback</option>
+      <option value="other">Other</option>
+    </select>
+  </div>
+  <span class="count-badge" id="countBadge"></span>
+</div>
+
+<div id="feedbackList">
+  <div class="loading">Loading feedback…</div>
+</div>
+
+<div class="status-bar">Last update: <span id="lastUpdate">—</span></div>
+
+<script>
+const API = '/stats-api';
+
+let allItems = [];
+let gameSet = new Set();
+
+function renderStars(n) {
+  if (!n) return '';
+  const filled = '★'.repeat(n);
+  const empty = '☆'.repeat(5 - n);
+  return filled + empty;
+}
+
+function catLabel(cat) {
+  const map = {
+    bug_report: 'Bug',
+    feature_suggestion: 'Feature',
+    feedback: 'Feedback',
+    other: 'Other',
+  };
+  return map[cat] || cat || 'Other';
+}
+
+function catClass(cat) {
+  return 'cat-' + (cat || 'other').replace(/[^a-z_]/g, '');
+}
+
+function renderCards(items) {
+  const list = document.getElementById('feedbackList');
+  document.getElementById('countBadge').textContent = `${items.length} entries`;
+
+  if (items.length === 0) {
+    list.innerHTML = '<div class="empty-state">No feedback yet.</div>';
+    return;
+  }
+
+  list.innerHTML = items.map(item => {
+    const stars = item.stars ? `<span class="stars">${renderStars(item.stars)}</span>` : '';
+    const cat = item.category
+      ? `<span class="category-badge ${catClass(item.category)}">${catLabel(item.category)}</span>`
+      : '';
+    const text = item.text
+      ? `<div class="card-text">${escHtml(item.text)}</div>`
+      : '';
+
+    return `
+      <div class="card">
+        <div class="card-header">
+          <span class="game-tag">${escHtml(item.game)}</span>
+          ${stars}
+          ${cat}
+          <span class="ago">${escHtml(item.ago)}</span>
+        </div>
+        ${text}
+      </div>
+    `;
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function applyFilters() {
+  const game = document.getElementById('gameFilter').value;
+  const stars = parseInt(document.getElementById('starsFilter').value) || 0;
+  const cat = document.getElementById('catFilter').value;
+
+  let filtered = allItems;
+  if (game) filtered = filtered.filter(i => i.game === game);
+  if (stars > 0) filtered = filtered.filter(i => i.stars === stars);
+  if (cat) filtered = filtered.filter(i => i.category === cat);
+
+  renderCards(filtered);
+}
+
+async function loadFeedback() {
+  const r = await fetch(`${API}/feedback?limit=500`);
+  allItems = await r.json();
+
+  // Populate game dropdown
+  gameSet = new Set(allItems.map(i => i.game));
+  const sel = document.getElementById('gameFilter');
+  sel.innerHTML = '<option value="">All Games</option>';
+  [...gameSet].sort().forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g;
+    opt.textContent = g;
+    sel.appendChild(opt);
+  });
+
+  applyFilters();
+  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+}
+
+document.getElementById('gameFilter').addEventListener('change', applyFilters);
+document.getElementById('starsFilter').addEventListener('change', applyFilters);
+document.getElementById('catFilter').addEventListener('change', applyFilters);
+
+loadFeedback();
+</script>
+</body>
+</html>

@@ -94,12 +94,14 @@
     const BASE_BALL_SPEED = 4;
     const WIN_SCORE = 11;
     const AI_SPEED = 3.5;
-    const AI_REACTION = 0.08;
+    const AI_REACTION = 0.08; // lerp factor — makes AI beatable
 
     let playerY, cpuY, ballX, ballY, ballVX, ballVY;
     let playerScore, cpuScore, gameState, rallyCount;
     let keys = {};
     let aiTarget;
+    let ballTrail = [];
+    let scoreFlash = { timer: 0, side: '' };
 
     function init() {
       playerY = H / 2 - PADDLE_H / 2;
@@ -107,6 +109,8 @@
       playerScore = 0;
       cpuScore = 0;
       rallyCount = 0;
+      ballTrail = [];
+      scoreFlash = { timer: 0, side: '' };
       playerScoreEl.textContent = '0';
       cpuScoreEl.textContent = '0';
       matchPointEl.style.display = 'none';
@@ -121,6 +125,7 @@
     function resetBall(dir) {
       ballX = W / 2;
       ballY = H / 2;
+      ballTrail = [];
       const angle = (Math.random() - 0.5) * Math.PI / 3;
       const speed = BASE_BALL_SPEED;
       ballVX = Math.cos(angle) * speed * dir;
@@ -148,12 +153,10 @@
       if (keys['ArrowDown']) playerY += PADDLE_SPEED;
       playerY = Math.max(0, Math.min(H - PADDLE_H, playerY));
 
-      // AI movement
+      // AI movement — lerp-based with prediction (8% per frame = beatable)
       if (ballVX > 0) {
-        // Ball heading toward AI - predict where it will arrive
-        const timeToReach = (W - PADDLE_MARGIN - PADDLE_W - ballX) / ballVX;
+        const timeToReach = (W - PADDLE_MARGIN - PADDLE_W - ballX) / Math.max(ballVX, 0.1);
         aiTarget = ballY + ballVY * timeToReach;
-        // Wrap prediction within bounds
         while (aiTarget < 0 || aiTarget > H) {
           if (aiTarget < 0) aiTarget = -aiTarget;
           if (aiTarget > H) aiTarget = 2 * H - aiTarget;
@@ -164,11 +167,14 @@
 
       const cpuCenter = cpuY + PADDLE_H / 2;
       const diff = aiTarget - cpuCenter;
-      const aiMoveSpeed = AI_SPEED + Math.min(rallyCount * 0.1, 2);
-      if (Math.abs(diff) > 4) {
-        cpuY += Math.sign(diff) * Math.min(aiMoveSpeed, Math.abs(diff) * AI_REACTION + 2);
-      }
+      const step = diff * AI_REACTION;
+      const maxSpeed = AI_SPEED + Math.min(rallyCount * 0.1, 1.5);
+      cpuY += Math.sign(step) * Math.min(Math.abs(step), maxSpeed);
       cpuY = Math.max(0, Math.min(H - PADDLE_H, cpuY));
+
+      // Ball trail — record before moving
+      ballTrail.unshift({ x: ballX, y: ballY });
+      if (ballTrail.length > 4) ballTrail.pop();
 
       // Ball movement
       ballX += ballVX;
@@ -212,13 +218,18 @@
       if (ballX < 0) {
         cpuScore++;
         cpuScoreEl.textContent = cpuScore;
+        scoreFlash = { timer: 20, side: 'cpu' };
         checkWin(-1);
       }
       if (ballX > W) {
         playerScore++;
         playerScoreEl.textContent = playerScore;
+        scoreFlash = { timer: 20, side: 'player' };
         checkWin(1);
       }
+
+      // Score flash timer
+      if (scoreFlash.timer > 0) scoreFlash.timer--;
 
       // Match point indicator
       if (playerScore >= WIN_SCORE - 1 || cpuScore >= WIN_SCORE - 1) {
@@ -246,9 +257,42 @@
       resetBall(-lastScorer);
     }
 
+    function drawPaddle3D(x, y) {
+      // Base gradient: left highlight → main → shadow
+      const grad = ctx.createLinearGradient(x, y, x + PADDLE_W, y);
+      grad.addColorStop(0, '#bbbbff');
+      grad.addColorStop(0.25, '#88f');
+      grad.addColorStop(1, '#334');
+      ctx.fillStyle = grad;
+      ctx.shadowColor = '#88f';
+      ctx.shadowBlur = 14;
+      ctx.fillRect(x, y, PADDLE_W, PADDLE_H);
+
+      // Top highlight strip
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillRect(x, y, PADDLE_W, 3);
+
+      // Bottom shadow strip
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(x, y + PADDLE_H - 3, PADDLE_W, 3);
+
+      // Center glow line
+      ctx.fillStyle = 'rgba(200,200,255,0.7)';
+      ctx.fillRect(x + 1, y + PADDLE_H / 2 - 1, PADDLE_W - 2, 2);
+    }
+
     function draw() {
       ctx.fillStyle = '#1a1a2e';
       ctx.fillRect(0, 0, W, H);
+
+      // Score flash overlay
+      if (scoreFlash.timer > 0) {
+        const alpha = (scoreFlash.timer / 20) * 0.25;
+        ctx.fillStyle = `rgba(136,136,255,${alpha})`;
+        if (scoreFlash.side === 'player') ctx.fillRect(0, 0, W / 2, H);
+        else ctx.fillRect(W / 2, 0, W / 2, H);
+      }
 
       // Center dashed line
       ctx.strokeStyle = '#0f3460';
@@ -267,28 +311,34 @@
       ctx.fillText(playerScore, W / 4, 90);
       ctx.fillText(cpuScore, 3 * W / 4, 90);
 
-      // Player paddle
-      ctx.fillStyle = '#88f';
-      ctx.shadowColor = '#88f';
-      ctx.shadowBlur = 12;
-      ctx.fillRect(PADDLE_MARGIN, playerY, PADDLE_W, PADDLE_H);
-      ctx.shadowBlur = 0;
+      // Ball trail (ghost frames, alpha-fading)
+      for (let i = 1; i < ballTrail.length; i++) {
+        const alpha = (1 - i / ballTrail.length) * 0.35;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#88f';
+        ctx.beginPath();
+        ctx.arc(ballTrail[i].x, ballTrail[i].y, BALL_SIZE * (1 - i * 0.15), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
 
-      // CPU paddle
-      ctx.fillStyle = '#88f';
-      ctx.shadowColor = '#88f';
-      ctx.shadowBlur = 12;
-      ctx.fillRect(W - PADDLE_MARGIN - PADDLE_W, cpuY, PADDLE_W, PADDLE_H);
-      ctx.shadowBlur = 0;
+      // 3D Paddles
+      drawPaddle3D(PADDLE_MARGIN, playerY);
+      drawPaddle3D(W - PADDLE_MARGIN - PADDLE_W, cpuY);
 
       // Ball
       ctx.fillStyle = '#fff';
       ctx.shadowColor = '#88f';
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = 18;
       ctx.beginPath();
       ctx.arc(ballX, ballY, BALL_SIZE, 0, Math.PI * 2);
       ctx.fill();
+      // Inner bright core
+      ctx.fillStyle = '#ccccff';
       ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(ballX, ballY, BALL_SIZE * 0.4, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     document.addEventListener('keydown', (e) => {

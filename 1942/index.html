@@ -49,11 +49,25 @@
       justify-content: center;
       color: #6db;
       text-align: center;
-      pointer-events: none;
-      background: rgba(26, 26, 46, 0.85);
+      background: rgba(26, 26, 46, 0.88);
     }
     .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
     .overlay p { font-size: 1rem; color: #aaa; }
+    .mode-btn {
+      background: transparent;
+      border: 2px solid #6db;
+      color: #6db;
+      font-family: 'Courier New', monospace;
+      font-size: 1.2rem;
+      letter-spacing: 0.12em;
+      padding: 12px 32px;
+      cursor: pointer;
+      margin: 6px;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .mode-btn:hover { background: rgba(102,221,187,0.15); box-shadow: 0 0 12px rgba(102,221,187,0.4); }
+    .mode-btn.coop { border-color: #f4f; color: #f4f; }
+    .mode-btn.coop:hover { background: rgba(255,68,255,0.15); box-shadow: 0 0 12px rgba(255,68,255,0.4); }
   </style>
 </head>
 <body>
@@ -70,7 +84,12 @@
     <canvas id="game" width="480" height="640"></canvas>
     <div class="overlay" id="overlay" style="width:480px;height:640px;">
       <h2 id="overlayTitle">1942</h2>
-      <p id="overlayText">Press SPACE to start</p>
+      <p id="overlayText">Choose your mode</p>
+      <div id="modeButtons" style="margin-top:16px; display:flex; gap:8px;">
+        <button class="mode-btn" id="soloBtn">SOLO</button>
+        <button class="mode-btn coop" id="coopBtn">CO-OP</button>
+      </div>
+      <p id="inviteInfo" style="display:none; margin-top:14px; font-size:0.8rem; color:#aaa; max-width:360px; line-height:1.7; text-align:center;"></p>
     </div>
   </div>
 
@@ -120,6 +139,18 @@
     // Ground tile pattern (ocean/islands parallax)
     let groundTiles = [];
 
+    // Cloud parallax layers
+    let cloudTiles = [];
+
+    // Co-op state
+    let coopMode = false;
+    let coopRole = null;      // 'host' | 'guest'
+    let coopRoomCode = null;
+    let coopWs = null;
+    let guestState = null;    // guest plane state (rendered on host side)
+    let guestKeys = {};       // guest input (applied by host)
+    const WS_URL = 'wss://arcade.digitalsurfacelabs.com/ws/';
+
     function initGround() {
       groundTiles = [];
       for (let i = 0; i < 30; i++) {
@@ -130,6 +161,19 @@
           h: 15 + Math.random() * 40,
           type: Math.random() < 0.3 ? 'island' : 'wave',
           shade: Math.random() * 0.3
+        });
+      }
+      // Two cloud layers at different depths
+      cloudTiles = [];
+      for (let i = 0; i < 14; i++) {
+        cloudTiles.push({
+          x: Math.random() * W,
+          y: Math.random() * H * 2,
+          w: 50 + Math.random() * 110,
+          h: 18 + Math.random() * 28,
+          layer: i < 7 ? 0 : 1,   // 0=far (slow), 1=near (fast)
+          blobX: (Math.random() - 0.5) * 0.4,
+          blobY: -(0.15 + Math.random() * 0.2),
         });
       }
     }
@@ -167,7 +211,18 @@
       gameState = 'waiting';
       overlay.style.display = 'flex';
       overlayTitle.textContent = '1942';
-      overlayText.textContent = 'Press SPACE to start';
+      // Show mode select or game-over restart prompt
+      const urlRoom = new URLSearchParams(location.search).get('room');
+      if (urlRoom && gameState === 'waiting' && !coopMode) {
+        // P2 auto-join flow — handled after init
+        overlayText.textContent = `Joining room ${urlRoom}…`;
+        document.getElementById('modeButtons').style.display = 'none';
+        setTimeout(() => joinCoop(urlRoom), 400);
+      } else {
+        overlayText.textContent = 'Choose your mode';
+        document.getElementById('modeButtons').style.display = 'flex';
+        document.getElementById('inviteInfo').style.display = 'none';
+      }
       initGround();
       draw();
     }
@@ -186,7 +241,13 @@
       }
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'GAME OVER';
-      overlayText.textContent = `Score: ${score} — Press SPACE to restart`;
+      overlayText.textContent = `Score: ${score}`;
+      document.getElementById('modeButtons').style.display = 'flex';
+      document.getElementById('inviteInfo').style.display = 'none';
+      document.getElementById('soloBtn').textContent = 'PLAY AGAIN';
+      document.getElementById('coopBtn').textContent = 'CO-OP';
+      coopMode = false; coopRole = null;
+      if (coopWs) { coopWs.close(); coopWs = null; }
     }
 
     function loop() {
@@ -570,7 +631,20 @@
 
     function spawnExplosion(x, y, count) {
       explosions.push({ x: x, y: y, life: 20, maxLife: 20, size: count * 2 });
-      spawnParticles(x, y, count, '#f84');
+      // 8 directional radial sparks
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2;
+        const spd = 2.5 + Math.random() * 2.5;
+        particles.push({
+          x: x, y: y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd,
+          life: 22 + Math.random() * 12,
+          color: i % 2 === 0 ? '#f84' : '#ff0'
+        });
+      }
+      // Extra scattered sparks for large explosions
+      spawnParticles(x, y, Math.min(count, 6), '#f84');
     }
 
     function spawnParticles(x, y, count, color) {
@@ -595,6 +669,7 @@
 
       // Parallax water/ground
       drawGround();
+      drawClouds();
 
       // Power-ups
       powerUps.forEach(p => {
@@ -655,6 +730,11 @@
       // Player
       drawPlayer();
 
+      // Guest player (co-op P2 plane on host's screen)
+      if (coopMode && coopRole === 'host' && guestState) {
+        drawGuestPlane(guestState.x, guestState.y);
+      }
+
       // Explosions
       explosions.forEach(ex => {
         const pct = ex.life / ex.maxLife;
@@ -690,6 +770,23 @@
       }
     }
 
+    function drawClouds() {
+      cloudTiles.forEach(c => {
+        const scrollSpeed = c.layer === 0 ? 0.35 : 0.7;
+        const ty = (c.y + scrollOffset * scrollSpeed) % (H * 2) - H * 0.2;
+        const alpha = c.layer === 0 ? 0.10 : 0.07;
+        ctx.fillStyle = `rgba(170,195,220,${alpha})`;
+        // Main blob
+        ctx.beginPath();
+        ctx.ellipse(c.x, ty, c.w * 0.5, c.h * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Secondary bump
+        ctx.beginPath();
+        ctx.ellipse(c.x + c.w * c.blobX, ty + c.h * c.blobY, c.w * 0.35, c.h * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
     function drawGround() {
       // Scrolling ocean with subtle waves and islands
       groundTiles.forEach(t => {
@@ -721,14 +818,16 @@
     function drawPlayer() {
       const px = player.x, py = player.y;
 
-      // During roll, draw spinning effect
+      // During roll, tilt and compress plane visually
       if (rollingTimer > 0) {
         const rollPct = rollingTimer / ROLL_DURATION;
-        const scaleX = Math.cos(rollPct * Math.PI * 3);
+        const tilt = Math.sin(rollPct * Math.PI * 3) * 0.6;   // bank angle up to ~34°
+        const scaleX = Math.cos(rollPct * Math.PI * 4);        // side-on flip
         ctx.save();
         ctx.translate(px + PW / 2, py + PH / 2);
-        ctx.scale(Math.abs(scaleX) * 0.7 + 0.3, 1);
-        ctx.globalAlpha = 0.4 + Math.abs(scaleX) * 0.6;
+        ctx.rotate(tilt);
+        ctx.scale(Math.abs(scaleX) * 0.6 + 0.4, 1);
+        ctx.globalAlpha = 0.45 + Math.abs(scaleX) * 0.55;
         drawPlayerShape(0, 0);
         ctx.restore();
         ctx.globalAlpha = 1;
@@ -1010,13 +1109,9 @@
         e.preventDefault();
       }
 
-      if (gameState === 'waiting') {
-        if (e.key === ' ') { start(); return; }
-        return;
-      }
-
-      if (gameState === 'over') {
-        if (e.key === ' ') { init(); return; }
+      if (gameState === 'waiting' || gameState === 'over') {
+        // Buttons handle mode select; SPACE falls through to solo start
+        if (e.key === ' ') { startSolo(); return; }
         return;
       }
 
@@ -1064,6 +1159,173 @@
       _origUpdate();
       updateGameData();
     };
+
+    // ── Mode select & Co-op ──────────────────────────────
+
+    function startSolo() {
+      coopMode = false;
+      coopRole = null;
+      document.getElementById('soloBtn').textContent = 'SOLO';
+      document.getElementById('coopBtn').textContent = 'CO-OP';
+      start();
+    }
+
+    function startCoop() {
+      const urlRoom = new URLSearchParams(location.search).get('room');
+      if (urlRoom) {
+        joinCoop(urlRoom);
+      } else {
+        hostCoop();
+      }
+    }
+
+    function genRoomCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    }
+
+    function hostCoop() {
+      coopRole = 'host';
+      coopRoomCode = genRoomCode();
+      coopMode = true;
+      guestState = null;
+      guestKeys = {};
+
+      const inviteUrl = `${location.origin}/1942/?room=${coopRoomCode}`;
+      overlayText.textContent = 'Waiting for Player 2…';
+      document.getElementById('modeButtons').style.display = 'none';
+      const info = document.getElementById('inviteInfo');
+      info.style.display = 'block';
+      info.innerHTML = `Room: <strong style="color:#6db">${coopRoomCode}</strong><br>Share link:<br><span style="color:#8ef">${inviteUrl}</span>`;
+
+      const wsUrl = `${WS_URL}?room=${coopRoomCode}&role=host`;
+      try {
+        coopWs = new WebSocket(wsUrl);
+        coopWs.onopen = () => {};
+        coopWs.onmessage = (ev) => {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'guest_joined') {
+            info.innerHTML += '<br><em style="color:#4f4">Player 2 connected! Starting…</em>';
+            setTimeout(() => {
+              info.textContent = '3…';
+              setTimeout(() => { info.textContent = '2…'; }, 1000);
+              setTimeout(() => { info.textContent = '1…'; }, 2000);
+              setTimeout(() => {
+                coopMode = true;
+                guestState = { x: W / 2 + 40, y: H - 80 };
+                start();
+              }, 3000);
+            }, 400);
+          } else if (msg.type === 'input') {
+            guestKeys = msg.keys || {};
+          }
+        };
+        coopWs.onerror = () => {
+          info.innerHTML += '<br><em style="color:#f88">Server unavailable — starting solo</em>';
+          coopMode = false;
+          setTimeout(start, 1800);
+        };
+        coopWs.onclose = () => {
+          if (gameState === 'playing' && coopMode) {
+            coopMode = false;
+            guestState = null;
+          }
+        };
+      } catch (err) {
+        coopMode = false;
+        start();
+      }
+    }
+
+    function joinCoop(room) {
+      coopRole = 'guest';
+      coopRoomCode = room;
+      coopMode = true;
+
+      overlayText.textContent = `Joining room ${room}…`;
+      document.getElementById('modeButtons').style.display = 'none';
+      document.getElementById('inviteInfo').style.display = 'none';
+
+      const wsUrl = `${WS_URL}?room=${room}&role=guest`;
+      try {
+        coopWs = new WebSocket(wsUrl);
+        coopWs.onopen = () => {
+          overlayText.textContent = 'Connected! Waiting for host…';
+        };
+        coopWs.onmessage = (ev) => {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'countdown') {
+            overlayText.textContent = msg.text;
+          } else if (msg.type === 'start') {
+            overlay.style.display = 'none';
+            gameState = 'playing';
+            requestAnimationFrame(loop);
+          } else if (msg.type === 'state') {
+            // Guest: apply host game state
+            if (msg.enemies) enemies = msg.enemies;
+            if (msg.hostPos) { /* host's plane position for rendering */ }
+          }
+        };
+        coopWs.onerror = () => {
+          overlayText.textContent = 'Connection failed — starting solo';
+          coopMode = false;
+          setTimeout(start, 1500);
+        };
+        coopWs.onclose = () => {
+          if (gameState === 'playing' && coopMode) {
+            coopMode = false;
+          }
+        };
+      } catch (err) {
+        coopMode = false;
+        start();
+      }
+
+      // Send input to host while playing
+      const _origLoop = loop;
+      const origKeyDown = document.onkeydown;
+    }
+
+    function drawGuestPlane(x, y) {
+      ctx.save();
+      ctx.fillStyle = '#f4f';
+      ctx.shadowColor = '#f4f';
+      ctx.shadowBlur = 10;
+      const cx = x + PW / 2, cy = y + PH / 2;
+      // Mirror of player shape in magenta
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - PH / 2);
+      ctx.lineTo(cx + 5, cy - 6);
+      ctx.lineTo(cx + 5, cy + PH / 2 - 4);
+      ctx.lineTo(cx - 5, cy + PH / 2 - 4);
+      ctx.lineTo(cx - 5, cy - 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx - 4, cy);
+      ctx.lineTo(cx - PW / 2, cy + 8);
+      ctx.lineTo(cx - PW / 2, cy + 12);
+      ctx.lineTo(cx - 4, cy + 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx + 4, cy);
+      ctx.lineTo(cx + PW / 2, cy + 8);
+      ctx.lineTo(cx + PW / 2, cy + 12);
+      ctx.lineTo(cx + 4, cy + 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#faf';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 4, 3, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    // Wire up overlay buttons
+    document.getElementById('soloBtn').addEventListener('click', startSolo);
+    document.getElementById('coopBtn').addEventListener('click', startCoop);
 
     init();
   </script>

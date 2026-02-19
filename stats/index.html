@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenArcade Stats</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0a0a0f;
+    color: #ddd;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  h1 {
+    color: #4f4;
+    font-size: 1.5rem;
+    letter-spacing: 0.12em;
+    margin-bottom: 24px;
+    text-shadow: 0 0 12px #4f4;
+  }
+
+  .metric-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .metric-card {
+    background: #111;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 18px 22px;
+    flex: 1;
+    min-width: 140px;
+  }
+
+  .metric-card .label {
+    font-size: 0.72rem;
+    color: #888;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .metric-card .value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #4f4;
+    text-shadow: 0 0 8px #4f4;
+  }
+
+  .metric-card .sub {
+    font-size: 0.75rem;
+    color: #666;
+    margin-top: 4px;
+  }
+
+  .k-factor .value { color: #ff0; text-shadow: 0 0 8px #ff0; }
+  .referrals .value { color: #0ff; text-shadow: 0 0 8px #0ff; }
+
+  .charts-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .chart-card {
+    background: #111;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 20px;
+    flex: 1;
+    min-width: 300px;
+  }
+
+  .chart-card h2 {
+    font-size: 0.78rem;
+    color: #888;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  .chart-wrap {
+    position: relative;
+    height: 220px;
+  }
+
+  .table-card {
+    background: #111;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+  }
+
+  .table-card h2 {
+    font-size: 0.78rem;
+    color: #888;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  th {
+    color: #666;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid #222;
+  }
+
+  td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #1a1a1a;
+    color: #ccc;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  .trend-up { color: #4f4; }
+  .trend-down { color: #f44; }
+  .trend-flat { color: #888; }
+
+  .status-bar {
+    font-size: 0.7rem;
+    color: #444;
+    margin-top: 16px;
+    text-align: right;
+  }
+
+  .status-bar .dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #4f4;
+    margin-right: 6px;
+    box-shadow: 0 0 4px #4f4;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+</style>
+</head>
+<body>
+
+<h1>&#9646; OPENARCADE STATS</h1>
+
+<div class="metric-row">
+  <div class="metric-card">
+    <div class="label">DAU (today)</div>
+    <div class="value" id="dau">—</div>
+    <div class="sub">unique visitors</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">WAU (7d)</div>
+    <div class="value" id="wau">—</div>
+    <div class="sub">unique visitors</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">MAU (30d)</div>
+    <div class="value" id="mau">—</div>
+    <div class="sub">unique visitors</div>
+  </div>
+  <div class="metric-card k-factor">
+    <div class="label">K-Factor</div>
+    <div class="value" id="kfactor">—</div>
+    <div class="sub">referrals / DAU</div>
+  </div>
+  <div class="metric-card referrals">
+    <div class="label">Referrals</div>
+    <div class="value" id="referrals">—</div>
+    <div class="sub">co-op joins today</div>
+  </div>
+</div>
+
+<div class="charts-row">
+  <div class="chart-card" style="flex:2; min-width:380px">
+    <h2>DAU — 30 day</h2>
+    <div class="chart-wrap">
+      <canvas id="dauChart"></canvas>
+    </div>
+  </div>
+  <div class="chart-card" style="flex:1.2; min-width:280px">
+    <h2>Top Games (30d)</h2>
+    <div class="chart-wrap">
+      <canvas id="topChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="table-card">
+  <h2>Velocity &amp; Acceleration</h2>
+  <table id="velocityTable">
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Today</th>
+        <th>7d Avg</th>
+        <th>30d Avg</th>
+        <th>Velocity</th>
+        <th>Accel</th>
+        <th>Trend</th>
+      </tr>
+    </thead>
+    <tbody id="velocityBody">
+      <tr><td colspan="7" style="color:#444">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <h2>All Games (30d views)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Game</th>
+        <th>Today</th>
+        <th>7d</th>
+        <th>30d</th>
+      </tr>
+    </thead>
+    <tbody id="gamesBody">
+      <tr><td colspan="5" style="color:#444">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="status-bar">
+  <span class="dot"></span>
+  Auto-refreshes every 5 min &nbsp;|&nbsp; Last update: <span id="lastUpdate">—</span>
+</div>
+
+<script>
+const API = '/stats-api';
+
+let dauChart = null;
+let topChart = null;
+
+function fmt(n) {
+  if (n == null) return '—';
+  return n.toLocaleString();
+}
+
+function pct(v) {
+  if (!isFinite(v)) return '—';
+  const sign = v >= 0 ? '+' : '';
+  return `${sign}${v.toFixed(1)}%`;
+}
+
+function trendClass(v) {
+  if (!isFinite(v)) return 'trend-flat';
+  if (v > 0) return 'trend-up';
+  if (v < 0) return 'trend-down';
+  return 'trend-flat';
+}
+
+function trendArrow(v) {
+  if (!isFinite(v)) return '—';
+  if (v > 2) return '↑';
+  if (v < -2) return '↓';
+  return '→';
+}
+
+async function loadSummary() {
+  const r = await fetch(`${API}/summary`);
+  const d = await r.json();
+
+  document.getElementById('dau').textContent = fmt(d.dau);
+  document.getElementById('wau').textContent = fmt(d.wau);
+  document.getElementById('mau').textContent = fmt(d.mau);
+  document.getElementById('kfactor').textContent = d.k_factor_today.toFixed(3);
+  document.getElementById('referrals').textContent = fmt(d.referrals_today);
+
+  // Top games bar chart
+  const labels = d.top_games.map(g => g.game);
+  const values = d.top_games.map(g => g.views);
+
+  if (topChart) topChart.destroy();
+  topChart = new Chart(document.getElementById('topChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: 'rgba(79,255,79,0.25)',
+        borderColor: '#4f4',
+        borderWidth: 1.5,
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: '#888', font: { size: 10 }, maxRotation: 35 },
+          grid: { color: '#1a1a1a' }
+        },
+        y: {
+          ticks: { color: '#888', font: { size: 10 } },
+          grid: { color: '#1a1a1a' },
+          beginAtZero: true,
+        }
+      }
+    }
+  });
+}
+
+async function loadDaily() {
+  const r = await fetch(`${API}/daily?days=30`);
+  const data = await r.json();
+
+  const labels = data.map(d => d.date.slice(5)); // MM-DD
+  const daus = data.map(d => d.dau);
+
+  // Build velocity table
+  const avg7 = data.length >= 7
+    ? daus.slice(-7).reduce((a, b) => a + b, 0) / 7
+    : daus.reduce((a, b) => a + b, 0) / (daus.length || 1);
+  const avg30 = daus.reduce((a, b) => a + b, 0) / (daus.length || 1);
+  const today = daus[daus.length - 1] || 0;
+
+  const vel = avg7 > 0 ? ((today - avg7) / avg7 * 100) : NaN;
+
+  // Compute last-week's avg for acceleration
+  const lastWeekSlice = daus.slice(-14, -7);
+  const avgLastWeek = lastWeekSlice.length > 0
+    ? lastWeekSlice.reduce((a, b) => a + b, 0) / lastWeekSlice.length
+    : avg7;
+  const prevVel = avgLastWeek > 0 ? ((avg7 - avgLastWeek) / avgLastWeek * 100) : NaN;
+  const accel = vel - prevVel;
+
+  const tbody = document.getElementById('velocityBody');
+  tbody.innerHTML = `
+    <tr>
+      <td>DAU</td>
+      <td>${fmt(today)}</td>
+      <td>${avg7.toFixed(1)}</td>
+      <td>${avg30.toFixed(1)}</td>
+      <td class="${trendClass(vel)}">${pct(vel)}</td>
+      <td class="${trendClass(accel)}">${pct(accel)}</td>
+      <td class="${trendClass(vel)}">${trendArrow(vel)}</td>
+    </tr>
+  `;
+
+  // DAU sparkline
+  if (dauChart) dauChart.destroy();
+  dauChart = new Chart(document.getElementById('dauChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: daus,
+        borderColor: '#4f4',
+        backgroundColor: 'rgba(79,255,79,0.08)',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointBackgroundColor: '#4f4',
+        tension: 0.35,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: {
+            color: '#888',
+            font: { size: 10 },
+            maxTicksLimit: 10,
+          },
+          grid: { color: '#1a1a1a' }
+        },
+        y: {
+          ticks: { color: '#888', font: { size: 10 } },
+          grid: { color: '#1a1a1a' },
+          beginAtZero: true,
+        }
+      }
+    }
+  });
+}
+
+async function loadGames() {
+  const r = await fetch(`${API}/games`);
+  const data = await r.json();
+
+  const tbody = document.getElementById('gamesBody');
+  if (data.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#444">No data yet</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.map((g, i) => `
+    <tr>
+      <td style="color:#555">${i + 1}</td>
+      <td style="color:#4f4">${g.game}</td>
+      <td>${fmt(g.views_today)}</td>
+      <td>${fmt(g.views_7d)}</td>
+      <td>${fmt(g.views_30d)}</td>
+    </tr>
+  `).join('');
+}
+
+async function refresh() {
+  try {
+    await Promise.all([loadSummary(), loadDaily(), loadGames()]);
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error('Stats fetch error:', e);
+  }
+}
+
+refresh();
+setInterval(refresh, 5 * 60 * 1000);
+</script>
+</body>
+</html>

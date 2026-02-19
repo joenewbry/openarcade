@@ -602,15 +602,32 @@
     }
 
     function spawnExplosion(x, y, color) {
-      for (let i = 0; i < 14; i++) {
-        const ang = (Math.PI * 2 / 14) * i + Math.random() * 0.3;
-        const spd = 1.5 + Math.random() * 3;
+      // 8-petal star burst at cardinal + diagonal angles
+      for (let i = 0; i < 8; i++) {
+        const ang = (Math.PI * 2 / 8) * i;
+        const spd = 2.5 + Math.random() * 2;
+        const len = 5 + Math.random() * 4;
         particles.push({
           x, y,
           vx: Math.cos(ang) * spd,
           vy: Math.sin(ang) * spd,
-          life: 18 + Math.random() * 12,
-          color
+          life: 22 + Math.random() * 10,
+          color,
+          star: true,
+          len
+        });
+      }
+      // Random scatter sparks
+      for (let i = 0; i < 8; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 1 + Math.random() * 3;
+        particles.push({
+          x, y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd,
+          life: 12 + Math.random() * 10,
+          color,
+          star: false
         });
       }
     }
@@ -704,10 +721,22 @@
       particles.forEach(p => {
         const alpha = Math.min(1, p.life / 15);
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = p.color;
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 4;
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+        if (p.star) {
+          ctx.strokeStyle = p.color;
+          ctx.shadowColor = p.color;
+          ctx.shadowBlur = 6;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(p.x + p.vx * (p.len / 2.5), p.y + p.vy * (p.len / 2.5));
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.fillStyle = p.color;
+          ctx.shadowColor = p.color;
+          ctx.shadowBlur = 4;
+          ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+        }
       });
       ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
@@ -716,6 +745,14 @@
       for (let i = 0; i < lives - 1; i++) {
         drawMiniShip(10 + i * 22, H - 20);
       }
+
+      // CRT Scanlines overlay
+      ctx.globalAlpha = 0.06;
+      ctx.fillStyle = '#000';
+      for (let sy = 0; sy < H; sy += 2) {
+        ctx.fillRect(0, sy, W, 1);
+      }
+      ctx.globalAlpha = 1;
     }
 
     function drawPlayerShip(x, y, color, glow, captured) {

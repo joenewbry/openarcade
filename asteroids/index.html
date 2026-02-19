@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background: #1a1a2e;
+      background: #000;
       color: #e0e0e0;
       font-family: 'Courier New', monospace;
       display: flex;
@@ -23,9 +23,9 @@
       margin-bottom: 16px;
       width: 480px;
     }
-    .back { color: #f44; text-decoration: none; font-size: 1.2rem; }
-    .back:hover { text-shadow: 0 0 10px rgba(255, 68, 68, 0.5); }
-    h1 { color: #f44; font-size: 2rem; text-shadow: 0 0 15px rgba(255, 68, 68, 0.4); }
+    .back { color: #0f0; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(0, 255, 0, 0.5); }
+    h1 { color: #0f0; font-size: 2rem; text-shadow: 0 0 15px rgba(0, 255, 0, 0.5); }
     .score-bar {
       display: flex;
       justify-content: space-between;
@@ -33,11 +33,12 @@
       margin-bottom: 10px;
       font-size: 1.1rem;
     }
-    .score-bar span { color: #f44; }
+    .score-bar span { color: #0f0; }
     canvas {
-      border: 2px solid #f44;
-      box-shadow: 0 0 20px rgba(255, 68, 68, 0.2);
+      border: 2px solid #0f0;
+      box-shadow: 0 0 20px rgba(0, 255, 0, 0.25);
       display: block;
+      background: #000;
     }
     .overlay {
       position: absolute;
@@ -47,11 +48,11 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: #f44;
+      color: #0f0;
       text-align: center;
       pointer-events: none;
     }
-    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 12px #0f0; }
     .overlay p { font-size: 1rem; color: #aaa; }
   </style>
 </head>
@@ -68,7 +69,7 @@
     <canvas id="game" width="480" height="480"></canvas>
     <div class="overlay" id="overlay" style="width:480px;height:480px;">
       <h2 id="overlayTitle">ASTEROIDS</h2>
-      <p id="overlayText">Press any key to start<br>LEFT/RIGHT: rotate | UP: thrust | SPACE: fire</p>
+      <p id="overlayText">Press any key to start<br>LEFT/RIGHT: rotate | UP: thrust | SPACE: fire | Z: hyperspace</p>
     </div>
   </div>
 
@@ -93,10 +94,11 @@
     const BULLET_LIFE = 60;
     const FIRE_RATE = 8;
     const INVINCIBLE_TIME = 120;
+    const HYPERSPACE_COOLDOWN = 180;
 
-    let ship, bullets, asteroids, particles;
+    let ship, bullets, asteroids, particles, thrustParticles;
     let score, lives, gameState, level;
-    let fireCooldown, invincibleTimer;
+    let fireCooldown, invincibleTimer, hyperspaceCooldown, hyperspaceFlicker;
     let keys = {};
 
     function createAsteroid(x, y, size) {
@@ -136,18 +138,21 @@
       bullets = [];
       asteroids = [];
       particles = [];
+      thrustParticles = [];
       score = 0;
       lives = 3;
       level = 1;
       fireCooldown = 0;
       invincibleTimer = INVINCIBLE_TIME;
+      hyperspaceCooldown = 0;
+      hyperspaceFlicker = 0;
       scoreEl.textContent = '0';
       livesEl.textContent = '3';
       spawnAsteroids(4);
       gameState = 'waiting';
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'ASTEROIDS';
-      overlayText.innerHTML = 'Press any key to start<br>LEFT/RIGHT: rotate | UP: thrust | SPACE: fire';
+      overlayText.innerHTML = 'Press any key to start<br>LEFT/RIGHT: rotate | UP: thrust | SPACE: fire | Z: hyperspace';
       draw();
     }
 
@@ -180,9 +185,49 @@
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
           life: 20 + Math.random() * 20,
+          maxLife: 40,
           color
         });
       }
+    }
+
+    function emitThrustParticles() {
+      // Emit 3-5 small squares from ship tail
+      const count = 3 + Math.floor(Math.random() * 3);
+      const tailAngle = ship.angle + Math.PI; // opposite to heading
+      for (let i = 0; i < count; i++) {
+        const spread = (Math.random() - 0.5) * 0.5;
+        const speed = Math.random() * 2 + 1;
+        const angle = tailAngle + spread;
+        thrustParticles.push({
+          x: ship.x + Math.cos(tailAngle) * SHIP_SIZE * 0.4,
+          y: ship.y + Math.sin(tailAngle) * SHIP_SIZE * 0.4,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 8 + Math.floor(Math.random() * 8),
+          size: 1 + Math.random() * 1.5
+        });
+      }
+    }
+
+    function doHyperspace() {
+      if (hyperspaceCooldown > 0) return;
+      // Warp to random position away from asteroids
+      let nx, ny, attempts = 0;
+      do {
+        nx = 40 + Math.random() * (W - 80);
+        ny = 40 + Math.random() * (H - 80);
+        attempts++;
+      } while (asteroids.some(a => Math.hypot(nx - a.x, ny - a.y) < a.size + 40) && attempts < 20);
+
+      ship.x = nx;
+      ship.y = ny;
+      ship.vx = 0;
+      ship.vy = 0;
+      hyperspaceCooldown = HYPERSPACE_COOLDOWN;
+      hyperspaceFlicker = 30;
+      invincibleTimer = Math.max(invincibleTimer, 45);
+      addParticles(nx, ny, 12, '#0ff');
     }
 
     function update() {
@@ -199,6 +244,7 @@
           ship.vx = (ship.vx / speed) * MAX_SPEED;
           ship.vy = (ship.vy / speed) * MAX_SPEED;
         }
+        emitThrustParticles();
       }
 
       ship.vx *= FRICTION;
@@ -208,6 +254,8 @@
       wrap(ship);
 
       if (invincibleTimer > 0) invincibleTimer--;
+      if (hyperspaceCooldown > 0) hyperspaceCooldown--;
+      if (hyperspaceFlicker > 0) hyperspaceFlicker--;
 
       // Fire bullets
       if (fireCooldown > 0) fireCooldown--;
@@ -247,6 +295,14 @@
         if (particles[i].life <= 0) particles.splice(i, 1);
       }
 
+      // Update thrust particles
+      for (let i = thrustParticles.length - 1; i >= 0; i--) {
+        thrustParticles[i].x += thrustParticles[i].vx;
+        thrustParticles[i].y += thrustParticles[i].vy;
+        thrustParticles[i].life--;
+        if (thrustParticles[i].life <= 0) thrustParticles.splice(i, 1);
+      }
+
       // Bullet-asteroid collisions
       for (let bi = bullets.length - 1; bi >= 0; bi--) {
         for (let ai = asteroids.length - 1; ai >= 0; ai--) {
@@ -254,8 +310,7 @@
           const b = bullets[bi];
           if (!b || !a) continue;
           if (Math.hypot(b.x - a.x, b.y - a.y) < a.size) {
-            // Hit!
-            addParticles(a.x, a.y, 8, '#f44');
+            addParticles(a.x, a.y, 8, '#0f0');
             if (a.size >= 35) {
               score += 20;
               asteroids.push(createAsteroid(a.x, a.y, 22));
@@ -280,7 +335,7 @@
         for (let ai = asteroids.length - 1; ai >= 0; ai--) {
           const a = asteroids[ai];
           if (Math.hypot(ship.x - a.x, ship.y - a.y) < a.size + SHIP_SIZE * 0.6) {
-            addParticles(ship.x, ship.y, 15, '#f44');
+            addParticles(ship.x, ship.y, 15, '#0f0');
             lives--;
             livesEl.textContent = lives;
             if (lives <= 0) {
@@ -290,7 +345,6 @@
               overlayText.textContent = `Score: ${score} -- Press SPACE to restart`;
               return;
             }
-            // Respawn
             ship.x = W / 2;
             ship.y = H / 2;
             ship.vx = 0;
@@ -309,24 +363,52 @@
       }
     }
 
+    function drawShip() {
+      // Classic delta shape: wide swept wings, narrow nose
+      ctx.beginPath();
+      ctx.moveTo(SHIP_SIZE, 0);                         // nose
+      ctx.lineTo(-SHIP_SIZE * 0.6, -SHIP_SIZE * 0.8);  // left wing tip
+      ctx.lineTo(-SHIP_SIZE * 0.35, -SHIP_SIZE * 0.25); // left tail
+      ctx.lineTo(-SHIP_SIZE * 0.35, SHIP_SIZE * 0.25);  // right tail
+      ctx.lineTo(-SHIP_SIZE * 0.6, SHIP_SIZE * 0.8);   // right wing tip
+      ctx.closePath();
+      ctx.stroke();
+    }
+
     function draw() {
-      ctx.fillStyle = '#1a1a2e';
+      ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, W, H);
 
-      // Particles
-      for (const p of particles) {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.life / 40;
-        ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+      // Phosphor glow settings
+      ctx.shadowColor = '#0f0';
+      ctx.shadowBlur = 12;
+
+      // Thrust particles (white squares)
+      ctx.shadowBlur = 0;
+      for (const p of thrustParticles) {
+        const alpha = p.life / 16;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
       }
       ctx.globalAlpha = 1;
 
-      // Asteroids
+      // Explosion particles
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = '#0f0';
+      for (const p of particles) {
+        ctx.globalAlpha = p.life / 40;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+
+      // Asteroids — stroke only, phosphor green
+      ctx.strokeStyle = '#0f0';
+      ctx.shadowColor = '#0f0';
+      ctx.shadowBlur = 12;
+      ctx.lineWidth = 1.5;
       for (const a of asteroids) {
-        ctx.strokeStyle = '#f44';
-        ctx.shadowColor = '#f44';
-        ctx.shadowBlur = 8;
-        ctx.lineWidth = 1.5;
         ctx.save();
         ctx.translate(a.x, a.y);
         ctx.rotate(a.rot);
@@ -339,43 +421,40 @@
         ctx.stroke();
         ctx.restore();
       }
-      ctx.shadowBlur = 0;
 
-      // Ship
-      if (invincibleTimer <= 0 || Math.floor(invincibleTimer / 4) % 2 === 0) {
-        ctx.save();
-        ctx.translate(ship.x, ship.y);
-        ctx.rotate(ship.angle);
-        ctx.strokeStyle = '#f44';
-        ctx.shadowColor = '#f44';
-        ctx.shadowBlur = 12;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(SHIP_SIZE, 0);
-        ctx.lineTo(-SHIP_SIZE * 0.7, -SHIP_SIZE * 0.6);
-        ctx.lineTo(-SHIP_SIZE * 0.4, 0);
-        ctx.lineTo(-SHIP_SIZE * 0.7, SHIP_SIZE * 0.6);
-        ctx.closePath();
-        ctx.stroke();
+      // Ship — draw only when visible (invincible flicker)
+      if (invincibleTimer <= 0 || hyperspaceFlicker > 0 || Math.floor(invincibleTimer / 4) % 2 === 0) {
+        // Hyperspace flicker: skip every other frame during flicker
+        if (!(hyperspaceFlicker > 0 && Math.floor(hyperspaceFlicker / 3) % 2 === 0)) {
+          ctx.save();
+          ctx.translate(ship.x, ship.y);
+          ctx.rotate(ship.angle);
+          ctx.strokeStyle = '#0f0';
+          ctx.shadowColor = '#0f0';
+          ctx.shadowBlur = 14;
+          ctx.lineWidth = 2;
+          drawShip();
 
-        // Thrust flame
-        if (ship.thrusting) {
-          ctx.strokeStyle = '#f80';
-          ctx.shadowColor = '#f80';
-          ctx.shadowBlur = 10;
-          ctx.beginPath();
-          ctx.moveTo(-SHIP_SIZE * 0.5, -SHIP_SIZE * 0.25);
-          ctx.lineTo(-SHIP_SIZE * (0.8 + Math.random() * 0.4), 0);
-          ctx.lineTo(-SHIP_SIZE * 0.5, SHIP_SIZE * 0.25);
-          ctx.stroke();
+          // Thrust flame (stroke only)
+          if (ship.thrusting) {
+            ctx.strokeStyle = '#ff8800';
+            ctx.shadowColor = '#ff8800';
+            ctx.shadowBlur = 10;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(-SHIP_SIZE * 0.35, -SHIP_SIZE * 0.2);
+            ctx.lineTo(-SHIP_SIZE * (0.9 + Math.random() * 0.4), 0);
+            ctx.lineTo(-SHIP_SIZE * 0.35, SHIP_SIZE * 0.2);
+            ctx.stroke();
+          }
+          ctx.restore();
         }
-        ctx.restore();
       }
       ctx.shadowBlur = 0;
 
       // Bullets
-      ctx.fillStyle = '#fff';
-      ctx.shadowColor = '#f44';
+      ctx.fillStyle = '#0f0';
+      ctx.shadowColor = '#0f0';
       ctx.shadowBlur = 8;
       for (const b of bullets) {
         ctx.beginPath();
@@ -384,23 +463,36 @@
       }
       ctx.shadowBlur = 0;
 
-      // Lives indicator
+      // Lives indicator (mini ships)
       for (let i = 0; i < lives; i++) {
         ctx.save();
         ctx.translate(25 + i * 25, H - 20);
         ctx.rotate(-Math.PI / 2);
-        ctx.strokeStyle = '#f44';
-        ctx.shadowColor = '#f44';
+        ctx.strokeStyle = '#0f0';
+        ctx.shadowColor = '#0f0';
         ctx.shadowBlur = 6;
         ctx.lineWidth = 1.5;
+        const s = 10;
         ctx.beginPath();
-        ctx.moveTo(10, 0);
-        ctx.lineTo(-7, -5);
-        ctx.lineTo(-4, 0);
-        ctx.lineTo(-7, 5);
+        ctx.moveTo(s, 0);
+        ctx.lineTo(-s * 0.6, -s * 0.8);
+        ctx.lineTo(-s * 0.35, -s * 0.25);
+        ctx.lineTo(-s * 0.35, s * 0.25);
+        ctx.lineTo(-s * 0.6, s * 0.8);
         ctx.closePath();
         ctx.stroke();
         ctx.restore();
+      }
+
+      // Hyperspace cooldown indicator
+      if (hyperspaceCooldown > 0) {
+        ctx.fillStyle = '#0f0';
+        ctx.shadowBlur = 0;
+        ctx.font = '11px "Courier New"';
+        ctx.textAlign = 'right';
+        ctx.globalAlpha = 0.5;
+        ctx.fillText(`WARP CD`, W - 10, H - 10);
+        ctx.globalAlpha = 1;
       }
       ctx.shadowBlur = 0;
     }
@@ -408,6 +500,10 @@
     document.addEventListener('keydown', (e) => {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
       keys[e.key] = true;
+
+      if (e.key === 'z' || e.key === 'Z') {
+        if (gameState === 'playing') doHyperspace();
+      }
 
       if (gameState === 'waiting') {
         start();

@@ -667,12 +667,34 @@
         ctx.fillRect(0, 0, W, H);
       }
 
-      // Death flash
-      if (gameState === 'dying' && deathFlash > 0) {
+      // Death: flash + radial line burst
+      if (gameState === 'dying') {
         const intensity = Math.sin(deathFlash * 0.5) * 0.3;
         if (intensity > 0) {
           ctx.fillStyle = `rgba(255, 100, 100, ${intensity})`;
           ctx.fillRect(0, 0, W, H);
+        }
+        // Radial burst lines from player position
+        if (deathFlash > 0) {
+          const p1 = lanes[playerLane % laneCount];
+          const p2 = lanes[(playerLane + 1) % laneCount];
+          const mx = (p1.x + p2.x) / 2;
+          const my = (p1.y + p2.y) / 2;
+          const progress = deathFlash / 45;
+          const alpha = Math.max(0, 1 - progress);
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2;
+            const len = progress * 90;
+            ctx.strokeStyle = `rgba(238, 68, 255, ${alpha})`;
+            ctx.shadowColor = '#e4f';
+            ctx.shadowBlur = 12;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(mx, my);
+            ctx.lineTo(mx + Math.cos(a) * len, my + Math.sin(a) * len);
+            ctx.stroke();
+          }
+          ctx.shadowBlur = 0;
         }
       }
 

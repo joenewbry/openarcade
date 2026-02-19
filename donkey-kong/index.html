@@ -735,6 +735,25 @@
       ctx.fill();
       ctx.shadowBlur = 0;
 
+      // Platform top edge highlight (bright strip = 3D depth)
+      ctx.strokeStyle = '#f88';
+      ctx.shadowColor = '#faa';
+      ctx.shadowBlur = 6;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(plat.x, leftY);
+      ctx.lineTo(plat.x + plat.w, rightY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Bottom edge shadow
+      ctx.strokeStyle = '#622';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(plat.x, leftY + plat.h);
+      ctx.lineTo(plat.x + plat.w, rightY + plat.h);
+      ctx.stroke();
+
       // Girder cross pattern
       ctx.strokeStyle = '#822';
       ctx.lineWidth = 1;

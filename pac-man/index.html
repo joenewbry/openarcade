@@ -143,6 +143,7 @@
     let pelletPulse;
     let lastTime;
     let keys = {};
+    let scorePopups = [];
 
     // Pac-Man start position (tile coords)
     const PAC_START_COL = 11;
@@ -275,6 +276,7 @@
       lastTime = 0;
       modeTimer = 0;
       modePhase = 0;
+      scorePopups = [];
     }
 
     function resetAfterDeath() {
@@ -351,6 +353,7 @@
             dotsEaten++;
             scoreEl.textContent = score;
             if (score > best) { best = score; bestEl.textContent = best; }
+            scorePopups.push({ x: pacman.x, y: pacman.y - 8, text: '+10', timer: 35, color: '#ffcc80' });
           } else if (tile === 3) {
             maze[pacman.row][pacman.col] = 2;
             score += 50;
@@ -358,6 +361,7 @@
             scoreEl.textContent = score;
             if (score > best) { best = score; bestEl.textContent = best; }
             activateFrightened();
+            scorePopups.push({ x: pacman.x, y: pacman.y - 8, text: '+50', timer: 45, color: '#ff0' });
           }
         }
 
@@ -610,6 +614,12 @@
       pelletPulse += 0.05;
 
       updatePacman();
+      // Decay score popups
+      for (let i = scorePopups.length - 1; i >= 0; i--) {
+        scorePopups[i].y -= 0.5;
+        scorePopups[i].timer--;
+        if (scorePopups[i].timer <= 0) scorePopups.splice(i, 1);
+      }
       updateModes(dt);
       for (const ghost of ghosts) {
         updateGhost(ghost, dt);
@@ -825,6 +835,21 @@
       }
       drawLives();
       drawLevel();
+
+      // Score popups
+      ctx.font = 'bold 11px "Courier New"';
+      ctx.textAlign = 'center';
+      for (const sp of scorePopups) {
+        const alpha = sp.timer / 45;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = sp.color;
+        ctx.shadowColor = sp.color;
+        ctx.shadowBlur = 6;
+        ctx.fillText(sp.text, sp.x, sp.y);
+      }
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      ctx.textAlign = 'left';
     }
 
     // --- INPUT ---
