@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speed Typing Racer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #48f; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(68, 136, 255, 0.5); }
+    h1 { color: #48f; font-size: 1.6rem; text-shadow: 0 0 15px rgba(68, 136, 255, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #48f; }
+    canvas {
+      border: 2px solid #48f;
+      box-shadow: 0 0 20px rgba(68, 136, 255, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #48f;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>SPEED TYPING RACER</h1>
+  </div>
+  <div class="score-bar">
+    <div>WPM: <span id="score">0</span></div>
+    <div>Best: <span id="best">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="400"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:400px;">
+      <h2 id="overlayTitle">SPEED TYPING RACER</h2>
+      <p id="overlayText">Press any key to start racing!<br>Type the text as fast as you can.</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState = 'waiting';
+    let score = 0;
+    let best = parseInt(localStorage.getItem('speedTypingRacer_best')) || 0;
+    bestEl.textContent = best;
+
+    // --- Passages ---
+    const passages = [
+      "The quick brown fox jumps over the lazy dog near the riverbank while the sun sets behind the distant mountains painting the sky in brilliant shades of orange and gold.",
+      "All that glitters is not gold, and not all those who wander are lost. The old that is strong does not wither, and deep roots are not reached by the frost.",
+      "To be or not to be, that is the question. Whether it is nobler in the mind to suffer the slings and arrows of outrageous fortune or to take arms against a sea of troubles.",
+      "In the beginning there was nothing, then there was everything. The big bang scattered matter across the void, and slowly stars ignited and galaxies spun into existence.",
+      "She sells seashells by the seashore. The shells she sells are seashells for sure. So if she sells shells on the seashore then the shells are seashore shells.",
+      "How much wood would a woodchuck chuck if a woodchuck could chuck wood? A woodchuck would chuck as much wood as a woodchuck could chuck if a woodchuck could chuck wood.",
+      "Peter Piper picked a peck of pickled peppers. A peck of pickled peppers Peter Piper picked. If Peter Piper picked a peck of pickled peppers, where is the peck?",
+      "The rain in Spain falls mainly on the plain, but the plains of Spain are not the only place where rain may fall when dark clouds fill the autumn sky.",
+      "Space, the final frontier. These are the voyages of the starship Enterprise. Its continuing mission to explore strange new worlds, to seek out new life and new civilizations.",
+      "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief and incredulity.",
+      "A journey of a thousand miles begins with a single step. Keep your face always toward the sunshine and shadows will fall behind you as you walk forward.",
+      "The only way to do great work is to love what you do. If you have not found it yet, keep looking. Do not settle. As with all matters of the heart, you will know.",
+    ];
+
+    // --- Player & AI Racers ---
+    const TRACK_Y = 30;
+    const TRACK_H = 120;
+    const LANE_H = 28;
+    const TRACK_LEFT = 60;
+    const TRACK_RIGHT = W - 20;
+    const TRACK_W = TRACK_RIGHT - TRACK_LEFT;
+
+    const RACER_COLORS = ['#48f', '#f44', '#4f4', '#fa0'];
+    const RACER_NAMES = ['YOU', 'CPU-1', 'CPU-2', 'CPU-3'];
+    const AI_WPMS = [35, 55, 72]; // slow, medium, fast
+    const AI_VARIANCE = 0.15; // 15% timing variance
+    const AI_ERROR_RATE = [0.04, 0.03, 0.02]; // mistake probability per char
+
+    let passage = '';
+    let playerPos = 0;       // current correct position in passage
+    let playerErrors = 0;    // total errors
+    let playerKeystrokes = 0;
+    let currentCharWrong = false;  // is the current char in error state?
+    let startTime = 0;
+    let currentWPM = 0;
+    let accuracy = 100;
+
+    // AI state
+    let aiRacers = [];
+
+    // Car animation
+    let racerDisplayX = []; // smoothed X positions for rendering
+
+    // Particles for neon trails
+    let particles = [];
+
+    // Countdown
+    let countdown = 0;
+    let countdownStart = 0;
+
+    function initRace() {
+      passage = passages[Math.floor(Math.random() * passages.length)];
+      playerPos = 0;
+      playerErrors = 0;
+      playerKeystrokes = 0;
+      currentCharWrong = false;
+      startTime = 0;
+      currentWPM = 0;
+      accuracy = 100;
+      particles = [];
+
+      // Initialize AI racers
+      aiRacers = [];
+      for (let i = 0; i < 3; i++) {
+        const baseWPM = AI_WPMS[i];
+        // Chars per millisecond: WPM * 5 chars/word / 60000 ms
+        const cpm = baseWPM * 5 / 60000;
+        aiRacers.push({
+          pos: 0,
+          fractionalPos: 0,
+          wpm: baseWPM,
+          cpm: cpm,
+          nextCharTime: 0,
+          errorRate: AI_ERROR_RATE[i],
+          inError: false,
+          errorCooldown: 0,
+          finished: false,
+          finishWPM: 0
+        });
+      }
+
+      racerDisplayX = [TRACK_LEFT, TRACK_LEFT, TRACK_LEFT, TRACK_LEFT];
+    }
+
+    function startCountdown() {
+      gameState = 'countdown';
+      initRace();
+      countdown = 3;
+      countdownStart = performance.now();
+      overlay.style.display = 'none';
+    }
+
+    function startRace() {
+      gameState = 'playing';
+      startTime = performance.now();
+
+      // Set AI next-char times
+      for (let ai of aiRacers) {
+        ai.nextCharTime = startTime + getAIDelay(ai);
+      }
+    }
+
+    function getAIDelay(ai) {
+      const baseDelay = 1 / ai.cpm;
+      const variance = 1 + (Math.random() * 2 - 1) * AI_VARIANCE;
+      return baseDelay * variance;
+    }
+
+    function updateAI(now) {
+      for (let ai of aiRacers) {
+        if (ai.finished || ai.pos >= passage.length) {
+          if (!ai.finished) {
+            ai.finished = true;
+            ai.pos = passage.length;
+            const elapsed = (now - startTime) / 60000;
+            ai.finishWPM = Math.round((passage.length / 5) / elapsed);
+          }
+          continue;
+        }
+
+        if (now >= ai.nextCharTime) {
+          // Simulate error
+          if (!ai.inError && Math.random() < ai.errorRate) {
+            ai.inError = true;
+            ai.errorCooldown = 2; // takes 2 "ticks" to recover
+            ai.nextCharTime = now + getAIDelay(ai) * 1.5;
+          } else if (ai.inError) {
+            ai.errorCooldown--;
+            if (ai.errorCooldown <= 0) {
+              ai.inError = false;
+            }
+            ai.nextCharTime = now + getAIDelay(ai);
+          } else {
+            ai.pos++;
+            ai.fractionalPos = ai.pos;
+            ai.nextCharTime = now + getAIDelay(ai);
+          }
+        }
+
+        // Smooth fractional advancement for display
+        if (!ai.inError && ai.pos < passage.length) {
+          const timeSinceLastChar = now - (ai.nextCharTime - getAIDelay(ai));
+          const progress = Math.min(timeSinceLastChar * ai.cpm, 0.9);
+          ai.fractionalPos = ai.pos + Math.max(0, progress);
+        }
+      }
+    }
+
+    function getProgress(pos) {
+      return pos / passage.length;
+    }
+
+    function getTrackX(progress) {
+      return TRACK_LEFT + progress * TRACK_W;
+    }
+
+    // --- Particles ---
+    function addParticle(x, y, color) {
+      particles.push({
+        x: x,
+        y: y,
+        vx: -Math.random() * 1.5 - 0.5,
+        vy: (Math.random() - 0.5) * 0.8,
+        life: 1,
+        color: color,
+        size: Math.random() * 3 + 1
+      });
+    }
+
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.03;
+        if (p.life <= 0) {
+          particles.splice(i, 1);
+        }
+      }
+      // Cap particles
+      if (particles.length > 200) {
+        particles.splice(0, particles.length - 200);
+      }
+    }
+
+    // --- Drawing ---
+    function drawTrack() {
+      // Road background
+      ctx.fillStyle = '#111125';
+      ctx.fillRect(TRACK_LEFT - 10, TRACK_Y, TRACK_W + 30, TRACK_H);
+
+      // Lane lines
+      for (let i = 0; i <= 4; i++) {
+        const y = TRACK_Y + i * LANE_H;
+        ctx.strokeStyle = i === 0 || i === 4 ? '#48f' : '#333355';
+        ctx.lineWidth = i === 0 || i === 4 ? 2 : 1;
+        ctx.setLineDash(i === 0 || i === 4 ? [] : [8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(TRACK_LEFT - 10, y);
+        ctx.lineTo(TRACK_RIGHT + 20, y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Distance markers
+      ctx.fillStyle = '#333355';
+      ctx.font = '8px Courier New';
+      ctx.textAlign = 'center';
+      for (let pct = 0; pct <= 100; pct += 25) {
+        const x = TRACK_LEFT + (pct / 100) * TRACK_W;
+        ctx.fillText(pct + '%', x, TRACK_Y - 4);
+        ctx.strokeStyle = '#222240';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, TRACK_Y);
+        ctx.lineTo(x, TRACK_Y + TRACK_H);
+        ctx.stroke();
+      }
+
+      // Finish line
+      const finX = TRACK_RIGHT;
+      const checkSize = 4;
+      for (let row = 0; row < Math.floor(TRACK_H / checkSize); row++) {
+        for (let col = 0; col < 2; col++) {
+          ctx.fillStyle = (row + col) % 2 === 0 ? '#eee' : '#222';
+          ctx.fillRect(finX + col * checkSize, TRACK_Y + row * checkSize, checkSize, checkSize);
+        }
+      }
+
+      // Lane labels
+      ctx.textAlign = 'right';
+      ctx.font = '10px Courier New';
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = RACER_COLORS[i];
+        ctx.fillText(RACER_NAMES[i], TRACK_LEFT - 14, TRACK_Y + i * LANE_H + LANE_H / 2 + 3);
+      }
+    }
+
+    function drawCar(x, y, color, isPlayer) {
+      // Car body
+      const carW = 24;
+      const carH = 14;
+      const cx = x;
+      const cy = y;
+
+      // Neon glow
+      ctx.save();
+      ctx.shadowColor = color;
+      ctx.shadowBlur = isPlayer ? 15 : 10;
+
+      // Car body
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(cx - carW / 2, cy - carH / 2 + 2);
+      ctx.lineTo(cx - carW / 2 + 4, cy - carH / 2);
+      ctx.lineTo(cx + carW / 2 - 2, cy - carH / 2);
+      ctx.lineTo(cx + carW / 2, cy - carH / 2 + 2);
+      ctx.lineTo(cx + carW / 2, cy + carH / 2 - 2);
+      ctx.lineTo(cx + carW / 2 - 2, cy + carH / 2);
+      ctx.lineTo(cx - carW / 2 + 4, cy + carH / 2);
+      ctx.lineTo(cx - carW / 2, cy + carH / 2 - 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Windshield
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(cx + 2, cy - 4, 6, 8);
+
+      // Headlights
+      ctx.fillStyle = '#fff';
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 6;
+      ctx.fillRect(cx + carW / 2 - 1, cy - 4, 2, 3);
+      ctx.fillRect(cx + carW / 2 - 1, cy + 1, 2, 3);
+
+      ctx.restore();
+
+      // Add trail particles
+      if (gameState === 'playing') {
+        addParticle(cx - carW / 2, cy, color);
+      }
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        ctx.save();
+        ctx.globalAlpha = p.life * 0.7;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 4;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawText() {
+      const textAreaY = TRACK_Y + TRACK_H + 20;
+      const textAreaH = H - textAreaY - 10;
+
+      // Background panel
+      ctx.fillStyle = '#0d0d1e';
+      ctx.strokeStyle = '#48f';
+      ctx.lineWidth = 1;
+      const panelX = 15;
+      const panelW = W - 30;
+      ctx.fillRect(panelX, textAreaY, panelW, textAreaH);
+      ctx.strokeRect(panelX, textAreaY, panelW, textAreaH);
+
+      // Stats bar at top of text area
+      ctx.font = '11px Courier New';
+      ctx.textAlign = 'left';
+      const statsY = textAreaY + 16;
+
+      ctx.fillStyle = '#48f';
+      ctx.shadowColor = '#48f';
+      ctx.shadowBlur = 4;
+      ctx.fillText('WPM: ' + currentWPM, panelX + 10, statsY);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('Accuracy: ' + accuracy + '%', panelX + 100, statsY);
+
+      const progressPct = Math.round(getProgress(playerPos) * 100);
+      ctx.fillText('Progress: ' + progressPct + '%', panelX + 240, statsY);
+
+      // Position info
+      ctx.textAlign = 'right';
+      // Determine player position in race
+      let position = 1;
+      for (const ai of aiRacers) {
+        if (ai.pos > playerPos) position++;
+      }
+      const ordinal = ['1st', '2nd', '3rd', '4th'][position - 1];
+      ctx.fillStyle = position === 1 ? '#4f4' : '#fa0';
+      ctx.fillText(ordinal + ' Place', panelX + panelW - 10, statsY);
+      ctx.textAlign = 'left';
+
+      // Draw the passage text with highlighting
+      const charSize = 12;
+      ctx.font = charSize + 'px Courier New';
+      const charW = ctx.measureText('M').width;
+      const lineH = 18;
+      const textX = panelX + 12;
+      const textStartY = statsY + 22;
+      const maxCharsPerLine = Math.floor((panelW - 24) / charW);
+      const maxLines = Math.floor((textAreaH - 46) / lineH);
+
+      // Calculate which line the player is on and create a view window
+      const playerLine = Math.floor(playerPos / maxCharsPerLine);
+      const startLine = Math.max(0, playerLine - 1); // Show one line above current
+
+      for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
+        const actualLine = startLine + lineIdx;
+        const lineStart = actualLine * maxCharsPerLine;
+        if (lineStart >= passage.length) break;
+        const lineEnd = Math.min(lineStart + maxCharsPerLine, passage.length);
+
+        for (let ci = lineStart; ci < lineEnd; ci++) {
+          const col = ci - lineStart;
+          const cx = textX + col * charW;
+          const cy = textStartY + lineIdx * lineH;
+
+          if (ci < playerPos) {
+            // Already typed correctly
+            ctx.fillStyle = '#3a6';
+            ctx.globalAlpha = 0.6;
+          } else if (ci === playerPos) {
+            // Current character
+            if (currentCharWrong) {
+              // Error state - red background
+              ctx.fillStyle = '#f33';
+              ctx.globalAlpha = 0.3;
+              ctx.fillRect(cx - 1, cy - 12, charW + 1, lineH);
+              ctx.fillStyle = '#f44';
+              ctx.globalAlpha = 1;
+            } else {
+              // Cursor highlight
+              ctx.fillStyle = '#48f';
+              ctx.globalAlpha = 0.25;
+              ctx.fillRect(cx - 1, cy - 12, charW + 1, lineH);
+              // Blinking underline
+              const blink = Math.sin(performance.now() / 200) > -0.3;
+              if (blink) {
+                ctx.fillStyle = '#48f';
+                ctx.globalAlpha = 1;
+                ctx.fillRect(cx, cy + 2, charW - 1, 2);
+              }
+              ctx.fillStyle = '#fff';
+              ctx.globalAlpha = 1;
+            }
+          } else {
+            // Not yet typed
+            ctx.fillStyle = '#667';
+            ctx.globalAlpha = 1;
+          }
+
+          ctx.fillText(passage[ci], cx, cy);
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Scroll indicator
+      if (startLine > 0) {
+        ctx.fillStyle = '#48f';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'right';
+        ctx.fillText('...', panelX + panelW - 10, textStartY - 4);
+        ctx.textAlign = 'left';
+      }
+    }
+
+    function drawCountdown() {
+      const elapsed = (performance.now() - countdownStart) / 1000;
+      const num = 3 - Math.floor(elapsed);
+
+      if (num <= 0) {
+        startRace();
+        return;
+      }
+
+      const frac = elapsed - Math.floor(elapsed);
+      const scale = 1 + (1 - frac) * 0.5;
+      const alpha = 1 - frac * 0.3;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = (60 * scale) + 'px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#48f';
+      ctx.shadowColor = '#48f';
+      ctx.shadowBlur = 30;
+      ctx.fillText(num, W / 2, H / 2);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    function drawFinishStats() {
+      const cx = W / 2;
+      const cy = H / 2;
+
+      ctx.fillStyle = 'rgba(26, 26, 46, 0.92)';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.textAlign = 'center';
+
+      // Title
+      ctx.font = '28px Courier New';
+      ctx.fillStyle = '#48f';
+      ctx.shadowColor = '#48f';
+      ctx.shadowBlur = 20;
+      ctx.fillText('RACE COMPLETE!', cx, cy - 90);
+      ctx.shadowBlur = 0;
+
+      // Results
+      ctx.font = '16px Courier New';
+
+      // Gather all results
+      let results = [{
+        name: 'YOU',
+        wpm: currentWPM,
+        color: RACER_COLORS[0],
+        isPlayer: true
+      }];
+      for (let i = 0; i < aiRacers.length; i++) {
+        const ai = aiRacers[i];
+        const wpm = ai.finished ? ai.finishWPM : Math.round((ai.pos / 5) / ((performance.now() - startTime) / 60000));
+        results.push({
+          name: RACER_NAMES[i + 1],
+          wpm: wpm,
+          color: RACER_COLORS[i + 1],
+          isPlayer: false
+        });
+      }
+      results.sort((a, b) => b.wpm - a.wpm);
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        const y = cy - 40 + i * 30;
+        const place = ['1st', '2nd', '3rd', '4th'][i];
+
+        ctx.textAlign = 'left';
+        ctx.fillStyle = r.isPlayer ? '#fff' : '#999';
+        ctx.font = r.isPlayer ? 'bold 16px Courier New' : '14px Courier New';
+
+        const rowX = cx - 130;
+        ctx.fillStyle = r.color;
+        ctx.fillText(place, rowX, y);
+        ctx.fillStyle = r.isPlayer ? '#fff' : '#aaa';
+        ctx.fillText(r.name, rowX + 50, y);
+        ctx.fillText(r.wpm + ' WPM', rowX + 160, y);
+
+        if (r.isPlayer) {
+          ctx.fillStyle = '#667';
+          ctx.font = '12px Courier New';
+          ctx.fillText('(' + accuracy + '% acc)', rowX + 230, y);
+        }
+      }
+
+      // Prompt
+      ctx.textAlign = 'center';
+      ctx.font = '13px Courier New';
+      ctx.fillStyle = '#667';
+      const blink = Math.sin(performance.now() / 400) > 0;
+      if (blink) {
+        ctx.fillText('Press any key to race again', cx, cy + 100);
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Draw track always
+      drawTrack();
+
+      // Update display positions with smooth interpolation
+      const targetX = [
+        getTrackX(getProgress(playerPos)),
+        ...aiRacers.map(ai => getTrackX(getProgress(ai.fractionalPos || ai.pos)))
+      ];
+      for (let i = 0; i < 4; i++) {
+        racerDisplayX[i] += (targetX[i] - racerDisplayX[i]) * 0.15;
+      }
+
+      // Draw particles
+      drawParticles();
+
+      // Draw cars
+      for (let i = 3; i >= 0; i--) {
+        const laneY = TRACK_Y + i * LANE_H + LANE_H / 2;
+        drawCar(racerDisplayX[i], laneY, RACER_COLORS[i], i === 0);
+      }
+
+      if (gameState === 'countdown') {
+        drawText();
+        drawCountdown();
+      } else if (gameState === 'playing') {
+        drawText();
+      } else if (gameState === 'over') {
+        drawFinishStats();
+      }
+    }
+
+    // --- Input Handling ---
+    document.addEventListener('keydown', (e) => {
+      if (gameState === 'waiting') {
+        if (e.key.length === 1 || e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          startCountdown();
+        }
+        return;
+      }
+
+      if (gameState === 'over') {
+        if (e.key.length === 1 || e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          gameState = 'waiting';
+          overlay.style.display = 'flex';
+          overlayTitle.textContent = 'SPEED TYPING RACER';
+          overlayText.innerHTML = 'Press any key to start racing!<br>Type the text as fast as you can.';
+        }
+        return;
+      }
+
+      if (gameState === 'countdown') {
+        e.preventDefault();
+        return;
+      }
+
+      if (gameState !== 'playing') return;
+
+      // Only process printable characters
+      if (e.key.length !== 1) return;
+      e.preventDefault();
+
+      playerKeystrokes++;
+      const expected = passage[playerPos];
+
+      if (e.key === expected) {
+        // Correct character
+        currentCharWrong = false;
+        playerPos++;
+
+        // Update WPM
+        const elapsed = (performance.now() - startTime) / 60000; // minutes
+        if (elapsed > 0) {
+          currentWPM = Math.round((playerPos / 5) / elapsed);
+        }
+
+        // Update accuracy
+        accuracy = Math.round((playerPos / playerKeystrokes) * 100);
+
+        // Update score display
+        score = currentWPM;
+        scoreEl.textContent = score;
+
+        // Check if player finished
+        if (playerPos >= passage.length) {
+          endRace();
+        }
+      } else {
+        // Wrong character
+        currentCharWrong = true;
+        playerErrors++;
+        accuracy = Math.round((playerPos / playerKeystrokes) * 100);
+      }
+    });
+
+    // Also handle overlay click
+    canvas.addEventListener('click', () => {
+      if (gameState === 'waiting') {
+        startCountdown();
+      } else if (gameState === 'over') {
+        gameState = 'waiting';
+        overlay.style.display = 'flex';
+        overlayTitle.textContent = 'SPEED TYPING RACER';
+        overlayText.innerHTML = 'Press any key to start racing!<br>Type the text as fast as you can.';
+      }
+    });
+
+    function endRace() {
+      gameState = 'over';
+
+      // Final WPM
+      const elapsed = (performance.now() - startTime) / 60000;
+      currentWPM = Math.round((passage.length / 5) / elapsed);
+      score = currentWPM;
+      scoreEl.textContent = score;
+
+      // Update best
+      if (score > best) {
+        best = score;
+        bestEl.textContent = best;
+        localStorage.setItem('speedTypingRacer_best', best);
+      }
+    }
+
+    // --- Game Loop ---
+    function gameLoop() {
+      const now = performance.now();
+
+      if (gameState === 'playing') {
+        updateAI(now);
+
+        // Check if any AI finished first
+        for (let i = 0; i < aiRacers.length; i++) {
+          if (aiRacers[i].finished && playerPos < passage.length) {
+            // AI finished, but player keeps going until they finish too
+            // (or we could end it - let's let the player finish)
+          }
+        }
+
+        // Check if all AIs finished and player hasn't (give them a chance)
+        let allAIDone = aiRacers.every(ai => ai.finished);
+        // Don't force end - let player finish naturally
+      }
+
+      if (gameState === 'countdown') {
+        const elapsed = (performance.now() - countdownStart) / 1000;
+        if (elapsed >= 3) {
+          startRace();
+        }
+      }
+
+      updateParticles();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // --- Init ---
+    initRace();
+    gameLoop();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

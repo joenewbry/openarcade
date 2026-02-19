@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paintball Skirmish - OpenArcade</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#eee;font-family:'Courier New',monospace;display:flex;flex-direction:column;align-items:center;min-height:100vh;overflow-x:hidden}
+a{color:#4af;text-decoration:none}
+a:hover{text-decoration:underline}
+#back-link{position:fixed;top:12px;left:16px;font-size:14px;z-index:100;color:#4af;text-shadow:0 0 6px #4af}
+#score-bar{width:600px;max-width:95vw;display:flex;justify-content:space-between;align-items:center;padding:8px 14px;margin-top:48px;margin-bottom:4px;background:rgba(68,170,255,0.08);border:1px solid rgba(68,170,255,0.25);border-radius:6px;font-size:13px;text-shadow:0 0 6px rgba(68,170,255,0.4)}
+#score-bar .label{color:#888}
+#score-bar .value{color:#4af;font-weight:bold}
+.red-val{color:#f55!important}
+#game-container{position:relative;width:600px;height:500px;max-width:95vw;margin-top:4px}
+canvas#game{width:100%;height:100%;border:1px solid rgba(68,170,255,0.3);border-radius:4px;display:block;cursor:crosshair}
+#overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(26,26,46,0.92);border-radius:4px;z-index:10;transition:opacity 0.3s}
+#overlay.hidden{opacity:0;pointer-events:none}
+#overlay h1{font-size:26px;color:#4af;text-shadow:0 0 18px #4af,0 0 40px rgba(68,170,255,0.3);margin-bottom:10px}
+#overlay h2{font-size:18px;color:#4af;text-shadow:0 0 12px #4af;margin-bottom:8px}
+#overlay p{font-size:12px;color:#aaa;margin:3px 0;text-align:center;max-width:440px}
+#overlay .round-info{font-size:14px;color:#ccc;margin:8px 0}
+#overlay button{margin-top:16px;padding:10px 32px;background:transparent;border:2px solid #4af;color:#4af;font-family:'Courier New',monospace;font-size:15px;cursor:pointer;border-radius:4px;text-shadow:0 0 8px rgba(68,170,255,0.5);box-shadow:0 0 12px rgba(68,170,255,0.15);transition:all 0.2s}
+#overlay button:hover{background:rgba(68,170,255,0.15);box-shadow:0 0 20px rgba(68,170,255,0.3)}
+#hud{position:absolute;bottom:8px;left:8px;right:8px;display:flex;justify-content:space-between;align-items:flex-end;pointer-events:none;font-size:11px;color:#ccc;text-shadow:0 0 4px rgba(0,0,0,0.8)}
+</style>
+</head>
+<body>
+<a id="back-link" href="../">&larr; Back</a>
+<div id="score-bar">
+  <div><span class="label">BLUE Team: </span><span class="value" id="blueAlive">3</span><span class="label"> alive</span></div>
+  <div><span class="label">Round </span><span class="value" id="roundNum">1</span><span class="label">/5 | </span><span class="value" id="blueWins">0</span><span class="label">-</span><span class="value red-val" id="redWins">0</span></div>
+  <div><span class="label">RED Team: </span><span class="value red-val" id="redAlive">3</span><span class="label"> alive</span></div>
+</div>
+<div id="game-container">
+  <canvas id="game" width="600" height="500"></canvas>
+  <div id="overlay">
+    <h1>PAINTBALL SKIRMISH</h1>
+    <h2 id="overlayTitle">3v3 Team Elimination</h2>
+    <p>WASD = Move | Mouse = Aim | Click = Shoot</p>
+    <p>R = Reload | Shift = Crouch behind cover</p>
+    <p>Eliminate the red team! Best of 5 rounds.</p>
+    <button id="startBtn">START MATCH</button>
+  </div>
+</div>
+<script type="module">
+  import { createGame } from './game.js';
+  createGame();
+</script>
+<script src="../rating.js?v=2"></script>
+</body>
+</html>

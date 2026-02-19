@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gladiator Pit</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 500px;
+    }
+    .back { color: #da4; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(221,170, 68, 0.5); }
+    h1 { color: #da4; font-size: 1.6rem; text-shadow: 0 0 15px rgba(221, 170, 68, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 500px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #da4; }
+    canvas {
+      border: 2px solid #da4;
+      box-shadow: 0 0 20px rgba(221, 170, 68, 0.2);
+      display: block;
+      cursor: crosshair;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #da4;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 15px rgba(221, 170, 68, 0.6); }
+    .overlay p { font-size: 1rem; color: #aaa; margin-top: 4px; }
+    .controls { width: 500px; margin-top: 12px; color: #777; font-size: 0.8rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>GLADIATOR PIT</h1>
+  </div>
+  <div class="score-bar">
+    <div>Kills: <span id="score">0</span></div>
+    <div>Round: <span id="roundNum">1</span></div>
+    <div>Alive: <span id="aliveCount">4</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="500" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:500px;height:500px;">
+      <h2 id="overlayTitle">GLADIATOR PIT</h2>
+      <p id="overlayText">Click to Enter the Arena</p>
+      <p style="font-size:0.8rem;color:#888;margin-top:8px;">WASD: Move | Space: Attack | Shift: Dodge Roll | E: Pickup</p>
+    </div>
+  </div>
+  <div class="controls">
+    WASD: Move &nbsp;|&nbsp; Space: Attack &nbsp;|&nbsp; Shift: Dodge Roll &nbsp;|&nbsp; E: Pick Up Weapon
+  </div>
+
+  <script>
+    // ========== GLOBALS ==========
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 500, H = 500, CX = W/2, CY = H/2;
+    const ARENA_R = 220;
+
+    const scoreEl = document.getElementById('score');
+    const roundEl = document.getElementById('roundNum');
+    const aliveEl = document.getElementById('aliveCount');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState = 'menu'; // menu, playing, roundEnd, gameOver
+    let score = 0;
+    let round = 1;
+    let gladiators = [];
+    let pickups = [];
+    let particles = [];
+    let projectiles = [];
+    let keys = {};
+    let lastTime = 0;
+    let pickupTimer = 0;
+    let healthPickupTimer = 0;
+    let roundEndTimer = 0;
+    let sandGrains = [];
+
+    // Prevent default for game keys
+    document.addEventListener('keydown', e => {
+      if (['w','a','s','d','W','A','S','D',' ','Shift','e','E'].includes(e.key)) e.preventDefault();
+      keys[e.key.toLowerCase()] = true;
+      if (e.key === ' ') keys.space = true;
+      if (e.key === 'Shift') keys.shift = true;
+    });
+    document.addEventListener('keyup', e => {
+      keys[e.key.toLowerCase()] = false;
+      if (e.key === ' ') keys.space = false;
+      if (e.key === 'Shift') keys.shift = false;
+    });
+
+    canvas.parentElement.addEventListener('click', () => {
+      if (gameState === 'menu') { startRound(); }
+      else if (gameState === 'gameOver') { score = 0; round = 1; scoreEl.textContent = 0; startRound(); }
+    });
+
+    // ========== WEAPON DEFINITIONS ==========
+    const WEAPONS = {
+      fists: { name: 'Fists', damage: 8, range: 22, speed: 0.25, arc: Math.PI*0.6, color: '#ccc', knockback: 3, staminaCost: 8 },
+      sword: { name: 'Sword', damage: 18, range: 38, speed: 0.35, arc: Math.PI*0.5, color: '#ddd', knockback: 5, staminaCost: 15 },
+      spear: { name: 'Spear', damage: 22, range: 55, speed: 0.5, arc: Math.PI*0.25, color: '#aaf', knockback: 7, staminaCost: 18 },
+      hammer: { name: 'Hammer', damage: 35, range: 32, speed: 0.7, arc: Math.PI*0.7, color: '#f88', knockback: 12, staminaCost: 25 },
+      knife: { name: 'Throwing Knife', damage: 14, range: 30, speed: 0.3, arc: Math.PI*0.4, color: '#8f8', knockback: 2, staminaCost: 12, ranged: true, projSpeed: 250, projRange: 180 }
+    };
+
+    // ========== GLADIATOR ==========
+    function createGladiator(x, y, color, name, isPlayer) {
+      return {
+        x, y, vx: 0, vy: 0,
+        radius: 12,
+        color,
+        name,
+        isPlayer,
+        hp: 100, maxHp: 100,
+        stamina: 100, maxStamina: 100,
+        staminaRegen: 22,
+        weapon: 'fists',
+        facing: 0,
+        speed: 120,
+        attacking: false,
+        attackTimer: 0,
+        attackCooldown: 0,
+        dodging: false,
+        dodgeTimer: 0,
+        dodgeCooldown: 0,
+        dodgeDir: 0,
+        iframes: 0,
+        alive: true,
+        hitFlash: 0,
+        killedBy: null,
+        // AI fields
+        aiTarget: null,
+        aiState: 'roam', // roam, chase, attack, retreat, pickup
+        aiTimer: 0,
+        aiDodgeReact: 0.3 + Math.random() * 0.4,
+        aiAggression: 0.4 + Math.random() * 0.5,
+        aiPickupTarget: null,
+        aiWanderAngle: Math.random() * Math.PI * 2
+      };
+    }
+
+    // ========== PICKUPS ==========
+    function spawnWeaponPickup() {
+      const types = ['sword', 'spear', 'hammer', 'knife'];
+      const type = types[Math.floor(Math.random() * types.length)];
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * (ARENA_R - 30);
+      pickups.push({
+        x: CX + Math.cos(angle) * dist,
+        y: CY + Math.sin(angle) * dist,
+        type: type,
+        isHealth: false,
+        bobTimer: Math.random() * Math.PI * 2
+      });
+    }
+
+    function spawnHealthPickup() {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * (ARENA_R - 30);
+      pickups.push({
+        x: CX + Math.cos(angle) * dist,
+        y: CY + Math.sin(angle) * dist,
+        type: 'health',
+        isHealth: true,
+        bobTimer: Math.random() * Math.PI * 2
+      });
+    }
+
+    // ========== PARTICLES ==========
+    function spawnBlood(x, y, count, color) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const spd = 30 + Math.random() * 80;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * spd,
+          vy: Math.sin(angle) * spd,
+          life: 0.4 + Math.random() * 0.5,
+          maxLife: 0.4 + Math.random() * 0.5,
+          radius: 1.5 + Math.random() * 2.5,
+          color: color || '#c22',
+          type: 'blood'
+        });
+      }
+    }
+
+    function spawnSpark(x, y, count) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const spd = 50 + Math.random() * 100;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * spd,
+          vy: Math.sin(angle) * spd,
+          life: 0.2 + Math.random() * 0.3,
+          maxLife: 0.2 + Math.random() * 0.3,
+          radius: 1 + Math.random() * 2,
+          color: '#fd8',
+          type: 'spark'
+        });
+      }
+    }
+
+    function spawnDust(x, y) {
+      for (let i = 0; i < 5; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const spd = 20 + Math.random() * 40;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * spd,
+          vy: Math.sin(angle) * spd,
+          life: 0.3 + Math.random() * 0.3,
+          maxLife: 0.3 + Math.random() * 0.3,
+          radius: 2 + Math.random() * 3,
+          color: '#c9a05c',
+          type: 'dust'
+        });
+      }
+    }
+
+    // ========== SAND TEXTURE ==========
+    function generateSand() {
+      sandGrains = [];
+      for (let i = 0; i < 600; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * ARENA_R;
+        sandGrains.push({
+          x: CX + Math.cos(angle) * dist,
+          y: CY + Math.sin(angle) * dist,
+          shade: Math.random() * 0.15
+        });
+      }
+    }
+
+    // ========== START ROUND ==========
+    function startRound() {
+      gameState = 'playing';
+      overlay.style.display = 'none';
+      gladiators = [];
+      pickups = [];
+      particles = [];
+      projectiles = [];
+      pickupTimer = 2;
+      healthPickupTimer = 8;
+
+      const colors = ['#4af', '#f44', '#4f4', '#f8f'];
+      const names = ['Player', 'Brutus', 'Maximus', 'Spartacus'];
+      const numGlads = 4;
+
+      for (let i = 0; i < numGlads; i++) {
+        const angle = (Math.PI * 2 * i / numGlads) - Math.PI / 2;
+        const dist = ARENA_R * 0.6;
+        const g = createGladiator(
+          CX + Math.cos(angle) * dist,
+          CY + Math.sin(angle) * dist,
+          colors[i], names[i], i === 0
+        );
+        g.facing = Math.atan2(CY - g.y, CX - g.x);
+        gladiators.push(g);
+      }
+
+      // Spawn initial weapons
+      spawnWeaponPickup();
+      spawnWeaponPickup();
+
+      generateSand();
+      roundEl.textContent = round;
+      updateAliveCount();
+    }
+
+    function updateAliveCount() {
+      aliveEl.textContent = gladiators.filter(g => g.alive).length;
+    }
+
+    // ========== DISTANCE HELPERS ==========
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+    function angleTo(a, b) { return Math.atan2(b.y - a.y, b.x - a.x); }
+    function clampToArena(g) {
+      const dx = g.x - CX, dy = g.y - CY;
+      const d = Math.hypot(dx, dy);
+      const maxR = ARENA_R - g.radius;
+      if (d > maxR) {
+        g.x = CX + (dx / d) * maxR;
+        g.y = CY + (dy / d) * maxR;
+      }
+    }
+
+    // ========== ATTACK LOGIC ==========
+    function performAttack(g) {
+      const wep = WEAPONS[g.weapon];
+      if (g.attackCooldown > 0 || g.stamina < wep.staminaCost || g.dodging) return;
+      g.attacking = true;
+      g.attackTimer = wep.speed;
+      g.attackCooldown = wep.speed + 0.15;
+      g.stamina -= wep.staminaCost;
+
+      // Ranged weapon: fire projectile
+      if (wep.ranged) {
+        projectiles.push({
+          x: g.x + Math.cos(g.facing) * (g.radius + 5),
+          y: g.y + Math.sin(g.facing) * (g.radius + 5),
+          vx: Math.cos(g.facing) * wep.projSpeed,
+          vy: Math.sin(g.facing) * wep.projSpeed,
+          damage: wep.damage,
+          knockback: wep.knockback,
+          owner: g,
+          life: wep.projRange / wep.projSpeed,
+          color: wep.color
+        });
+      }
+    }
+
+    function checkMeleeHit(attacker, dt) {
+      const wep = WEAPONS[attacker.weapon];
+      if (wep.ranged) return; // ranged handled by projectiles
+      // Only hit at the "peak" of the attack
+      const peak = wep.speed * 0.5;
+      if (Math.abs(attacker.attackTimer - peak) > dt * 2 + 0.05) return;
+
+      for (const target of gladiators) {
+        if (target === attacker || !target.alive || target.iframes > 0) continue;
+        const d = dist(attacker, target);
+        if (d > wep.range + target.radius) continue;
+        // Check arc
+        const angleToTarget = angleTo(attacker, target);
+        let angleDiff = angleToTarget - attacker.facing;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        if (Math.abs(angleDiff) > wep.arc / 2) continue;
+
+        // Hit!
+        dealDamage(attacker, target, wep.damage, wep.knockback);
+      }
+    }
+
+    function dealDamage(attacker, target, damage, knockback) {
+      target.hp -= damage;
+      target.hitFlash = 0.15;
+      target.iframes = 0.2;
+
+      const angle = angleTo(attacker, target);
+      target.vx += Math.cos(angle) * knockback * 15;
+      target.vy += Math.sin(angle) * knockback * 15;
+
+      spawnBlood(target.x, target.y, 6, '#c22');
+      spawnSpark(
+        (attacker.x + target.x) / 2,
+        (attacker.y + target.y) / 2,
+        4
+      );
+
+      if (target.hp <= 0) {
+        target.alive = false;
+        target.killedBy = attacker;
+        if (attacker.isPlayer) {
+          score++;
+          scoreEl.textContent = score;
+        }
+        spawnBlood(target.x, target.y, 20, '#a11');
+        // Drop weapon
+        if (target.weapon !== 'fists') {
+          pickups.push({
+            x: target.x, y: target.y,
+            type: target.weapon, isHealth: false,
+            bobTimer: 0
+          });
+        }
+        updateAliveCount();
+      }
+    }
+
+    // ========== DODGE ROLL ==========
+    function performDodge(g) {
+      if (g.dodgeCooldown > 0 || g.stamina < 25 || g.dodging || g.attacking) return;
+      g.dodging = true;
+      g.dodgeTimer = 0.3;
+      g.dodgeCooldown = 0.6;
+      g.iframes = 0.25;
+      g.stamina -= 25;
+
+      // Dodge in movement direction or facing
+      const moveX = g.isPlayer ? ((keys.d ? 1 : 0) - (keys.a ? 1 : 0)) : Math.cos(g.dodgeDir);
+      const moveY = g.isPlayer ? ((keys.s ? 1 : 0) - (keys.w ? 1 : 0)) : Math.sin(g.dodgeDir);
+      const moveLen = Math.hypot(moveX, moveY);
+      if (moveLen > 0) {
+        g.dodgeDir = Math.atan2(moveY, moveX);
+      } else {
+        g.dodgeDir = g.facing;
+      }
+      spawnDust(g.x, g.y);
+    }
+
+    // ========== PLAYER UPDATE ==========
+    function updatePlayer(g, dt) {
+      if (!g.alive) return;
+
+      // Movement
+      let mx = 0, my = 0;
+      if (keys.a) mx -= 1;
+      if (keys.d) mx += 1;
+      if (keys.w) my -= 1;
+      if (keys.s) my += 1;
+      const mLen = Math.hypot(mx, my);
+
+      if (!g.dodging && !g.attacking) {
+        if (mLen > 0) {
+          g.vx = (mx / mLen) * g.speed;
+          g.vy = (my / mLen) * g.speed;
+          g.facing = Math.atan2(my, mx);
+        } else {
+          g.vx *= 0.8;
+          g.vy *= 0.8;
+        }
+      }
+
+      // Attack
+      if (keys.space) performAttack(g);
+
+      // Dodge
+      if (keys.shift) performDodge(g);
+
+      // Pickup
+      if (keys.e) tryPickup(g);
+    }
+
+    // ========== AI UPDATE ==========
+    function updateAI(g, dt) {
+      if (!g.alive) return;
+
+      g.aiTimer -= dt;
+      const wep = WEAPONS[g.weapon];
+      const aliveOthers = gladiators.filter(o => o !== g && o.alive);
+      if (aliveOthers.length === 0) return;
+
+      // Find nearest enemy and nearest pickup
+      let nearestEnemy = null, nearestDist = Infinity;
+      for (const o of aliveOthers) {
+        const d = dist(g, o);
+        if (d < nearestDist) { nearestDist = d; nearestEnemy = o; }
+      }
+
+      let nearestPickup = null, pickupDist = Infinity;
+      for (const p of pickups) {
+        const d = dist(g, p);
+        if (d < pickupDist) { pickupDist = d; nearestPickup = p; }
+      }
+
+      // Dodge incoming attacks
+      for (const o of aliveOthers) {
+        if (o.attacking && dist(g, o) < WEAPONS[o.weapon].range + 20) {
+          if (Math.random() < g.aiDodgeReact && g.dodgeCooldown <= 0 && g.stamina >= 25) {
+            // Dodge perpendicular to attacker
+            const a = angleTo(o, g);
+            g.dodgeDir = a + (Math.random() > 0.5 ? Math.PI/2 : -Math.PI/2);
+            performDodge(g);
+            return;
+          }
+        }
+      }
+
+      // Dodge projectiles
+      for (const p of projectiles) {
+        if (p.owner === g) continue;
+        const d = dist(g, p);
+        if (d < 40 && g.dodgeCooldown <= 0 && g.stamina >= 25) {
+          const a = Math.atan2(p.vy, p.vx);
+          g.dodgeDir = a + (Math.random() > 0.5 ? Math.PI/2 : -Math.PI/2);
+          performDodge(g);
+          return;
+        }
+      }
+
+      // State machine
+      if (g.aiTimer <= 0) {
+        g.aiTimer = 0.3 + Math.random() * 0.4;
+
+        // Decide state
+        if (g.hp < 30 && nearestPickup && nearestPickup.isHealth && pickupDist < 150) {
+          g.aiState = 'pickup';
+          g.aiPickupTarget = nearestPickup;
+        } else if (g.weapon === 'fists' && nearestPickup && !nearestPickup.isHealth && pickupDist < 180) {
+          g.aiState = 'pickup';
+          g.aiPickupTarget = nearestPickup;
+        } else if (nearestPickup && !nearestPickup.isHealth && pickupDist < 100 && g.weapon === 'fists') {
+          g.aiState = 'pickup';
+          g.aiPickupTarget = nearestPickup;
+        } else if (g.stamina < 20) {
+          g.aiState = 'retreat';
+        } else if (g.hp < 25 && nearestDist < 60) {
+          g.aiState = 'retreat';
+        } else if (nearestDist < wep.range + 15) {
+          g.aiState = 'attack';
+        } else if (nearestDist < 150 || g.aiAggression > 0.6) {
+          g.aiState = 'chase';
+        } else {
+          g.aiState = 'roam';
+        }
+
+        g.aiTarget = nearestEnemy;
+      }
+
+      // Execute state
+      const target = g.aiTarget || nearestEnemy;
+      if (!target) return;
+
+      if (g.dodging) return;
+
+      switch (g.aiState) {
+        case 'chase': {
+          // Manage distance based on weapon type
+          let idealDist = wep.range * 0.8;
+          if (g.weapon === 'spear') idealDist = wep.range * 0.7;
+          if (g.weapon === 'knife') idealDist = wep.range + 40;
+          if (g.weapon === 'hammer') idealDist = wep.range * 0.5;
+
+          const a = angleTo(g, target);
+          const d = dist(g, target);
+
+          if (d > idealDist + 10) {
+            g.vx = Math.cos(a) * g.speed;
+            g.vy = Math.sin(a) * g.speed;
+          } else if (d < idealDist - 10) {
+            g.vx = -Math.cos(a) * g.speed * 0.6;
+            g.vy = -Math.sin(a) * g.speed * 0.6;
+          } else {
+            // Strafe
+            const strafe = a + Math.PI / 2;
+            g.vx = Math.cos(strafe) * g.speed * 0.5;
+            g.vy = Math.sin(strafe) * g.speed * 0.5;
+          }
+          g.facing = a;
+          break;
+        }
+        case 'attack': {
+          const a = angleTo(g, target);
+          g.facing = a;
+          const d = dist(g, target);
+          if (d < wep.range + target.radius + 5) {
+            performAttack(g);
+          }
+          // Close in slightly
+          g.vx = Math.cos(a) * g.speed * 0.3;
+          g.vy = Math.sin(a) * g.speed * 0.3;
+          break;
+        }
+        case 'retreat': {
+          const a = angleTo(target, g);
+          g.vx = Math.cos(a) * g.speed * 0.9;
+          g.vy = Math.sin(a) * g.speed * 0.9;
+          g.facing = angleTo(g, target);
+          break;
+        }
+        case 'pickup': {
+          const p = g.aiPickupTarget;
+          if (p && pickups.includes(p)) {
+            const a = angleTo(g, p);
+            g.vx = Math.cos(a) * g.speed;
+            g.vy = Math.sin(a) * g.speed;
+            g.facing = a;
+            const d = dist(g, p);
+            if (d < 20) tryPickup(g);
+          } else {
+            g.aiState = 'roam';
+          }
+          break;
+        }
+        case 'roam': {
+          g.aiWanderAngle += (Math.random() - 0.5) * 2 * dt;
+          // Bias toward center
+          const toCenterAngle = Math.atan2(CY - g.y, CX - g.x);
+          const dFromCenter = Math.hypot(g.x - CX, g.y - CY);
+          if (dFromCenter > ARENA_R * 0.6) {
+            g.aiWanderAngle = toCenterAngle + (Math.random() - 0.5) * 0.5;
+          }
+          g.vx = Math.cos(g.aiWanderAngle) * g.speed * 0.5;
+          g.vy = Math.sin(g.aiWanderAngle) * g.speed * 0.5;
+          g.facing = g.aiWanderAngle;
+          break;
+        }
+      }
+    }
+
+    // ========== PICKUP ==========
+    function tryPickup(g) {
+      for (let i = pickups.length - 1; i >= 0; i--) {
+        const p = pickups[i];
+        if (dist(g, p) < 22) {
+          if (p.isHealth) {
+            g.hp = Math.min(g.maxHp, g.hp + 30);
+            spawnSpark(p.x, p.y, 8);
+          } else {
+            // Drop current weapon if not fists
+            if (g.weapon !== 'fists') {
+              pickups.push({
+                x: g.x - Math.cos(g.facing) * 15,
+                y: g.y - Math.sin(g.facing) * 15,
+                type: g.weapon, isHealth: false, bobTimer: 0
+              });
+            }
+            g.weapon = p.type;
+            spawnSpark(p.x, p.y, 10);
+          }
+          pickups.splice(i, 1);
+          break;
+        }
+      }
+    }
+
+    // ========== MAIN UPDATE ==========
+    function update(dt) {
+      if (gameState !== 'playing') return;
+
+      // Update gladiators
+      for (const g of gladiators) {
+        if (!g.alive) continue;
+
+        // Stamina regen
+        if (!g.attacking && !g.dodging) {
+          g.stamina = Math.min(g.maxStamina, g.stamina + g.staminaRegen * dt);
+        }
+
+        // Cooldowns
+        if (g.attackCooldown > 0) g.attackCooldown -= dt;
+        if (g.dodgeCooldown > 0) g.dodgeCooldown -= dt;
+        if (g.iframes > 0) g.iframes -= dt;
+        if (g.hitFlash > 0) g.hitFlash -= dt;
+
+        // Attack timer
+        if (g.attacking) {
+          checkMeleeHit(g, dt);
+          g.attackTimer -= dt;
+          if (g.attackTimer <= 0) g.attacking = false;
+        }
+
+        // Dodge movement
+        if (g.dodging) {
+          g.vx = Math.cos(g.dodgeDir) * g.speed * 2.5;
+          g.vy = Math.sin(g.dodgeDir) * g.speed * 2.5;
+          g.dodgeTimer -= dt;
+          if (g.dodgeTimer <= 0) g.dodging = false;
+        }
+
+        // Player or AI
+        if (g.isPlayer) updatePlayer(g, dt);
+        else updateAI(g, dt);
+
+        // Apply velocity
+        g.x += g.vx * dt;
+        g.y += g.vy * dt;
+
+        // Friction
+        if (!g.dodging) {
+          g.vx *= Math.pow(0.05, dt);
+          g.vy *= Math.pow(0.05, dt);
+        }
+
+        // Arena bounds
+        clampToArena(g);
+
+        // Push apart gladiators
+        for (const o of gladiators) {
+          if (o === g || !o.alive) continue;
+          const d = dist(g, o);
+          const minD = g.radius + o.radius;
+          if (d < minD && d > 0) {
+            const overlap = (minD - d) / 2;
+            const ax = (g.x - o.x) / d;
+            const ay = (g.y - o.y) / d;
+            g.x += ax * overlap;
+            g.y += ay * overlap;
+            o.x -= ax * overlap;
+            o.y -= ay * overlap;
+          }
+        }
+      }
+
+      // Update projectiles
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+
+        // Hit check
+        for (const g of gladiators) {
+          if (g === p.owner || !g.alive || g.iframes > 0) continue;
+          if (dist(g, p) < g.radius + 4) {
+            dealDamage(p.owner, g, p.damage, p.knockback);
+            projectiles.splice(i, 1);
+            break;
+          }
+        }
+
+        // Out of arena or expired
+        const dFromCenter = Math.hypot(p.x - CX, p.y - CY);
+        if (p.life <= 0 || dFromCenter > ARENA_R + 10) {
+          projectiles.splice(i, 1);
+        }
+      }
+
+      // Update particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= Math.pow(0.02, dt);
+        p.vy *= Math.pow(0.02, dt);
+        p.life -= dt;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+
+      // Spawn pickups
+      pickupTimer -= dt;
+      if (pickupTimer <= 0 && pickups.filter(p => !p.isHealth).length < 4) {
+        spawnWeaponPickup();
+        pickupTimer = 4 + Math.random() * 3;
+      }
+
+      healthPickupTimer -= dt;
+      if (healthPickupTimer <= 0 && pickups.filter(p => p.isHealth).length < 2) {
+        spawnHealthPickup();
+        healthPickupTimer = 10 + Math.random() * 5;
+      }
+
+      // Pickup bobbing
+      for (const p of pickups) p.bobTimer += dt * 3;
+
+      // Check round end
+      const alive = gladiators.filter(g => g.alive);
+      updateAliveCount();
+      if (alive.length <= 1) {
+        roundEndTimer += dt;
+        if (roundEndTimer > 1.5) {
+          roundEndTimer = 0;
+          const player = gladiators[0];
+          if (player.alive) {
+            round++;
+            roundEl.textContent = round;
+            overlayTitle.textContent = 'VICTORY!';
+            overlayText.textContent = `Round ${round - 1} cleared! Kills: ${score}. Click for Round ${round}`;
+            gameState = 'roundEnd';
+            overlay.style.display = 'flex';
+            // Auto start next
+            setTimeout(() => { if (gameState === 'roundEnd') startRound(); }, 2000);
+          } else {
+            overlayTitle.textContent = 'DEFEATED';
+            overlayText.textContent = `You fell in Round ${round}. Total Kills: ${score}. Click to restart.`;
+            gameState = 'gameOver';
+            overlay.style.display = 'flex';
+          }
+        }
+      }
+    }
+
+    // ========== DRAWING ==========
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Background
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Arena floor - sand gradient
+      const grad = ctx.createRadialGradient(CX, CY, 0, CX, CY, ARENA_R);
+      grad.addColorStop(0, '#c9a05c');
+      grad.addColorStop(0.7, '#b08840');
+      grad.addColorStop(1, '#8a6830');
+      ctx.beginPath();
+      ctx.arc(CX, CY, ARENA_R, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Sand grains
+      for (const grain of sandGrains) {
+        ctx.fillStyle = `rgba(0,0,0,${grain.shade})`;
+        ctx.fillRect(grain.x, grain.y, 1, 1);
+      }
+
+      // Arena wall
+      ctx.beginPath();
+      ctx.arc(CX, CY, ARENA_R, 0, Math.PI * 2);
+      ctx.strokeStyle = '#654';
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(CX, CY, ARENA_R + 3, 0, Math.PI * 2);
+      ctx.strokeStyle = '#432';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Arena decorations - pillars
+      for (let i = 0; i < 8; i++) {
+        const a = (Math.PI * 2 * i / 8);
+        const px = CX + Math.cos(a) * (ARENA_R + 1);
+        const py = CY + Math.sin(a) * (ARENA_R + 1);
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#765';
+        ctx.fill();
+        ctx.strokeStyle = '#543';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // Blood stains (persistent particles on ground)
+      for (const p of particles) {
+        if (p.type === 'blood' && p.life < p.maxLife * 0.3) {
+          const alpha = p.life / (p.maxLife * 0.3) * 0.3;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius + 1, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(120,20,20,${alpha})`;
+          ctx.fill();
+        }
+      }
+
+      // Pickups
+      for (const p of pickups) {
+        const bob = Math.sin(p.bobTimer) * 2;
+        const py = p.y + bob;
+        ctx.save();
+        ctx.translate(p.x, py);
+
+        if (p.isHealth) {
+          // Health pickup - green cross
+          ctx.fillStyle = '#2a2';
+          ctx.shadowColor = '#0f0';
+          ctx.shadowBlur = 8;
+          ctx.fillRect(-6, -2, 12, 4);
+          ctx.fillRect(-2, -6, 4, 12);
+          ctx.shadowBlur = 0;
+        } else {
+          // Weapon pickup
+          const wep = WEAPONS[p.type];
+          ctx.shadowColor = wep.color;
+          ctx.shadowBlur = 6;
+          drawWeaponIcon(ctx, p.type, 0, 0, 0);
+          ctx.shadowBlur = 0;
+          // Label
+          ctx.fillStyle = '#fff';
+          ctx.font = '8px Courier New';
+          ctx.textAlign = 'center';
+          ctx.fillText(wep.name, 0, 14);
+        }
+        ctx.restore();
+      }
+
+      // Projectiles
+      for (const p of projectiles) {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        const angle = Math.atan2(p.vy, p.vx);
+        ctx.rotate(angle);
+        ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 5;
+        // Knife shape
+        ctx.beginPath();
+        ctx.moveTo(6, 0);
+        ctx.lineTo(-3, -2);
+        ctx.lineTo(-3, 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+
+      // Gladiators (sorted by y for pseudo-depth)
+      const sortedGlads = gladiators.filter(g => g.alive).sort((a, b) => a.y - b.y);
+      for (const g of sortedGlads) {
+        ctx.save();
+        ctx.translate(g.x, g.y);
+
+        // Dodge trail
+        if (g.dodging) {
+          ctx.globalAlpha = 0.3;
+          ctx.beginPath();
+          ctx.arc(-Math.cos(g.dodgeDir) * 10, -Math.sin(g.dodgeDir) * 10, g.radius, 0, Math.PI * 2);
+          ctx.fillStyle = g.color;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+
+        // Shadow
+        ctx.beginPath();
+        ctx.ellipse(0, g.radius * 0.5, g.radius * 0.8, 4, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fill();
+
+        // Body
+        const bodyColor = g.hitFlash > 0 ? '#fff' : g.color;
+        const alpha = g.iframes > 0 ? 0.6 : 1;
+        ctx.globalAlpha = alpha;
+
+        ctx.beginPath();
+        ctx.arc(0, 0, g.radius, 0, Math.PI * 2);
+        ctx.fillStyle = bodyColor;
+        ctx.shadowColor = g.color;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Inner detail
+        ctx.beginPath();
+        ctx.arc(0, -1, g.radius * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,0.15)`;
+        ctx.fill();
+
+        // Facing indicator (eyes/visor)
+        const ex = Math.cos(g.facing) * 6;
+        const ey = Math.sin(g.facing) * 6;
+        ctx.beginPath();
+        ctx.arc(ex, ey, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(ex + Math.cos(g.facing) * 1.5, ey + Math.sin(g.facing) * 1.5, 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#111';
+        ctx.fill();
+
+        // Weapon in hand
+        if (g.weapon !== 'fists') {
+          ctx.save();
+          ctx.rotate(g.facing);
+          const swing = g.attacking ? Math.sin(g.attackTimer / WEAPONS[g.weapon].speed * Math.PI) * 0.8 : 0;
+          ctx.rotate(swing);
+          ctx.translate(g.radius + 4, 0);
+          drawWeaponIcon(ctx, g.weapon, 0, 0, g.facing);
+          ctx.restore();
+        }
+
+        // Attack arc visualization
+        if (g.attacking && !WEAPONS[g.weapon].ranged) {
+          const wep = WEAPONS[g.weapon];
+          const progress = 1 - g.attackTimer / wep.speed;
+          const swingAngle = g.facing - wep.arc / 2 + wep.arc * progress;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, wep.range, g.facing - wep.arc / 2, swingAngle);
+          ctx.closePath();
+          ctx.fillStyle = `rgba(255,255,200,${0.15 * (1 - progress)})`;
+          ctx.fill();
+        }
+
+        ctx.globalAlpha = 1;
+
+        // Name tag
+        ctx.fillStyle = '#fff';
+        ctx.font = '9px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(g.name, 0, -g.radius - 18);
+
+        // HP bar
+        const hpW = 24;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(-hpW/2, -g.radius - 14, hpW, 4);
+        const hpFrac = g.hp / g.maxHp;
+        const hpColor = hpFrac > 0.5 ? '#2a2' : hpFrac > 0.25 ? '#da2' : '#a22';
+        ctx.fillStyle = hpColor;
+        ctx.fillRect(-hpW/2, -g.radius - 14, hpW * hpFrac, 4);
+
+        // Stamina bar (only for player)
+        if (g.isPlayer) {
+          ctx.fillStyle = '#333';
+          ctx.fillRect(-hpW/2, -g.radius - 9, hpW, 3);
+          ctx.fillStyle = '#48f';
+          ctx.fillRect(-hpW/2, -g.radius - 9, hpW * (g.stamina / g.maxStamina), 3);
+        }
+
+        // Weapon label
+        if (g.weapon !== 'fists') {
+          ctx.fillStyle = WEAPONS[g.weapon].color;
+          ctx.font = '7px Courier New';
+          ctx.fillText(WEAPONS[g.weapon].name, 0, g.radius + 12);
+        }
+
+        ctx.restore();
+      }
+
+      // Dead gladiators (X marks)
+      for (const g of gladiators) {
+        if (g.alive) continue;
+        ctx.save();
+        ctx.translate(g.x, g.y);
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = g.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-6, -6); ctx.lineTo(6, 6);
+        ctx.moveTo(6, -6); ctx.lineTo(-6, 6);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+
+      // Particles
+      for (const p of particles) {
+        const alpha = p.life / p.maxLife;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius * alpha, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = alpha;
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Player HUD (bottom of arena)
+      const player = gladiators[0];
+      if (player && gameState === 'playing') {
+        // Weapon display
+        ctx.fillStyle = '#da4';
+        ctx.font = '12px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Weapon: ${WEAPONS[player.weapon].name}`, 10, H - 30);
+
+        ctx.fillStyle = '#aaa';
+        ctx.font = '10px Courier New';
+        ctx.fillText(`HP: ${Math.ceil(player.hp)}`, 10, H - 14);
+        ctx.fillText(`Stamina: ${Math.ceil(player.stamina)}`, 120, H - 14);
+
+        // Round info
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#da4';
+        ctx.font = '10px Courier New';
+        ctx.fillText(`Round ${round}`, W - 10, H - 14);
+      }
+    }
+
+    function drawWeaponIcon(ctx, type, x, y, angle) {
+      ctx.save();
+      ctx.translate(x, y);
+      const wep = WEAPONS[type];
+
+      switch (type) {
+        case 'sword':
+          ctx.fillStyle = '#ddd';
+          ctx.fillRect(-2, -8, 4, 16);
+          ctx.fillStyle = '#a86';
+          ctx.fillRect(-3, 6, 6, 4);
+          break;
+        case 'spear':
+          ctx.fillStyle = '#874';
+          ctx.fillRect(-1.5, -12, 3, 24);
+          ctx.fillStyle = '#aaf';
+          ctx.beginPath();
+          ctx.moveTo(0, -14);
+          ctx.lineTo(-3, -8);
+          ctx.lineTo(3, -8);
+          ctx.closePath();
+          ctx.fill();
+          break;
+        case 'hammer':
+          ctx.fillStyle = '#874';
+          ctx.fillRect(-1.5, -6, 3, 16);
+          ctx.fillStyle = '#888';
+          ctx.fillRect(-5, -10, 10, 6);
+          ctx.fillStyle = '#f88';
+          ctx.fillRect(-4, -9, 8, 4);
+          break;
+        case 'knife':
+          ctx.fillStyle = '#8f8';
+          ctx.beginPath();
+          ctx.moveTo(0, -7);
+          ctx.lineTo(-2, 2);
+          ctx.lineTo(2, 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#a86';
+          ctx.fillRect(-1.5, 2, 3, 4);
+          break;
+      }
+      ctx.restore();
+    }
+
+    // ========== GAME LOOP ==========
+    function gameLoop(time) {
+      const dt = Math.min((time - lastTime) / 1000, 0.05);
+      lastTime = time;
+
+      update(dt);
+      draw();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+
+    // ========== EXPOSE GAME DATA ==========
+    window.gameData = {};
+    function updateGameData() {
+      window.gameData = {
+        gameState,
+        score,
+        round,
+        gladiators: gladiators.map(g => ({
+          name: g.name, hp: g.hp, weapon: g.weapon, alive: g.alive, isPlayer: g.isPlayer
+        }))
+      };
+    }
+    setInterval(updateGameData, 500);
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

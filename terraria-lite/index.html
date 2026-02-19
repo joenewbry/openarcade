@@ -1,0 +1,1856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terraria Lite</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      user-select: none;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #4c8; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(68, 204, 136, 0.4); }
+    h1 { color: #4c8; font-size: 1.6rem; text-shadow: 0 0 15px rgba(68, 204, 136, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 0.85rem;
+    }
+    .score-bar span { color: #4c8; }
+    canvas {
+      border: 2px solid #4c8;
+      box-shadow: 0 0 20px rgba(68, 204, 136, 0.2);
+      display: block;
+      cursor: crosshair;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #4c8;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.92);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 15px rgba(68,204,136,0.5); }
+    .overlay p { font-size: 1rem; color: #aaa; margin-top: 6px; }
+    .controls-info {
+      width: 600px;
+      margin-top: 10px;
+      font-size: 0.7rem;
+      color: #555;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>TERRARIA LITE</h1>
+  </div>
+  <div class="score-bar">
+    <div>HP: <span id="hp">100</span> | Score: <span id="score">0</span></div>
+    <div>Day <span id="day">1</span> &mdash; <span id="timeOfDay">Morning</span></div>
+    <div>Tool: <span id="tool">Pickaxe</span> | Ally HP: <span id="allyHp">80</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="400"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:400px;">
+      <h2 id="overlayTitle">TERRARIA LITE</h2>
+      <p id="overlayText">Click to start</p>
+      <p style="font-size:0.75rem;color:#666;margin-top:14px;">A/D=Move W=Jump Click=Mine/Attack/Place<br>E=Inventory 1-5=Hotbar Q=Swap Tool Mode<br>Mine. Build. Survive. Fight bosses with your AI ally.</p>
+    </div>
+  </div>
+  <div class="controls-info">A/D=Move W=Jump Click=Mine/Attack/Place E=Inventory 1-5=Hotbar Q=Swap Mode</div>
+
+  <script>
+  // ========================================
+  // TERRARIA LITE — 2D Sandbox Multiplayer
+  // ========================================
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = 600, H = 400;
+  const TILE = 12;
+  const WORLD_W = 50, WORLD_H = 34;
+
+  // UI elements
+  const hpEl = document.getElementById('hp');
+  const scoreEl = document.getElementById('score');
+  const dayEl = document.getElementById('day');
+  const todEl = document.getElementById('timeOfDay');
+  const toolEl = document.getElementById('tool');
+  const allyHpEl = document.getElementById('allyHp');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayText = document.getElementById('overlayText');
+
+  let gameState = 'menu';
+  let score = 0;
+
+  // ---- Tile types ----
+  const T = {
+    AIR: 0, DIRT: 1, STONE: 2, GRASS: 3, IRON_ORE: 4, GOLD_ORE: 5,
+    WOOD: 6, LEAF: 7, PLATFORM: 8, DOOR: 9, WALL: 10, TORCH: 11,
+    BEDROCK: 12, SAND: 13
+  };
+
+  const TILE_COLORS = {
+    [T.AIR]: null,
+    [T.DIRT]: '#8B5E3C',
+    [T.STONE]: '#808080',
+    [T.GRASS]: '#4a7a3a',
+    [T.IRON_ORE]: '#A8A8C0',
+    [T.GOLD_ORE]: '#D4A017',
+    [T.WOOD]: '#6B3A1F',
+    [T.LEAF]: '#2E7D32',
+    [T.PLATFORM]: '#7A5C3E',
+    [T.DOOR]: '#5C3D1E',
+    [T.WALL]: '#5A5A5A',
+    [T.TORCH]: '#FFA000',
+    [T.BEDROCK]: '#333333',
+    [T.SAND]: '#C2B280'
+  };
+
+  const TILE_HARDNESS = {
+    [T.DIRT]: 15, [T.STONE]: 40, [T.GRASS]: 15, [T.IRON_ORE]: 55,
+    [T.GOLD_ORE]: 65, [T.WOOD]: 20, [T.LEAF]: 5, [T.PLATFORM]: 8,
+    [T.DOOR]: 12, [T.WALL]: 30, [T.TORCH]: 3, [T.BEDROCK]: 9999,
+    [T.SAND]: 10
+  };
+
+  // ---- Items / Crafting ----
+  const ITEMS = {
+    DIRT: { name: 'Dirt', tile: T.DIRT, color: '#8B5E3C', placeable: true },
+    STONE: { name: 'Stone', tile: T.STONE, color: '#808080', placeable: true },
+    WOOD: { name: 'Wood', tile: T.WOOD, color: '#6B3A1F', placeable: true },
+    IRON: { name: 'Iron', color: '#A8A8C0', placeable: false },
+    GOLD: { name: 'Gold', color: '#D4A017', placeable: false },
+    SAND: { name: 'Sand', tile: T.SAND, color: '#C2B280', placeable: true },
+    LEAF: { name: 'Leaf', tile: T.LEAF, color: '#2E7D32', placeable: true },
+    PLATFORM: { name: 'Platform', tile: T.PLATFORM, color: '#7A5C3E', placeable: true },
+    DOOR: { name: 'Door', tile: T.DOOR, color: '#5C3D1E', placeable: true },
+    WALL_BLOCK: { name: 'Wall', tile: T.WALL, color: '#5A5A5A', placeable: true },
+    TORCH: { name: 'Torch', tile: T.TORCH, color: '#FFA000', placeable: true },
+    PICKAXE: { name: 'Pickaxe', color: '#B0C4DE', tool: true },
+    SWORD: { name: 'Sword', color: '#E0E0E0', tool: true },
+    IRON_PICK: { name: 'IronPick', color: '#7090B0', tool: true },
+    IRON_SWORD: { name: 'IronSword', color: '#B0B0CC', tool: true },
+    GOLD_SWORD: { name: 'GoldSword', color: '#FFD700', tool: true }
+  };
+
+  const RECIPES = [
+    { result: 'PICKAXE', need: { WOOD: 5 }, label: 'Pickaxe (5 Wood)' },
+    { result: 'SWORD', need: { WOOD: 7, STONE: 3 }, label: 'Sword (7 Wood, 3 Stone)' },
+    { result: 'TORCH', need: { WOOD: 1 }, label: 'Torch (1 Wood)', qty: 3 },
+    { result: 'PLATFORM', need: { WOOD: 2 }, label: 'Platform (2 Wood)', qty: 4 },
+    { result: 'DOOR', need: { WOOD: 6 }, label: 'Door (6 Wood)' },
+    { result: 'WALL_BLOCK', need: { STONE: 2 }, label: 'Wall (2 Stone)', qty: 4 },
+    { result: 'IRON_PICK', need: { IRON: 8, WOOD: 3 }, label: 'IronPick (8 Iron, 3 Wood)' },
+    { result: 'IRON_SWORD', need: { IRON: 10, WOOD: 3 }, label: 'IronSword (10 Iron, 3 Wood)' },
+    { result: 'GOLD_SWORD', need: { GOLD: 12, WOOD: 5 }, label: 'GoldSword (12 Gold, 5 Wood)' }
+  ];
+
+  // ---- Game state ----
+  let world = [];
+  let lightMap = [];
+  let particles = [];
+  let enemies = [];
+  let projectiles = [];
+  let droppedItems = [];
+  let damageNumbers = [];
+  let worldTime = 0; // 0-24000 (game ticks). 12000=noon, 0=midnight
+  let dayCount = 1;
+  let bossActive = false;
+  let boss = null;
+  let showInventory = false;
+  let craftScroll = 0;
+  let miningTarget = null;
+  let miningProgress = 0;
+  let cameraX = 0, cameraY = 0;
+
+  // ---- Player ----
+  let player = null;
+  let ally = null;
+  const GRAVITY = 0.4;
+  const JUMP_VEL = -7;
+
+  function createEntity(x, y, isAlly) {
+    return {
+      x, y, w: 10, h: 20,
+      vx: 0, vy: 0,
+      hp: isAlly ? 80 : 100,
+      maxHp: isAlly ? 80 : 100,
+      onGround: false,
+      facing: 1,
+      inventory: {},
+      hotbar: ['PICKAXE', 'SWORD', 'TORCH', 'PLATFORM', 'DIRT'],
+      selectedSlot: 0,
+      toolMode: 'mine', // 'mine' or 'place'
+      attackCooldown: 0,
+      invincible: 0,
+      isAlly: !!isAlly,
+      animFrame: 0,
+      animTimer: 0,
+      swingTimer: 0,
+      // AI state
+      aiState: 'follow',
+      aiTimer: 0,
+      aiTarget: null,
+      aiMiningTarget: null,
+      aiMiningProgress: 0,
+      respawnTimer: 0
+    };
+  }
+
+  // ---- Input ----
+  const keys = {};
+  let mouseX = 0, mouseY = 0, mouseDown = false;
+  let mouseWorldX = 0, mouseWorldY = 0;
+
+  document.addEventListener('keydown', e => {
+    keys[e.key.toLowerCase()] = true;
+    if (gameState === 'playing') {
+      if (e.key === 'e' || e.key === 'E') { showInventory = !showInventory; e.preventDefault(); }
+      if (e.key === 'q' || e.key === 'Q') {
+        player.toolMode = player.toolMode === 'mine' ? 'place' : 'mine';
+        e.preventDefault();
+      }
+      if (e.key >= '1' && e.key <= '5') {
+        player.selectedSlot = parseInt(e.key) - 1;
+        e.preventDefault();
+      }
+      if (['w','a','d',' '].includes(e.key.toLowerCase())) e.preventDefault();
+    }
+    if (gameState === 'menu' || gameState === 'gameover') {
+      startGame();
+    }
+  });
+  document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+  canvas.addEventListener('mousemove', e => {
+    const r = canvas.getBoundingClientRect();
+    mouseX = e.clientX - r.left;
+    mouseY = e.clientY - r.top;
+    mouseWorldX = mouseX + cameraX;
+    mouseWorldY = mouseY + cameraY;
+  });
+  canvas.addEventListener('mousedown', e => {
+    e.preventDefault();
+    if (gameState === 'menu' || gameState === 'gameover') { startGame(); return; }
+    mouseDown = true;
+    if (showInventory) handleInventoryClick(mouseX, mouseY);
+  });
+  canvas.addEventListener('mouseup', e => { mouseDown = false; miningTarget = null; miningProgress = 0; });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  // ---- World Generation ----
+  function generateWorld() {
+    world = [];
+    for (let x = 0; x < WORLD_W; x++) {
+      world[x] = [];
+      // Surface height: gentle hills
+      const surfaceY = Math.floor(10 + Math.sin(x * 0.15) * 2 + Math.sin(x * 0.07) * 3);
+      for (let y = 0; y < WORLD_H; y++) {
+        if (y < surfaceY - 1) {
+          world[x][y] = T.AIR;
+        } else if (y === surfaceY - 1) {
+          // Surface: grass
+          world[x][y] = T.GRASS;
+        } else if (y < surfaceY + 5) {
+          world[x][y] = T.DIRT;
+        } else if (y >= WORLD_H - 1) {
+          world[x][y] = T.BEDROCK;
+        } else {
+          // Underground: stone with ores
+          const r = Math.random();
+          if (r < 0.03 && y > surfaceY + 8) world[x][y] = T.GOLD_ORE;
+          else if (r < 0.08 && y > surfaceY + 5) world[x][y] = T.IRON_ORE;
+          else world[x][y] = T.STONE;
+        }
+        // Caves
+        const cx = x * 0.12, cy = y * 0.12;
+        const n = Math.sin(cx * 2.1 + cy * 1.3) * Math.cos(cx * 1.7 - cy * 2.4) +
+                  Math.sin(cx * 0.9 + cy * 3.1) * 0.5;
+        if (n > 0.55 && y > surfaceY + 2 && y < WORLD_H - 1) {
+          world[x][y] = T.AIR;
+        }
+      }
+    }
+    // Trees
+    for (let x = 2; x < WORLD_W - 2; x++) {
+      if (Math.random() < 0.12) {
+        const surfaceY = getSurface(x);
+        if (surfaceY > 3 && world[x][surfaceY] === T.GRASS) {
+          const h = 3 + Math.floor(Math.random() * 3);
+          for (let ty = 1; ty <= h; ty++) {
+            if (surfaceY - 1 - ty >= 0) world[x][surfaceY - 1 - ty] = T.WOOD;
+          }
+          // Leaves
+          for (let lx = -1; lx <= 1; lx++) {
+            for (let ly = 0; ly <= 2; ly++) {
+              const tx = x + lx, ty = surfaceY - 1 - h - ly;
+              if (tx >= 0 && tx < WORLD_W && ty >= 0 && world[tx][ty] === T.AIR) {
+                world[tx][ty] = T.LEAF;
+              }
+            }
+          }
+          x += 3; // spacing
+        }
+      }
+    }
+  }
+
+  function getSurface(x) {
+    for (let y = 0; y < WORLD_H; y++) {
+      if (world[x] && world[x][y] !== T.AIR) return y;
+    }
+    return WORLD_H - 2;
+  }
+
+  function tileAt(x, y) {
+    if (x < 0 || x >= WORLD_W || y < 0 || y >= WORLD_H) return T.BEDROCK;
+    return world[x][y];
+  }
+
+  function setTile(x, y, t) {
+    if (x < 0 || x >= WORLD_W || y < 0 || y >= WORLD_H) return;
+    if (world[x][y] === T.BEDROCK) return;
+    world[x][y] = t;
+  }
+
+  // ---- Light map ----
+  function computeLight() {
+    lightMap = [];
+    for (let x = 0; x < WORLD_W; x++) {
+      lightMap[x] = [];
+      for (let y = 0; y < WORLD_H; y++) lightMap[x][y] = 0;
+    }
+    // Sunlight from top (reduced at night)
+    const isNight = worldTime < 5000 || worldTime > 19000;
+    const skyLight = isNight ? 0.15 : 1.0;
+    const duskLight = (worldTime >= 17000 && worldTime <= 19000) ?
+      1.0 - (worldTime - 17000) / 2000 * 0.85 :
+      (worldTime >= 5000 && worldTime <= 7000) ?
+      0.15 + (worldTime - 5000) / 2000 * 0.85 : skyLight;
+
+    for (let x = 0; x < WORLD_W; x++) {
+      let sunPen = duskLight;
+      for (let y = 0; y < WORLD_H; y++) {
+        if (world[x][y] !== T.AIR && world[x][y] !== T.PLATFORM) {
+          sunPen *= 0.65;
+        }
+        lightMap[x][y] = Math.max(lightMap[x][y], sunPen);
+      }
+    }
+    // Torches
+    for (let x = 0; x < WORLD_W; x++) {
+      for (let y = 0; y < WORLD_H; y++) {
+        if (world[x][y] === T.TORCH) {
+          addLight(x, y, 1.0, 6);
+        }
+      }
+    }
+    // Player glow
+    if (player) {
+      const px = Math.floor(player.x / TILE);
+      const py = Math.floor(player.y / TILE);
+      addLight(px, py, 0.6, 4);
+    }
+  }
+
+  function addLight(ox, oy, intensity, radius) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        const x = ox + dx, y = oy + dy;
+        if (x < 0 || x >= WORLD_W || y < 0 || y >= WORLD_H) continue;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= radius) {
+          const v = intensity * (1 - dist / radius);
+          lightMap[x][y] = Math.min(1, Math.max(lightMap[x][y], v));
+        }
+      }
+    }
+  }
+
+  // ---- Particles ----
+  function spawnParticle(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 3,
+        vy: (Math.random() - 0.5) * 3 - 1,
+        life: 20 + Math.random() * 20,
+        color,
+        size: 1 + Math.random() * 2
+      });
+    }
+  }
+
+  function spawnDamageNumber(x, y, dmg, color) {
+    damageNumbers.push({ x, y, text: '-' + dmg, color: color || '#f44', life: 40, vy: -1.5 });
+  }
+
+  // ---- Collision ----
+  function solidAt(wx, wy) {
+    const t = tileAt(wx, wy);
+    return t !== T.AIR && t !== T.TORCH && t !== T.PLATFORM;
+  }
+
+  function platformAt(wx, wy) {
+    return tileAt(wx, wy) === T.PLATFORM;
+  }
+
+  function moveEntity(e) {
+    // Horizontal
+    e.x += e.vx;
+    const left = Math.floor(e.x / TILE);
+    const right = Math.floor((e.x + e.w) / TILE);
+    const top = Math.floor(e.y / TILE);
+    const bot = Math.floor((e.y + e.h - 1) / TILE);
+    for (let tx = left; tx <= right; tx++) {
+      for (let ty = top; ty <= bot; ty++) {
+        if (solidAt(tx, ty)) {
+          if (e.vx > 0) e.x = tx * TILE - e.w - 0.01;
+          else if (e.vx < 0) e.x = (tx + 1) * TILE + 0.01;
+          e.vx = 0;
+        }
+      }
+    }
+
+    // Vertical
+    e.vy += GRAVITY;
+    if (e.vy > 10) e.vy = 10;
+    e.y += e.vy;
+    e.onGround = false;
+    const left2 = Math.floor(e.x / TILE);
+    const right2 = Math.floor((e.x + e.w) / TILE);
+    const top2 = Math.floor(e.y / TILE);
+    const bot2 = Math.floor((e.y + e.h - 1) / TILE);
+    for (let tx = left2; tx <= right2; tx++) {
+      for (let ty = top2; ty <= bot2; ty++) {
+        const isSolid = solidAt(tx, ty);
+        const isPlat = platformAt(tx, ty);
+        if (isSolid || (isPlat && e.vy > 0 && (e.y + e.h - e.vy) <= ty * TILE + 1)) {
+          if (e.vy > 0) {
+            e.y = ty * TILE - e.h;
+            e.vy = 0;
+            e.onGround = true;
+          } else if (e.vy < 0 && isSolid) {
+            e.y = (ty + 1) * TILE;
+            e.vy = 0;
+          }
+        }
+      }
+    }
+
+    // World bounds
+    if (e.x < 0) { e.x = 0; e.vx = 0; }
+    if (e.x + e.w > WORLD_W * TILE) { e.x = WORLD_W * TILE - e.w; e.vx = 0; }
+    if (e.y < 0) { e.y = 0; e.vy = 0; }
+    if (e.y > WORLD_H * TILE) { e.y = (WORLD_H - 3) * TILE; e.vy = 0; }
+  }
+
+  // ---- Inventory helpers ----
+  function addItem(entity, item, count) {
+    if (!count) count = 1;
+    entity.inventory[item] = (entity.inventory[item] || 0) + count;
+  }
+
+  function hasItem(entity, item, count) {
+    return (entity.inventory[item] || 0) >= (count || 1);
+  }
+
+  function removeItem(entity, item, count) {
+    if (!count) count = 1;
+    entity.inventory[item] = (entity.inventory[item] || 0) - count;
+    if (entity.inventory[item] <= 0) delete entity.inventory[item];
+  }
+
+  function getSelectedItem(entity) {
+    return entity.hotbar[entity.selectedSlot];
+  }
+
+  function tileToItem(t) {
+    switch (t) {
+      case T.DIRT: case T.GRASS: return 'DIRT';
+      case T.STONE: return 'STONE';
+      case T.WOOD: return 'WOOD';
+      case T.IRON_ORE: return 'IRON';
+      case T.GOLD_ORE: return 'GOLD';
+      case T.LEAF: return 'LEAF';
+      case T.SAND: return 'SAND';
+      case T.PLATFORM: return 'PLATFORM';
+      case T.DOOR: return 'DOOR';
+      case T.WALL: return 'WALL_BLOCK';
+      case T.TORCH: return 'TORCH';
+      default: return 'STONE';
+    }
+  }
+
+  function getMiningSpeed(entity) {
+    const sel = getSelectedItem(entity);
+    if (sel === 'IRON_PICK') return 3;
+    if (sel === 'PICKAXE') return 2;
+    return 1;
+  }
+
+  function getAttackDmg(entity) {
+    const sel = getSelectedItem(entity);
+    if (sel === 'GOLD_SWORD') return 25;
+    if (sel === 'IRON_SWORD') return 15;
+    if (sel === 'SWORD') return 8;
+    return 3;
+  }
+
+  // ---- Mining ----
+  function tryMine(entity, tx, ty) {
+    const tile = tileAt(tx, ty);
+    if (tile === T.AIR || tile === T.BEDROCK) return false;
+    const hardness = TILE_HARDNESS[tile] || 30;
+    const speed = getMiningSpeed(entity);
+    if (entity === player) {
+      if (!miningTarget || miningTarget.x !== tx || miningTarget.y !== ty) {
+        miningTarget = { x: tx, y: ty };
+        miningProgress = 0;
+      }
+      miningProgress += speed;
+      if (miningProgress >= hardness) {
+        mineTile(entity, tx, ty, tile);
+        miningTarget = null;
+        miningProgress = 0;
+        return true;
+      }
+    } else {
+      // AI mining
+      if (!entity.aiMiningTarget || entity.aiMiningTarget.x !== tx || entity.aiMiningTarget.y !== ty) {
+        entity.aiMiningTarget = { x: tx, y: ty };
+        entity.aiMiningProgress = 0;
+      }
+      entity.aiMiningProgress += speed;
+      if (entity.aiMiningProgress >= hardness) {
+        mineTile(entity, tx, ty, tile);
+        entity.aiMiningTarget = null;
+        entity.aiMiningProgress = 0;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function mineTile(entity, tx, ty, tile) {
+    const item = tileToItem(tile);
+    addItem(entity, item, 1);
+    setTile(tx, ty, T.AIR);
+    spawnParticle(tx * TILE + TILE / 2, ty * TILE + TILE / 2, TILE_COLORS[tile], 6);
+    score += 1;
+    if (entity === player) {
+      // Auto-add to hotbar if placeable and not on hotbar
+      const info = ITEMS[item];
+      if (info && info.placeable && !entity.hotbar.includes(item)) {
+        for (let i = 0; i < 5; i++) {
+          const hb = entity.hotbar[i];
+          if (!hb || (!ITEMS[hb]?.tool && !(entity.inventory[hb] > 0))) {
+            entity.hotbar[i] = item;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // ---- Placing ----
+  function tryPlace(entity, tx, ty) {
+    if (tileAt(tx, ty) !== T.AIR) return false;
+    const sel = getSelectedItem(entity);
+    const info = ITEMS[sel];
+    if (!info || !info.placeable) return false;
+    if (!hasItem(entity, sel)) return false;
+    // Check not overlapping entity
+    const ex = tx * TILE, ey = ty * TILE;
+    if (rectsOverlap(ex, ey, TILE, TILE, player.x, player.y, player.w, player.h)) return false;
+    if (ally && rectsOverlap(ex, ey, TILE, TILE, ally.x, ally.y, ally.w, ally.h)) return false;
+    removeItem(entity, sel, 1);
+    setTile(tx, ty, info.tile);
+    spawnParticle(tx * TILE + TILE / 2, ty * TILE + TILE / 2, info.color, 3);
+    score += 1;
+    return true;
+  }
+
+  // ---- Combat ----
+  function tryAttack(entity, targetX, targetY) {
+    if (entity.attackCooldown > 0) return;
+    entity.swingTimer = 8;
+    entity.attackCooldown = 15;
+    const dmg = getAttackDmg(entity);
+    const range = 30;
+    // Check enemies
+    for (const e of enemies) {
+      const ecx = e.x + e.w / 2, ecy = e.y + e.h / 2;
+      const dist = Math.hypot(ecx - (entity.x + entity.w / 2), ecy - (entity.y + entity.h / 2));
+      if (dist < range + e.w) {
+        hurtEnemy(e, dmg, entity);
+      }
+    }
+    // Boss
+    if (boss) {
+      const bcx = boss.x + boss.w / 2, bcy = boss.y + boss.h / 2;
+      const dist = Math.hypot(bcx - (entity.x + entity.w / 2), bcy - (entity.y + entity.h / 2));
+      if (dist < range + boss.w) {
+        boss.hp -= dmg;
+        spawnDamageNumber(boss.x + boss.w / 2, boss.y - 5, dmg, '#ff0');
+        spawnParticle(boss.x + boss.w / 2, boss.y + boss.h / 2, '#a00', 5);
+        if (boss.hp <= 0) {
+          score += 200;
+          spawnParticle(boss.x + boss.w / 2, boss.y + boss.h / 2, '#ff0', 30);
+          // Drop gold
+          for (let i = 0; i < 8; i++) {
+            droppedItems.push({
+              x: boss.x + Math.random() * boss.w,
+              y: boss.y,
+              vy: -3 - Math.random() * 2,
+              item: 'GOLD',
+              life: 300
+            });
+          }
+          boss = null;
+          bossActive = false;
+        }
+      }
+    }
+  }
+
+  function hurtEnemy(e, dmg, attacker) {
+    e.hp -= dmg;
+    const knockDir = e.x > attacker.x ? 1 : -1;
+    e.vx = knockDir * 3;
+    e.vy = -2;
+    spawnDamageNumber(e.x + e.w / 2, e.y - 5, dmg);
+    spawnParticle(e.x + e.w / 2, e.y + e.h / 2, '#a00', 4);
+  }
+
+  function hurtEntity(entity, dmg) {
+    if (entity.invincible > 0) return;
+    entity.hp -= dmg;
+    entity.invincible = 30;
+    spawnDamageNumber(entity.x + entity.w / 2, entity.y - 5, dmg, entity.isAlly ? '#f90' : '#f00');
+    if (entity.hp <= 0 && !entity.isAlly) {
+      gameState = 'gameover';
+      overlayTitle.textContent = 'GAME OVER';
+      overlayText.textContent = `Score: ${score} | Day ${dayCount} | Click to restart`;
+      overlay.style.display = 'flex';
+    }
+    if (entity.hp <= 0 && entity.isAlly) {
+      entity.respawnTimer = 300; // respawn after 5 seconds
+      entity.hp = 0;
+    }
+  }
+
+  function rectsOverlap(x1, y1, w1, h1, x2, y2, w2, h2) {
+    return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
+  }
+
+  // ---- Enemies ----
+  function spawnEnemy() {
+    const isNight = worldTime < 5000 || worldTime > 19000;
+    const types = ['slime', 'zombie', 'skeleton'];
+    const type = types[Math.floor(Math.random() * (isNight ? 3 : 1))]; // only slimes during day underground
+    // Spawn near player but off-screen
+    const side = Math.random() < 0.5 ? -1 : 1;
+    let sx = player.x + side * (W / 2 + 30 + Math.random() * 50);
+    let sy;
+    if (isNight) {
+      // Surface spawn
+      const tx = Math.floor(sx / TILE);
+      if (tx < 0 || tx >= WORLD_W) return;
+      sy = (getSurface(Math.max(0, Math.min(WORLD_W - 1, tx))) - 1) * TILE;
+    } else {
+      // Underground spawn near player if underground
+      if (player.y < getSurface(Math.floor(player.x / TILE)) * TILE) return;
+      sy = player.y + (Math.random() - 0.5) * 100;
+    }
+
+    const e = {
+      x: sx, y: sy, vx: 0, vy: 0,
+      type,
+      hp: type === 'slime' ? 20 : type === 'zombie' ? 35 : 25,
+      maxHp: type === 'slime' ? 20 : type === 'zombie' ? 35 : 25,
+      w: type === 'slime' ? 12 : 10,
+      h: type === 'slime' ? 10 : 18,
+      dmg: type === 'slime' ? 5 : type === 'zombie' ? 10 : 8,
+      speed: type === 'slime' ? 0.8 : type === 'zombie' ? 0.5 : 1.0,
+      onGround: false,
+      jumpTimer: 0,
+      color: type === 'slime' ? '#4f4' : type === 'zombie' ? '#696' : '#ddd',
+      attackTimer: 0,
+      shootTimer: type === 'skeleton' ? 60 : 0
+    };
+    enemies.push(e);
+  }
+
+  function spawnBoss() {
+    if (bossActive) return;
+    bossActive = true;
+    const sx = player.x + (Math.random() < 0.5 ? -200 : 200);
+    const tx = Math.max(0, Math.min(WORLD_W - 1, Math.floor(sx / TILE)));
+    const sy = (getSurface(tx) - 3) * TILE;
+    boss = {
+      x: sx, y: sy, w: 28, h: 28,
+      vx: 0, vy: 0,
+      hp: 300, maxHp: 300,
+      onGround: false,
+      phase: 0,
+      attackTimer: 0,
+      jumpTimer: 0,
+      chargeTimer: 0,
+      summonTimer: 200
+    };
+  }
+
+  function updateEnemy(e) {
+    // Move toward player
+    const dx = (player.x + player.w / 2) - (e.x + e.w / 2);
+    const dy = (player.y + player.h / 2) - (e.y + e.h / 2);
+    const dist = Math.hypot(dx, dy);
+
+    if (e.type === 'slime') {
+      e.jumpTimer--;
+      if (e.onGround && e.jumpTimer <= 0) {
+        e.vy = -5 - Math.random() * 2;
+        e.vx = Math.sign(dx) * (1 + Math.random());
+        e.jumpTimer = 30 + Math.random() * 40;
+      }
+    } else if (e.type === 'skeleton') {
+      // Keep distance and shoot
+      if (dist < 60) e.vx = -Math.sign(dx) * e.speed;
+      else if (dist > 120) e.vx = Math.sign(dx) * e.speed;
+      else e.vx *= 0.9;
+      e.shootTimer--;
+      if (e.shootTimer <= 0 && dist < 200) {
+        projectiles.push({
+          x: e.x + e.w / 2, y: e.y + e.h / 4,
+          vx: Math.sign(dx) * 3, vy: -1,
+          dmg: 8, life: 90, color: '#eee', friendly: false
+        });
+        e.shootTimer = 70 + Math.random() * 30;
+      }
+      if (e.onGround && Math.random() < 0.02) e.vy = -5;
+    } else {
+      e.vx = Math.sign(dx) * e.speed;
+      if (e.onGround && Math.random() < 0.03) e.vy = -6;
+    }
+
+    e.vy += GRAVITY;
+    if (e.vy > 8) e.vy = 8;
+    e.vx *= 0.92;
+
+    // Simple collision
+    e.x += e.vx;
+    e.y += e.vy;
+    e.onGround = false;
+
+    // Ground check
+    const btx = Math.floor((e.x + e.w / 2) / TILE);
+    const bty = Math.floor((e.y + e.h) / TILE);
+    if (solidAt(btx, bty) || platformAt(btx, bty)) {
+      if (e.vy >= 0) {
+        e.y = bty * TILE - e.h;
+        e.vy = 0;
+        e.onGround = true;
+      }
+    }
+    // Wall check
+    const wx = Math.floor((e.x + (e.vx > 0 ? e.w : 0)) / TILE);
+    const wy = Math.floor((e.y + e.h / 2) / TILE);
+    if (solidAt(wx, wy)) {
+      e.x -= e.vx;
+      e.vx = 0;
+      if (e.onGround) e.vy = -5; // jump over obstacles
+    }
+
+    // Hit player
+    if (rectsOverlap(e.x, e.y, e.w, e.h, player.x, player.y, player.w, player.h)) {
+      hurtEntity(player, e.dmg);
+    }
+    // Hit ally
+    if (ally && ally.hp > 0 && rectsOverlap(e.x, e.y, e.w, e.h, ally.x, ally.y, ally.w, ally.h)) {
+      hurtEntity(ally, e.dmg);
+    }
+
+    // Remove if dead
+    if (e.hp <= 0) {
+      score += e.type === 'slime' ? 10 : e.type === 'zombie' ? 20 : 15;
+      spawnParticle(e.x + e.w / 2, e.y + e.h / 2, e.color, 10);
+      // Random drop
+      if (Math.random() < 0.3) {
+        const drops = ['IRON', 'WOOD', 'TORCH', 'STONE'];
+        droppedItems.push({
+          x: e.x + e.w / 2, y: e.y,
+          vy: -2, item: drops[Math.floor(Math.random() * drops.length)],
+          life: 300
+        });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  function updateBoss() {
+    if (!boss) return;
+    const dx = player.x - boss.x;
+    const dy = player.y - boss.y;
+
+    boss.vy += GRAVITY * 0.5;
+    boss.attackTimer--;
+    boss.summonTimer--;
+    boss.chargeTimer--;
+
+    // Phase based on HP
+    boss.phase = boss.hp < 150 ? 1 : 0;
+    const speed = boss.phase === 1 ? 2.0 : 1.2;
+
+    // Chase player
+    boss.vx = Math.sign(dx) * speed;
+    if (boss.onGround && Math.random() < 0.04) boss.vy = -8;
+
+    // Charge attack
+    if (boss.chargeTimer <= 0 && Math.abs(dx) < 200) {
+      boss.vx = Math.sign(dx) * 5;
+      boss.chargeTimer = 80 + Math.random() * 40;
+    }
+
+    // Summon minions
+    if (boss.summonTimer <= 0) {
+      for (let i = 0; i < 2; i++) spawnEnemy();
+      boss.summonTimer = boss.phase === 1 ? 150 : 250;
+    }
+
+    // Shoot projectiles in phase 2
+    if (boss.phase === 1 && boss.attackTimer <= 0) {
+      for (let a = -1; a <= 1; a++) {
+        projectiles.push({
+          x: boss.x + boss.w / 2, y: boss.y + boss.h / 2,
+          vx: Math.sign(dx) * 2.5 + a * 0.5,
+          vy: -1.5 + a * 0.8,
+          dmg: 12, life: 80, color: '#f44', friendly: false
+        });
+      }
+      boss.attackTimer = 50;
+    }
+
+    boss.x += boss.vx;
+    boss.y += boss.vy;
+    boss.onGround = false;
+    boss.vx *= 0.9;
+
+    // Ground/wall
+    const btx = Math.floor((boss.x + boss.w / 2) / TILE);
+    const bty = Math.floor((boss.y + boss.h) / TILE);
+    if (solidAt(btx, bty)) {
+      boss.y = bty * TILE - boss.h;
+      boss.vy = 0;
+      boss.onGround = true;
+    }
+
+    // Hit player/ally
+    if (rectsOverlap(boss.x, boss.y, boss.w, boss.h, player.x, player.y, player.w, player.h)) {
+      hurtEntity(player, 15);
+    }
+    if (ally && ally.hp > 0 && rectsOverlap(boss.x, boss.y, boss.w, boss.h, ally.x, ally.y, ally.w, ally.h)) {
+      hurtEntity(ally, 15);
+    }
+  }
+
+  // ---- AI Ally ----
+  function updateAlly() {
+    if (!ally) return;
+    if (ally.hp <= 0) {
+      ally.respawnTimer--;
+      if (ally.respawnTimer <= 0) {
+        ally.hp = ally.maxHp;
+        ally.x = player.x + 20;
+        ally.y = player.y - 30;
+        ally.vy = 0;
+        ally.vx = 0;
+      }
+      return;
+    }
+
+    ally.attackCooldown--;
+    ally.invincible--;
+    ally.aiTimer--;
+
+    const dx = player.x - ally.x;
+    const dy = player.y - ally.y;
+    const dist = Math.hypot(dx, dy);
+
+    // Find nearest enemy
+    let nearestEnemy = null, nearestDist = Infinity;
+    for (const e of enemies) {
+      const d = Math.hypot(e.x - ally.x, e.y - ally.y);
+      if (d < nearestDist) { nearestDist = d; nearestEnemy = e; }
+    }
+    if (boss) {
+      const d = Math.hypot(boss.x - ally.x, boss.y - ally.y);
+      if (d < nearestDist) { nearestDist = d; nearestEnemy = boss; }
+    }
+
+    // AI state machine
+    if (nearestEnemy && nearestDist < 100) {
+      ally.aiState = 'fight';
+    } else if (dist > 120) {
+      ally.aiState = 'follow';
+    } else if (ally.aiTimer <= 0) {
+      // When idle near player, mine nearby ores or gather resources
+      ally.aiState = Math.random() < 0.5 ? 'mine' : 'follow';
+      ally.aiTimer = 60 + Math.random() * 120;
+    }
+
+    switch (ally.aiState) {
+      case 'follow': {
+        ally.vx = Math.sign(dx) * 1.5;
+        if (ally.onGround && (dy < -20 || (Math.abs(dx) > 5 && isBlockedAhead(ally)))) {
+          ally.vy = JUMP_VEL;
+        }
+        ally.facing = Math.sign(dx) || 1;
+        break;
+      }
+      case 'fight': {
+        if (nearestEnemy) {
+          const edx = nearestEnemy.x - ally.x;
+          ally.vx = Math.sign(edx) * 1.2;
+          ally.facing = Math.sign(edx) || 1;
+          if (nearestDist < 30) {
+            ally.selectedSlot = 1; // sword
+            tryAttack(ally, nearestEnemy.x, nearestEnemy.y);
+            if (nearestDist < 15) ally.vx = -Math.sign(edx) * 0.5; // back up slightly
+          }
+          if (ally.onGround && nearestEnemy.y < ally.y - 15) ally.vy = JUMP_VEL;
+        }
+        break;
+      }
+      case 'mine': {
+        // Find nearest ore/resource within range
+        const atx = Math.floor(ally.x / TILE);
+        const aty = Math.floor(ally.y / TILE);
+        let bestTile = null, bestDist = 999;
+        for (let dx2 = -4; dx2 <= 4; dx2++) {
+          for (let dy2 = -3; dy2 <= 3; dy2++) {
+            const mx = atx + dx2, my = aty + dy2;
+            const t = tileAt(mx, my);
+            if (t === T.IRON_ORE || t === T.GOLD_ORE || t === T.WOOD || t === T.STONE) {
+              const d = Math.abs(dx2) + Math.abs(dy2);
+              if (d < bestDist) { bestDist = d; bestTile = { x: mx, y: my }; }
+            }
+          }
+        }
+        if (bestTile) {
+          const tdx = bestTile.x * TILE + TILE / 2 - (ally.x + ally.w / 2);
+          if (Math.abs(tdx) > TILE) ally.vx = Math.sign(tdx) * 1.0;
+          ally.facing = Math.sign(tdx) || 1;
+          ally.selectedSlot = 0; // pickaxe
+          tryMine(ally, bestTile.x, bestTile.y);
+        } else {
+          ally.aiState = 'follow';
+        }
+        break;
+      }
+    }
+
+    // Share resources with player periodically
+    if (Math.random() < 0.002) {
+      for (const [item, count] of Object.entries(ally.inventory)) {
+        if (count > 3) {
+          const give = Math.floor(count / 2);
+          removeItem(ally, item, give);
+          addItem(player, item, give);
+        }
+      }
+    }
+
+    ally.vy += GRAVITY;
+    ally.vx *= 0.85;
+    moveEntity(ally);
+
+    ally.animTimer++;
+    if (ally.animTimer > 8) { ally.animTimer = 0; ally.animFrame = (ally.animFrame + 1) % 4; }
+  }
+
+  function isBlockedAhead(entity) {
+    const ahead = Math.floor((entity.x + entity.w / 2 + entity.facing * 12) / TILE);
+    const ey = Math.floor((entity.y + entity.h / 2) / TILE);
+    return solidAt(ahead, ey);
+  }
+
+  // ---- Crafting ----
+  function craft(recipeIdx) {
+    const r = RECIPES[recipeIdx];
+    for (const [item, need] of Object.entries(r.need)) {
+      if (!hasItem(player, item, need)) return false;
+    }
+    for (const [item, need] of Object.entries(r.need)) {
+      removeItem(player, item, need);
+    }
+    addItem(player, r.result, r.qty || 1);
+    score += 5;
+    // Auto hotbar
+    const info = ITEMS[r.result];
+    if (info && !player.hotbar.includes(r.result)) {
+      for (let i = 0; i < 5; i++) {
+        const hb = player.hotbar[i];
+        if (!hb || (!ITEMS[hb]?.tool && !(player.inventory[hb] > 0))) {
+          player.hotbar[i] = r.result;
+          break;
+        }
+      }
+    }
+    return true;
+  }
+
+  function handleInventoryClick(mx, my) {
+    // Check recipe buttons
+    const invX = W / 2 - 145, invY = 40;
+    const recipeY = invY + 90;
+    for (let i = 0; i < RECIPES.length; i++) {
+      const ry = recipeY + i * 22;
+      if (mx >= invX && mx <= invX + 290 && my >= ry && my <= ry + 20) {
+        craft(i);
+        return;
+      }
+    }
+  }
+
+  // ---- Dropped items ----
+  function updateDroppedItems() {
+    for (let i = droppedItems.length - 1; i >= 0; i--) {
+      const d = droppedItems[i];
+      d.vy += 0.2;
+      d.y += d.vy;
+      d.life--;
+
+      // Ground
+      const ty = Math.floor((d.y + 4) / TILE);
+      const tx = Math.floor(d.x / TILE);
+      if (solidAt(tx, ty)) {
+        d.y = ty * TILE - 4;
+        d.vy = 0;
+      }
+
+      // Pickup
+      if (Math.hypot(d.x - player.x - player.w / 2, d.y - player.y - player.h / 2) < 20) {
+        addItem(player, d.item, 1);
+        spawnParticle(d.x, d.y, ITEMS[d.item]?.color || '#fff', 3);
+        droppedItems.splice(i, 1);
+        continue;
+      }
+      if (ally && ally.hp > 0 && Math.hypot(d.x - ally.x - ally.w / 2, d.y - ally.y - ally.h / 2) < 20) {
+        addItem(ally, d.item, 1);
+        droppedItems.splice(i, 1);
+        continue;
+      }
+
+      if (d.life <= 0) droppedItems.splice(i, 1);
+    }
+  }
+
+  // ---- Projectiles ----
+  function updateProjectiles() {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.05;
+      p.life--;
+
+      // Hit wall
+      const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+      if (solidAt(tx, ty)) { projectiles.splice(i, 1); continue; }
+
+      if (!p.friendly) {
+        if (rectsOverlap(p.x - 2, p.y - 2, 4, 4, player.x, player.y, player.w, player.h)) {
+          hurtEntity(player, p.dmg);
+          projectiles.splice(i, 1); continue;
+        }
+        if (ally && ally.hp > 0 && rectsOverlap(p.x - 2, p.y - 2, 4, 4, ally.x, ally.y, ally.w, ally.h)) {
+          hurtEntity(ally, p.dmg);
+          projectiles.splice(i, 1); continue;
+        }
+      }
+
+      if (p.life <= 0) projectiles.splice(i, 1);
+    }
+  }
+
+  // ---- Player Update ----
+  function updatePlayer() {
+    // Movement
+    if (keys['a']) { player.vx = -2.5; player.facing = -1; }
+    else if (keys['d']) { player.vx = 2.5; player.facing = 1; }
+    else player.vx *= 0.7;
+
+    if ((keys['w'] || keys[' ']) && player.onGround) {
+      player.vy = JUMP_VEL;
+    }
+
+    player.attackCooldown--;
+    player.invincible--;
+    player.swingTimer--;
+
+    // Animation
+    if (Math.abs(player.vx) > 0.5) {
+      player.animTimer++;
+      if (player.animTimer > 6) { player.animTimer = 0; player.animFrame = (player.animFrame + 1) % 4; }
+    } else {
+      player.animFrame = 0;
+    }
+
+    moveEntity(player);
+
+    // Mouse interaction
+    if (mouseDown && !showInventory) {
+      mouseWorldX = mouseX + cameraX;
+      mouseWorldY = mouseY + cameraY;
+      const tx = Math.floor(mouseWorldX / TILE);
+      const ty = Math.floor(mouseWorldY / TILE);
+      const dist = Math.hypot(tx * TILE - player.x, ty * TILE - player.y);
+
+      if (dist < 70) {
+        const sel = getSelectedItem(player);
+        const info = ITEMS[sel];
+
+        if (player.toolMode === 'mine' || (info && info.tool)) {
+          if (sel === 'SWORD' || sel === 'IRON_SWORD' || sel === 'GOLD_SWORD') {
+            tryAttack(player, mouseWorldX, mouseWorldY);
+          } else {
+            tryMine(player, tx, ty);
+          }
+        } else {
+          tryPlace(player, tx, ty);
+        }
+      }
+    }
+  }
+
+  // ---- Camera ----
+  function updateCamera() {
+    const targetX = player.x + player.w / 2 - W / 2;
+    const targetY = player.y + player.h / 2 - H / 2;
+    cameraX += (targetX - cameraX) * 0.1;
+    cameraY += (targetY - cameraY) * 0.1;
+    cameraX = Math.max(0, Math.min(WORLD_W * TILE - W, cameraX));
+    cameraY = Math.max(0, Math.min(WORLD_H * TILE - H, cameraY));
+  }
+
+  // ---- Render ----
+  function render() {
+    // Sky gradient based on time
+    const isNight = worldTime < 5000 || worldTime > 19000;
+    const duskFactor = (worldTime >= 17000 && worldTime <= 19000) ?
+      (worldTime - 17000) / 2000 :
+      (worldTime >= 5000 && worldTime <= 7000) ?
+      1 - (worldTime - 5000) / 2000 : (isNight ? 1 : 0);
+
+    const skyR = Math.floor(30 + (1 - duskFactor) * 105);
+    const skyG = Math.floor(30 + (1 - duskFactor) * 150);
+    const skyB = Math.floor(60 + (1 - duskFactor) * 200);
+    ctx.fillStyle = `rgb(${skyR},${skyG},${skyB})`;
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars at night
+    if (duskFactor > 0.5) {
+      ctx.fillStyle = `rgba(255,255,255,${(duskFactor - 0.5) * 1.5})`;
+      for (let i = 0; i < 40; i++) {
+        const sx = (i * 137 + i * i * 31) % W;
+        const sy = (i * 89 + i * i * 17) % (H * 0.4);
+        ctx.fillRect(sx, sy, 1.5, 1.5);
+      }
+    }
+
+    // Sun/Moon
+    const timeAngle = (worldTime / 24000) * Math.PI * 2 - Math.PI / 2;
+    const celestialX = W / 2 + Math.cos(timeAngle) * 250;
+    const celestialY = H * 0.3 + Math.sin(timeAngle) * 150;
+    if (isNight) {
+      ctx.beginPath();
+      ctx.arc(celestialX, celestialY, 15, 0, Math.PI * 2);
+      ctx.fillStyle = '#E8E8F0';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(celestialX + 5, celestialY - 3, 12, 0, Math.PI * 2);
+      ctx.fillStyle = `rgb(${skyR},${skyG},${skyB})`;
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(celestialX, celestialY, 18, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFE44D';
+      ctx.fill();
+      ctx.shadowColor = '#FFE44D';
+      ctx.shadowBlur = 20;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Tiles
+    const startTX = Math.max(0, Math.floor(cameraX / TILE));
+    const endTX = Math.min(WORLD_W - 1, Math.floor((cameraX + W) / TILE) + 1);
+    const startTY = Math.max(0, Math.floor(cameraY / TILE));
+    const endTY = Math.min(WORLD_H - 1, Math.floor((cameraY + H) / TILE) + 1);
+
+    for (let tx = startTX; tx <= endTX; tx++) {
+      for (let ty = startTY; ty <= endTY; ty++) {
+        const tile = world[tx]?.[ty];
+        if (tile === T.AIR) continue;
+        const color = TILE_COLORS[tile];
+        if (!color) continue;
+
+        const sx = tx * TILE - cameraX;
+        const sy = ty * TILE - cameraY;
+        const light = lightMap[tx]?.[ty] ?? 0.5;
+
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.3 + light * 0.7;
+        ctx.fillRect(sx, sy, TILE, TILE);
+
+        // Tile detail
+        if (tile === T.GRASS) {
+          ctx.fillStyle = '#5a9a4a';
+          ctx.fillRect(sx, sy, TILE, 2);
+        } else if (tile === T.IRON_ORE) {
+          ctx.fillStyle = '#C8C8E0';
+          ctx.fillRect(sx + 3, sy + 3, 3, 3);
+          ctx.fillRect(sx + 7, sy + 6, 3, 3);
+        } else if (tile === T.GOLD_ORE) {
+          ctx.fillStyle = '#FFD700';
+          ctx.fillRect(sx + 2, sy + 4, 4, 3);
+          ctx.fillRect(sx + 7, sy + 2, 3, 4);
+        } else if (tile === T.TORCH) {
+          ctx.fillStyle = '#FFD040';
+          ctx.globalAlpha = 0.5 + Math.sin(Date.now() * 0.01) * 0.3;
+          ctx.beginPath();
+          ctx.arc(sx + TILE / 2, sy + 2, 4, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (tile === T.WOOD) {
+          ctx.fillStyle = '#4A2510';
+          ctx.fillRect(sx + 4, sy, 4, TILE);
+        } else if (tile === T.LEAF) {
+          ctx.fillStyle = '#1B5E20';
+          ctx.fillRect(sx + 2, sy + 2, 4, 4);
+          ctx.fillRect(sx + 6, sy + 6, 4, 4);
+        } else if (tile === T.PLATFORM) {
+          ctx.fillStyle = '#5A3C1E';
+          ctx.fillRect(sx, sy, TILE, 3);
+        } else if (tile === T.DOOR) {
+          ctx.fillStyle = '#3C2010';
+          ctx.fillRect(sx + 3, sy, 6, TILE);
+          ctx.fillStyle = '#D4A017';
+          ctx.fillRect(sx + 7, sy + 5, 2, 2);
+        }
+
+        // Grid lines (subtle)
+        ctx.globalAlpha = 0.05;
+        ctx.strokeStyle = '#000';
+        ctx.strokeRect(sx, sy, TILE, TILE);
+
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Mining indicator
+    if (miningTarget && mouseDown) {
+      const mx = miningTarget.x * TILE - cameraX + TILE / 2;
+      const my = miningTarget.y * TILE - cameraY + TILE / 2;
+      const tile = tileAt(miningTarget.x, miningTarget.y);
+      const hardness = TILE_HARDNESS[tile] || 30;
+      const pct = Math.min(1, miningProgress / hardness);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(mx, my, 8, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      // Crack overlay
+      if (pct > 0.3) {
+        ctx.globalAlpha = pct * 0.6;
+        ctx.strokeStyle = '#000';
+        const bx = miningTarget.x * TILE - cameraX;
+        const by = miningTarget.y * TILE - cameraY;
+        ctx.beginPath();
+        ctx.moveTo(bx + 2, by + 2);
+        ctx.lineTo(bx + TILE / 2, by + TILE / 2);
+        ctx.lineTo(bx + TILE - 2, by + 4);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Dropped items
+    for (const d of droppedItems) {
+      const dx = d.x - cameraX, dy = d.y - cameraY;
+      const bob = Math.sin(Date.now() * 0.005 + d.x) * 2;
+      ctx.fillStyle = ITEMS[d.item]?.color || '#fff';
+      ctx.fillRect(dx - 3, dy - 3 + bob, 6, 6);
+      ctx.strokeStyle = '#fff';
+      ctx.strokeRect(dx - 3, dy - 3 + bob, 6, 6);
+    }
+
+    // Enemies
+    for (const e of enemies) {
+      const ex = e.x - cameraX, ey = e.y - cameraY;
+      if (ex < -30 || ex > W + 30 || ey < -30 || ey > H + 30) continue;
+
+      if (e.type === 'slime') {
+        const squash = e.onGround ? 0.8 : 1.1;
+        ctx.fillStyle = e.color;
+        ctx.beginPath();
+        ctx.ellipse(ex + e.w / 2, ey + e.h / 2, e.w / 2 * (2 - squash), e.h / 2 * squash, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Eyes
+        ctx.fillStyle = '#000';
+        ctx.fillRect(ex + 3, ey + 2, 2, 2);
+        ctx.fillRect(ex + 7, ey + 2, 2, 2);
+      } else if (e.type === 'zombie') {
+        ctx.fillStyle = '#4a5a3a';
+        ctx.fillRect(ex, ey, e.w, e.h);
+        ctx.fillStyle = '#696';
+        ctx.fillRect(ex + 1, ey, e.w - 2, 6); // head
+        ctx.fillStyle = '#a00';
+        ctx.fillRect(ex + 2, ey + 2, 2, 1);
+        ctx.fillRect(ex + 6, ey + 2, 2, 1);
+        // Arms
+        ctx.fillStyle = '#4a5a3a';
+        ctx.fillRect(ex - 3, ey + 7, 3, 2);
+        ctx.fillRect(ex + e.w, ey + 7, 3, 2);
+      } else if (e.type === 'skeleton') {
+        ctx.fillStyle = '#ddd';
+        ctx.fillRect(ex + 2, ey, 6, 6); // skull
+        ctx.fillRect(ex + 3, ey + 6, 4, 8); // body
+        ctx.fillRect(ex + 1, ey + 14, 3, 4); // legs
+        ctx.fillRect(ex + 6, ey + 14, 3, 4);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(ex + 3, ey + 2, 2, 2); // eyes
+        ctx.fillRect(ex + 6, ey + 2, 2, 2);
+        // Bow
+        ctx.strokeStyle = '#8B4513';
+        ctx.beginPath();
+        ctx.arc(ex + (e.vx >= 0 ? e.w + 3 : -3), ey + 8, 5, -Math.PI / 3, Math.PI / 3);
+        ctx.stroke();
+      }
+
+      // HP bar
+      if (e.hp < e.maxHp) {
+        ctx.fillStyle = '#300';
+        ctx.fillRect(ex, ey - 4, e.w, 2);
+        ctx.fillStyle = '#f44';
+        ctx.fillRect(ex, ey - 4, e.w * (e.hp / e.maxHp), 2);
+      }
+    }
+
+    // Boss
+    if (boss) {
+      const bx = boss.x - cameraX, by = boss.y - cameraY;
+      // Body
+      ctx.fillStyle = '#8B0000';
+      ctx.fillRect(bx, by, boss.w, boss.h);
+      // Face
+      ctx.fillStyle = '#600';
+      ctx.fillRect(bx + 4, by + 4, boss.w - 8, boss.h - 12);
+      // Eyes (glow)
+      ctx.fillStyle = boss.phase === 1 ? '#ff0' : '#f00';
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 6;
+      ctx.fillRect(bx + 6, by + 8, 5, 4);
+      ctx.fillRect(bx + 17, by + 8, 5, 4);
+      ctx.shadowBlur = 0;
+      // Horns
+      ctx.fillStyle = '#555';
+      ctx.beginPath();
+      ctx.moveTo(bx + 2, by);
+      ctx.lineTo(bx + 6, by - 8);
+      ctx.lineTo(bx + 10, by);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(bx + boss.w - 2, by);
+      ctx.lineTo(bx + boss.w - 6, by - 8);
+      ctx.lineTo(bx + boss.w - 10, by);
+      ctx.fill();
+      // Mouth
+      ctx.fillStyle = '#ff4444';
+      ctx.fillRect(bx + 8, by + 16, 12, 4);
+      for (let t = 0; t < 4; t++) {
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(bx + 9 + t * 3, by + 16, 2, 2);
+      }
+      // HP bar
+      ctx.fillStyle = '#300';
+      ctx.fillRect(bx - 5, by - 14, boss.w + 10, 4);
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(bx - 5, by - 14, (boss.w + 10) * (boss.hp / boss.maxHp), 4);
+      ctx.strokeStyle = '#800';
+      ctx.strokeRect(bx - 5, by - 14, boss.w + 10, 4);
+      // Name
+      ctx.fillStyle = '#f44';
+      ctx.font = '8px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('DEMON LORD', bx + boss.w / 2, by - 18);
+      ctx.textAlign = 'left';
+    }
+
+    // Projectiles
+    for (const p of projectiles) {
+      const px = p.x - cameraX, py = p.y - cameraY;
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.arc(px, py, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Render characters
+    drawEntity(player, '#3a8', '#2a6');
+    if (ally && ally.hp > 0) drawEntity(ally, '#88f', '#66c');
+
+    // Particles
+    for (const p of particles) {
+      ctx.globalAlpha = p.life / 40;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - cameraX, p.y - cameraY, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+
+    // Damage numbers
+    for (const d of damageNumbers) {
+      ctx.globalAlpha = d.life / 40;
+      ctx.fillStyle = d.color;
+      ctx.font = 'bold 10px Courier New';
+      ctx.fillText(d.text, d.x - cameraX - 8, d.y - cameraY);
+    }
+    ctx.globalAlpha = 1;
+
+    // HUD
+    drawHUD();
+
+    // Inventory
+    if (showInventory) drawInventory();
+  }
+
+  function drawEntity(e, bodyColor, legColor) {
+    const ex = e.x - cameraX, ey = e.y - cameraY;
+    const flash = e.invincible > 0 && Math.floor(e.invincible / 3) % 2;
+    if (flash) ctx.globalAlpha = 0.5;
+
+    // Legs
+    const legOff = e.onGround ? Math.sin(e.animFrame * Math.PI / 2) * 2 : 0;
+    ctx.fillStyle = legColor;
+    ctx.fillRect(ex + 1, ey + 14, 3, 6 + legOff);
+    ctx.fillRect(ex + 6, ey + 14, 3, 6 - legOff);
+
+    // Body
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(ex, ey + 4, 10, 11);
+
+    // Head
+    ctx.fillStyle = '#F5D0A9';
+    ctx.fillRect(ex + 1, ey - 2, 8, 8);
+
+    // Eyes
+    ctx.fillStyle = '#000';
+    const eyeX = e.facing > 0 ? ex + 5 : ex + 2;
+    ctx.fillRect(eyeX, ey + 1, 2, 2);
+
+    // Hair
+    ctx.fillStyle = e.isAlly ? '#66f' : '#840';
+    ctx.fillRect(ex, ey - 3, 10, 3);
+    if (e.facing > 0) ctx.fillRect(ex + 8, ey - 3, 2, 5);
+    else ctx.fillRect(ex, ey - 3, 2, 5);
+
+    // Tool swing
+    if (e.swingTimer > 0) {
+      const angle = (1 - e.swingTimer / 8) * Math.PI * 0.7 - Math.PI * 0.3;
+      ctx.save();
+      ctx.translate(ex + 5 + e.facing * 3, ey + 8);
+      ctx.rotate(angle * e.facing);
+      const sel = getSelectedItem(e);
+      if (sel === 'SWORD' || sel === 'IRON_SWORD' || sel === 'GOLD_SWORD') {
+        ctx.fillStyle = ITEMS[sel]?.color || '#ccc';
+        ctx.fillRect(0, -8, 2, 12);
+        ctx.fillStyle = '#654';
+        ctx.fillRect(-1, 4, 4, 3);
+      } else {
+        ctx.fillStyle = '#654';
+        ctx.fillRect(0, -6, 2, 8);
+        ctx.fillStyle = ITEMS[sel]?.color || '#999';
+        ctx.fillRect(-2, -8, 6, 4);
+      }
+      ctx.restore();
+    }
+
+    // Ally label
+    if (e.isAlly) {
+      ctx.fillStyle = '#88f';
+      ctx.font = '7px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('ALLY', ex + 5, ey - 6);
+      ctx.textAlign = 'left';
+    }
+
+    // HP bar
+    if (e.hp < e.maxHp) {
+      ctx.fillStyle = '#300';
+      ctx.fillRect(ex - 2, ey - (e.isAlly ? 12 : 8), 14, 2);
+      ctx.fillStyle = e.isAlly ? '#88f' : '#4c8';
+      ctx.fillRect(ex - 2, ey - (e.isAlly ? 12 : 8), 14 * (e.hp / e.maxHp), 2);
+    }
+
+    ctx.globalAlpha = 1;
+  }
+
+  function drawHUD() {
+    // Hotbar
+    const hbX = W / 2 - 65;
+    const hbY = H - 30;
+    for (let i = 0; i < 5; i++) {
+      const x = hbX + i * 28;
+      ctx.fillStyle = i === player.selectedSlot ? 'rgba(68,204,136,0.3)' : 'rgba(0,0,0,0.5)';
+      ctx.fillRect(x, hbY, 24, 24);
+      ctx.strokeStyle = i === player.selectedSlot ? '#4c8' : '#555';
+      ctx.lineWidth = i === player.selectedSlot ? 2 : 1;
+      ctx.strokeRect(x, hbY, 24, 24);
+      ctx.lineWidth = 1;
+
+      const item = player.hotbar[i];
+      if (item && ITEMS[item]) {
+        ctx.fillStyle = ITEMS[item].color;
+        if (ITEMS[item].tool) {
+          // Draw mini tool icon
+          ctx.fillRect(x + 8, hbY + 4, 3, 14);
+          ctx.fillRect(x + 5, hbY + 3, 9, 5);
+        } else {
+          ctx.fillRect(x + 5, hbY + 5, 14, 14);
+        }
+        // Count
+        const count = player.inventory[item] || 0;
+        if (count > 0 && !ITEMS[item].tool) {
+          ctx.fillStyle = '#fff';
+          ctx.font = '8px Courier New';
+          ctx.fillText(count > 99 ? '99+' : count, x + 2, hbY + 22);
+        }
+        // Slot number
+        ctx.fillStyle = '#888';
+        ctx.font = '7px Courier New';
+        ctx.fillText(i + 1, x + 1, hbY + 8);
+      } else {
+        ctx.fillStyle = '#444';
+        ctx.font = '7px Courier New';
+        ctx.fillText(i + 1, x + 1, hbY + 8);
+      }
+    }
+
+    // Tool mode indicator
+    ctx.fillStyle = '#4c8';
+    ctx.font = '9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(player.toolMode === 'mine' ? '[MINE]' : '[PLACE]', W / 2, hbY - 4);
+    ctx.textAlign = 'left';
+
+    // Boss HP at top
+    if (boss) {
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(W / 2 - 100, 5, 200, 16);
+      ctx.fillStyle = '#800';
+      ctx.fillRect(W / 2 - 98, 7, 196, 12);
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(W / 2 - 98, 7, 196 * (boss.hp / boss.maxHp), 12);
+      ctx.fillStyle = '#fff';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('DEMON LORD', W / 2, 17);
+      ctx.textAlign = 'left';
+    }
+
+    // Crosshair at mouse
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath();
+    ctx.moveTo(mouseX - 6, mouseY); ctx.lineTo(mouseX + 6, mouseY);
+    ctx.moveTo(mouseX, mouseY - 6); ctx.lineTo(mouseX, mouseY + 6);
+    ctx.stroke();
+
+    // Tile highlight under cursor
+    const htx = Math.floor((mouseX + cameraX) / TILE);
+    const hty = Math.floor((mouseY + cameraY) / TILE);
+    const hsx = htx * TILE - cameraX;
+    const hsy = hty * TILE - cameraY;
+    ctx.strokeStyle = 'rgba(68,204,136,0.4)';
+    ctx.strokeRect(hsx, hsy, TILE, TILE);
+  }
+
+  function drawInventory() {
+    const invX = W / 2 - 145, invY = 30;
+    const invW = 290, invH = 340;
+
+    // Background
+    ctx.fillStyle = 'rgba(20,20,40,0.95)';
+    ctx.fillRect(invX, invY, invW, invH);
+    ctx.strokeStyle = '#4c8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(invX, invY, invW, invH);
+    ctx.lineWidth = 1;
+
+    // Title
+    ctx.fillStyle = '#4c8';
+    ctx.font = 'bold 12px Courier New';
+    ctx.fillText('INVENTORY', invX + 10, invY + 18);
+    ctx.fillText('[E] to close', invX + 170, invY + 18);
+
+    // Items
+    ctx.font = '9px Courier New';
+    let row = 0;
+    const itemKeys = Object.keys(player.inventory).sort();
+    for (const item of itemKeys) {
+      const count = player.inventory[item];
+      if (count <= 0) continue;
+      const info = ITEMS[item];
+      if (!info) continue;
+      const iy = invY + 30 + row * 16;
+      if (iy > invY + invH - 60) break;
+      ctx.fillStyle = info.color;
+      ctx.fillRect(invX + 10, iy - 6, 8, 8);
+      ctx.fillStyle = '#ccc';
+      ctx.fillText(`${info.name}: ${count}`, invX + 24, iy);
+      row++;
+    }
+
+    // Crafting section
+    const craftY = invY + 30 + Math.max(row, 4) * 16 + 10;
+    ctx.fillStyle = '#4c8';
+    ctx.font = 'bold 10px Courier New';
+    ctx.fillText('CRAFTING:', invX + 10, craftY);
+
+    ctx.font = '8px Courier New';
+    for (let i = 0; i < RECIPES.length; i++) {
+      const r = RECIPES[i];
+      const ry = craftY + 14 + i * 20;
+      if (ry > invY + invH - 10) break;
+      // Check if can craft
+      let canCraft = true;
+      for (const [item, need] of Object.entries(r.need)) {
+        if (!hasItem(player, item, need)) { canCraft = false; break; }
+      }
+      ctx.fillStyle = canCraft ? 'rgba(68,204,136,0.2)' : 'rgba(100,100,100,0.15)';
+      ctx.fillRect(invX + 8, ry - 9, invW - 16, 18);
+      ctx.fillStyle = canCraft ? '#4c8' : '#666';
+      ctx.fillText(r.label + (r.qty && r.qty > 1 ? ` x${r.qty}` : ''), invX + 12, ry + 2);
+      if (canCraft) {
+        ctx.fillStyle = '#4c8';
+        ctx.fillText('[CLICK]', invX + invW - 55, ry + 2);
+      }
+    }
+  }
+
+  // ---- Game Init ----
+  function startGame() {
+    gameState = 'playing';
+    overlay.style.display = 'none';
+    score = 0;
+    worldTime = 8000; // start at morning
+    dayCount = 1;
+    bossActive = false;
+    boss = null;
+    enemies = [];
+    particles = [];
+    projectiles = [];
+    droppedItems = [];
+    damageNumbers = [];
+    showInventory = false;
+    miningTarget = null;
+    miningProgress = 0;
+
+    generateWorld();
+
+    // Player spawn at surface center
+    const spawnX = 25;
+    const surfY = getSurface(spawnX);
+    player = createEntity(spawnX * TILE, (surfY - 2) * TILE, false);
+    player.inventory = { WOOD: 5, DIRT: 10, TORCH: 3 };
+    player.hotbar = ['PICKAXE', 'SWORD', 'TORCH', 'DIRT', 'PLATFORM'];
+
+    ally = createEntity((spawnX + 2) * TILE, (surfY - 2) * TILE, true);
+    ally.inventory = { WOOD: 3 };
+    ally.hotbar = ['PICKAXE', 'SWORD', 'TORCH', 'DIRT', 'PLATFORM'];
+
+    computeLight();
+  }
+
+  // ---- Main Loop ----
+  let lastTime = 0;
+  let spawnTimer = 0;
+  let lightTimer = 0;
+
+  function gameLoop(time) {
+    if (gameState !== 'playing') {
+      requestAnimationFrame(gameLoop);
+      return;
+    }
+
+    const dt = Math.min(50, time - lastTime);
+    lastTime = time;
+
+    // Time of day
+    worldTime += 3; // roughly 1 game day per ~2.5 mins
+    if (worldTime >= 24000) {
+      worldTime -= 24000;
+      dayCount++;
+    }
+
+    // Update UI
+    const hour = Math.floor((worldTime / 24000) * 24);
+    const tod = hour >= 5 && hour < 7 ? 'Dawn' :
+                hour >= 7 && hour < 12 ? 'Morning' :
+                hour >= 12 && hour < 17 ? 'Afternoon' :
+                hour >= 17 && hour < 19 ? 'Dusk' : 'Night';
+    todEl.textContent = tod;
+    dayEl.textContent = dayCount;
+    hpEl.textContent = Math.max(0, player.hp);
+    scoreEl.textContent = score;
+    toolEl.textContent = (ITEMS[getSelectedItem(player)]?.name || '???') + ' [' + player.toolMode.toUpperCase() + ']';
+    allyHpEl.textContent = ally ? Math.max(0, ally.hp) + (ally.hp <= 0 ? ' (respawning)' : '') : '0';
+
+    updatePlayer();
+    updateAlly();
+    updateCamera();
+
+    // Enemy spawning
+    spawnTimer--;
+    const isNight = worldTime < 5000 || worldTime > 19000;
+    if (spawnTimer <= 0 && enemies.length < (isNight ? 8 : 4)) {
+      spawnEnemy();
+      spawnTimer = isNight ? 60 + Math.random() * 90 : 150 + Math.random() * 200;
+    }
+
+    // Boss spawn at night with enough score
+    if (isNight && score >= 100 && !bossActive && dayCount >= 2 && Math.random() < 0.001) {
+      spawnBoss();
+    }
+
+    // Update enemies
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      if (!updateEnemy(enemies[i])) {
+        enemies.splice(i, 1);
+      }
+    }
+
+    updateBoss();
+    updateProjectiles();
+    updateDroppedItems();
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.1;
+      p.life--;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // Damage numbers
+    for (let i = damageNumbers.length - 1; i >= 0; i--) {
+      const d = damageNumbers[i];
+      d.y += d.vy;
+      d.life--;
+      if (d.life <= 0) damageNumbers.splice(i, 1);
+    }
+
+    // Recompute lighting periodically
+    lightTimer--;
+    if (lightTimer <= 0) {
+      computeLight();
+      lightTimer = 15;
+    }
+
+    render();
+    updateGameData();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // ---- Expose game data ----
+  window.gameData = {};
+  function updateGameData() {
+    window.gameData = {
+      gameState,
+      score,
+      day: dayCount,
+      playerHP: player ? player.hp : 0,
+      allyHP: ally ? ally.hp : 0,
+      enemies: enemies.length,
+      bossHP: boss ? boss.hp : 0,
+      worldTime,
+      inventory: player ? { ...player.inventory } : {}
+    };
+  }
+
+  // ---- Init ----
+  function init() {
+    // Draw initial menu frame
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw preview scene
+    ctx.fillStyle = '#0a1030';
+    ctx.fillRect(0, 0, W, H * 0.6);
+    // Stars
+    for (let i = 0; i < 30; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.3 + Math.random() * 0.7})`;
+      ctx.fillRect(Math.random() * W, Math.random() * H * 0.4, 1.5, 1.5);
+    }
+    // Ground preview
+    for (let x = 0; x < W; x += TILE) {
+      const sy = H * 0.6 + Math.sin(x * 0.03) * 15;
+      ctx.fillStyle = '#4a7a3a';
+      ctx.fillRect(x, sy, TILE, 3);
+      ctx.fillStyle = '#8B5E3C';
+      ctx.fillRect(x, sy + 3, TILE, H - sy);
+      if (Math.random() < 0.05) {
+        // Tree
+        ctx.fillStyle = '#6B3A1F';
+        ctx.fillRect(x + 4, sy - 30, 4, 30);
+        ctx.fillStyle = '#2E7D32';
+        ctx.fillRect(x - 4, sy - 42, 20, 15);
+      }
+    }
+    // Underground ores
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = i < 4 ? '#A8A8C0' : '#D4A017';
+      ctx.fillRect(50 + Math.random() * 500, H * 0.7 + Math.random() * H * 0.25, 6, 6);
+    }
+  }
+
+  init();
+  requestAnimationFrame(gameLoop);
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

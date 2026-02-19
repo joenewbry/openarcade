@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Micro RTS - OpenArcade</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #eee; font-family: 'Courier New', monospace; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow: hidden; }
+#top-bar { width: 600px; display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: #16213e; border-bottom: 2px solid #e84; }
+#top-bar a { color: #e84; text-decoration: none; font-size: 14px; }
+#top-bar a:hover { text-shadow: 0 0 8px #e84; }
+#score-display { color: #e84; font-size: 14px; font-weight: bold; text-shadow: 0 0 6px #e84; }
+#game-wrap { position: relative; }
+canvas#game { display: block; border: 2px solid #e84; box-shadow: 0 0 20px rgba(238,136,68,0.3); cursor: crosshair; }
+#hud { width: 600px; display: flex; justify-content: space-between; align-items: flex-start; padding: 6px 8px; background: #16213e; border-top: 2px solid #e84; font-size: 12px; gap: 8px; }
+#resources-panel { display: flex; flex-direction: column; gap: 2px; min-width: 130px; }
+#resources-panel span { color: #e84; }
+#production-panel { display: flex; gap: 4px; }
+#production-panel button { background: #1a1a2e; color: #e84; border: 1px solid #e84; padding: 4px 8px; font-family: 'Courier New', monospace; font-size: 11px; cursor: pointer; white-space: nowrap; }
+#production-panel button:hover { background: #e84; color: #1a1a2e; }
+#production-panel button:disabled { opacity: 0.4; cursor: default; background: #1a1a2e; color: #666; border-color: #666; }
+#info-panel { min-width: 140px; text-align: right; font-size: 11px; color: #aaa; }
+#minimap-wrap { position: absolute; bottom: 42px; right: 4px; border: 1px solid #e84; }
+canvas#minimap { display: block; }
+#overlay { position: absolute; top: 0; left: 0; width: 600px; height: 400px; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(26,26,46,0.92); z-index: 10; }
+#overlay h1 { color: #e84; font-size: 28px; text-shadow: 0 0 15px #e84; margin-bottom: 12px; }
+#overlay p { color: #ccc; font-size: 13px; margin-bottom: 6px; text-align: center; max-width: 460px; line-height: 1.5; }
+#overlay button { margin-top: 16px; background: #e84; color: #1a1a2e; border: none; padding: 10px 32px; font-family: 'Courier New', monospace; font-size: 16px; cursor: pointer; font-weight: bold; }
+#overlay button:hover { box-shadow: 0 0 15px #e84; }
+.hidden { display: none !important; }
+#timer-display { color: #e84; font-size: 13px; position: absolute; top: 32px; left: 50%; transform: translateX(-50%); text-shadow: 0 0 6px #e84; z-index: 5; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="top-bar">
+  <a href="../index.html">&larr; OpenArcade</a>
+  <span id="score-display">SCORE: 0</span>
+</div>
+<div id="game-wrap">
+  <canvas id="game" width="600" height="400"></canvas>
+  <div id="timer-display">5:00</div>
+  <div id="minimap-wrap"><canvas id="minimap" width="100" height="67"></canvas></div>
+  <div id="overlay">
+    <h1 id="overlayTitle">MICRO RTS</h1>
+    <p id="overlayText">Gather minerals. Build an army. Destroy the enemy base.</p>
+    <p style="font-size:11px; color:#e84;">Click/drag to select &bull; Right-click to move/attack<br>
+    [W] Worker $50 &bull; [S] Soldier $75 &bull; [T] Tank $150<br>
+    [A] Select all army &bull; [Q] Select all workers</p>
+    <button id="start-btn">START GAME</button>
+  </div>
+</div>
+<div id="hud">
+  <div id="resources-panel">
+    <span id="res-minerals">Minerals: 100</span>
+    <span id="res-units">Units: 2 / 30</span>
+    <span id="res-supply">Workers: 2 | Army: 0</span>
+  </div>
+  <div id="production-panel">
+    <button id="btn-worker" title="Hotkey: W">Worker $50</button>
+    <button id="btn-soldier" title="Hotkey: S">Soldier $75</button>
+    <button id="btn-tank" title="Hotkey: T">Tank $150</button>
+  </div>
+  <div id="info-panel">
+    <div id="selection-info">No selection</div>
+  </div>
+</div>
+
+<script type="module">
+  import { createGame } from './game.js';
+  createGame();
+</script>
+<script src="../rating.js?v=2"></script>
+</body>
+</html>

@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Co-op Dungeon Crawler - OpenArcade</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a2e;
+  color: #eee;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+a { color: #a84; text-decoration: none; }
+a:hover { text-decoration: underline; }
+#back-link {
+  position: fixed; top: 12px; left: 16px;
+  font-size: 14px; z-index: 100;
+  color: #a84;
+  text-shadow: 0 0 6px #a84;
+}
+#score-bar {
+  width: 600px; max-width: 95vw;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px; margin-top: 48px; margin-bottom: 4px;
+  background: rgba(170,136,68,0.08);
+  border: 1px solid rgba(170,136,68,0.25);
+  border-radius: 6px;
+  font-size: 13px;
+  text-shadow: 0 0 6px rgba(170,136,68,0.4);
+}
+#score-bar .label { color: #888; }
+#score-bar .value { color: #a84; font-weight: bold; }
+#game-container {
+  position: relative;
+  width: 600px; height: 500px; max-width: 95vw;
+  margin-top: 4px;
+}
+canvas#game {
+  width: 100%; height: 100%;
+  border: 1px solid rgba(170,136,68,0.3);
+  border-radius: 4px;
+  display: block;
+}
+#overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(26,26,46,0.92);
+  border-radius: 4px; z-index: 10;
+  transition: opacity 0.3s;
+}
+#overlay.hidden { opacity: 0; pointer-events: none; }
+#overlay h1 {
+  font-size: 26px; color: #a84;
+  text-shadow: 0 0 18px #a84, 0 0 40px rgba(170,136,68,0.3);
+  margin-bottom: 10px;
+}
+#overlay h2 {
+  font-size: 18px; color: #a84;
+  text-shadow: 0 0 12px #a84;
+  margin-bottom: 8px;
+}
+#overlay p {
+  font-size: 12px; color: #aaa; margin: 3px 0;
+  text-align: center; max-width: 460px; line-height: 1.5;
+}
+#overlay .class-select {
+  display: flex; gap: 12px; margin: 16px 0;
+}
+#overlay .class-btn {
+  padding: 12px 18px;
+  background: transparent;
+  border: 2px solid #a84;
+  color: #a84; font-family: 'Courier New', monospace;
+  font-size: 13px; cursor: pointer;
+  border-radius: 4px;
+  text-shadow: 0 0 8px rgba(170,136,68,0.5);
+  box-shadow: 0 0 12px rgba(170,136,68,0.15);
+  transition: all 0.2s;
+  text-align: center;
+  min-width: 120px;
+}
+#overlay .class-btn:hover {
+  background: rgba(170,136,68,0.2);
+  box-shadow: 0 0 20px rgba(170,136,68,0.4);
+}
+#overlay .class-btn .name { font-size: 15px; font-weight: bold; display: block; margin-bottom: 4px; }
+#overlay .class-btn .stats { font-size: 10px; color: #999; display: block; }
+#overlay button.restart-btn {
+  margin-top: 16px; padding: 10px 32px;
+  background: transparent;
+  border: 2px solid #a84;
+  color: #a84; font-family: 'Courier New', monospace;
+  font-size: 15px; cursor: pointer;
+  border-radius: 4px;
+  text-shadow: 0 0 8px rgba(170,136,68,0.5);
+  box-shadow: 0 0 12px rgba(170,136,68,0.15);
+  transition: all 0.2s;
+}
+#overlay button.restart-btn:hover {
+  background: rgba(170,136,68,0.15);
+  box-shadow: 0 0 20px rgba(170,136,68,0.3);
+}
+#controls-hint {
+  width: 600px; max-width: 95vw;
+  margin-top: 6px;
+  font-size: 11px; color: #666;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+<a id="back-link" href="../">&larr; Back</a>
+<div id="score-bar">
+  <div><span class="label">Score: </span><span class="value" id="scoreVal">0</span></div>
+  <div><span class="label">Floor: </span><span class="value" id="floorVal">1</span></div>
+  <div><span class="label">Room: </span><span class="value" id="roomVal">0/0</span></div>
+  <div><span class="label">Loot: </span><span class="value" id="lootVal">0</span></div>
+</div>
+<div id="game-container">
+  <canvas id="game" width="600" height="500"></canvas>
+  <div id="overlay">
+    <h1>CO-OP DUNGEON CRAWLER</h1>
+    <p>Choose your class. Your AI ally picks a complementary class.<br>Clear all monsters in each room. Defeat the boss to descend deeper.</p>
+    <div class="class-select" id="classSelect">
+      <button class="class-btn" data-class="warrior"><span class="name">WARRIOR</span><span class="stats">HP: 150 | ATK: 18 | DEF: 8<br>Melee | Shield Bash | War Cry</span></button>
+      <button class="class-btn" data-class="mage"><span class="name">MAGE</span><span class="stats">HP: 80 | ATK: 22 | DEF: 3<br>Ranged AoE | Fireball | Frost Nova</span></button>
+      <button class="class-btn" data-class="rogue"><span class="name">ROGUE</span><span class="stats">HP: 100 | ATK: 20 | DEF: 5<br>Fast | Backstab | Smoke Bomb</span></button>
+    </div>
+    <p id="overlayMsg"></p>
+    <button class="restart-btn" id="restartBtn" style="display:none;">Play Again</button>
+  </div>
+</div>
+<div id="controls-hint">WASD: Move | Space: Attack | E: Interact/Pickup | 1-3: Abilities</div>
+
+<script>
+// ============================================================
+//  CO-OP DUNGEON CRAWLER  —  OpenArcade Multiplayer
+// ============================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 600, H = 500;
+const TILE = 24;
+const COLS = Math.floor(W / TILE); // 25
+const ROWS = Math.floor(H / TILE); // 20 (480 used, 20px bottom for HUD)
+const HUD_H = 20;
+const MAP_H = ROWS * TILE; // 480
+
+let gameState = 'waiting'; // waiting | playing | over
+let score = 0;
+let totalLoot = 0;
+let currentFloor = 1;
+const MAX_FLOORS = 3;
+
+// overlay elements
+const overlay = document.getElementById('overlay');
+const classSelect = document.getElementById('classSelect');
+const overlayMsg = document.getElementById('overlayMsg');
+const restartBtn = document.getElementById('restartBtn');
+
+// score bar
+const scoreEl = document.getElementById('scoreVal');
+const floorEl = document.getElementById('floorVal');
+const roomEl = document.getElementById('roomVal');
+const lootEl = document.getElementById('lootVal');
+
+// ============================================================
+//  CLASS DEFINITIONS
+// ============================================================
+const CLASS_DEFS = {
+  warrior: {
+    name: 'Warrior', color: '#48f', hp: 150, maxHp: 150, atk: 18, def: 8, speed: 2.0,
+    range: 28, attackArc: Math.PI * 0.6,
+    abilities: [
+      { name: 'Shield Bash', cooldown: 180, range: 32, damage: 25, stun: 60, type: 'melee' },
+      { name: 'War Cry', cooldown: 360, range: 80, damage: 0, buff: 'atkUp', duration: 300, type: 'aoe' },
+      { name: 'Cleave', cooldown: 120, range: 34, damage: 30, arc: Math.PI, type: 'melee' }
+    ]
+  },
+  mage: {
+    name: 'Mage', color: '#c4f', hp: 80, maxHp: 80, atk: 22, def: 3, speed: 1.8,
+    range: 140, attackArc: Math.PI * 0.15,
+    abilities: [
+      { name: 'Fireball', cooldown: 150, range: 160, damage: 40, radius: 48, type: 'projectile' },
+      { name: 'Frost Nova', cooldown: 300, range: 60, damage: 15, slow: 120, radius: 64, type: 'aoe' },
+      { name: 'Arcane Bolt', cooldown: 90, range: 180, damage: 28, type: 'projectile' }
+    ]
+  },
+  rogue: {
+    name: 'Rogue', color: '#4f4', hp: 100, maxHp: 100, atk: 20, def: 5, speed: 3.0,
+    range: 26, attackArc: Math.PI * 0.4,
+    abilities: [
+      { name: 'Backstab', cooldown: 120, range: 30, damage: 45, type: 'melee' },
+      { name: 'Smoke Bomb', cooldown: 240, range: 0, duration: 180, type: 'self' },
+      { name: 'Fan of Knives', cooldown: 150, range: 80, damage: 18, type: 'aoe' }
+    ]
+  }
+};
+
+const COMPLEMENT = { warrior: 'mage', mage: 'warrior', rogue: 'warrior' };
+
+// ============================================================
+//  DUNGEON GENERATION
+// ============================================================
+let dungeon = []; // 2D tile map: 0=wall, 1=floor, 2=door, 3=corridor
+let rooms = [];
+let currentRoom = 0;
+let roomsCleared = 0;
+let monsters = [];
+let lootItems = [];
+let projectiles = [];
+let particles = [];
+let floatingTexts = [];
+let player = null;
+let ally = null;
+let camera = { x: 0, y: 0 };
+
+function generateDungeon(floor) {
+  const dw = 80, dh = 60;
+  dungeon = [];
+  for (let y = 0; y < dh; y++) {
+    dungeon[y] = [];
+    for (let x = 0; x < dw; x++) dungeon[y][x] = 0;
+  }
+  rooms = [];
+  const numRooms = 6 + floor * 2;
+  let attempts = 0;
+
+  while (rooms.length < numRooms && attempts < 500) {
+    attempts++;
+    const rw = 6 + Math.floor(Math.random() * 6);
+    const rh = 5 + Math.floor(Math.random() * 5);
+    const rx = 2 + Math.floor(Math.random() * (dw - rw - 4));
+    const ry = 2 + Math.floor(Math.random() * (dh - rh - 4));
+
+    let overlap = false;
+    for (const r of rooms) {
+      if (rx < r.x + r.w + 2 && rx + rw + 2 > r.x && ry < r.y + r.h + 2 && ry + rh + 2 > r.y) {
+        overlap = true; break;
+      }
+    }
+    if (overlap) continue;
+
+    const room = { x: rx, y: ry, w: rw, h: rh, cx: Math.floor(rx + rw / 2), cy: Math.floor(ry + rh / 2), cleared: false, isBoss: false, monsters: [], loot: [] };
+    rooms.push(room);
+
+    for (let y = ry; y < ry + rh; y++)
+      for (let x = rx; x < rx + rw; x++)
+        dungeon[y][x] = 1;
+  }
+
+  // mark last room as boss room
+  if (rooms.length > 1) rooms[rooms.length - 1].isBoss = true;
+
+  // connect rooms with corridors
+  for (let i = 0; i < rooms.length - 1; i++) {
+    const a = rooms[i], b = rooms[i + 1];
+    let cx = a.cx, cy = a.cy;
+    while (cx !== b.cx) {
+      if (cy >= 0 && cy < dh && cx >= 0 && cx < dw) {
+        if (dungeon[cy][cx] === 0) dungeon[cy][cx] = 3;
+        if (cy + 1 < dh && dungeon[cy + 1][cx] === 0) dungeon[cy + 1][cx] = 3;
+      }
+      cx += cx < b.cx ? 1 : -1;
+    }
+    while (cy !== b.cy) {
+      if (cy >= 0 && cy < dh && cx >= 0 && cx < dw) {
+        if (dungeon[cy][cx] === 0) dungeon[cy][cx] = 3;
+        if (cx + 1 < dw && dungeon[cy][cx + 1] === 0) dungeon[cy][cx + 1] = 3;
+      }
+      cy += cy < b.cy ? 1 : -1;
+    }
+  }
+
+  // place doors between rooms and corridors
+  for (const r of rooms) {
+    for (let y = r.y - 1; y <= r.y + r.h; y++) {
+      for (let x = r.x - 1; x <= r.x + r.w; x++) {
+        if (x < 0 || x >= dw || y < 0 || y >= dh) continue;
+        if (dungeon[y][x] !== 0) continue;
+        let adjRoom = false, adjCorridor = false;
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= dw || ny < 0 || ny >= dh) continue;
+          if (dungeon[ny][nx] === 1) adjRoom = true;
+          if (dungeon[ny][nx] === 3) adjCorridor = true;
+        }
+        if (adjRoom && adjCorridor) dungeon[y][x] = 2;
+      }
+    }
+  }
+
+  return rooms;
+}
+
+// ============================================================
+//  MONSTER DEFINITIONS
+// ============================================================
+function spawnMonsters(room, floor) {
+  const types = [
+    { name: 'Skeleton', hp: 30, atk: 8, def: 2, speed: 1.2, color: '#ddd', xp: 10, range: 24, char: 'S' },
+    { name: 'Slime', hp: 20, atk: 5, def: 1, speed: 0.8, color: '#4d4', xp: 8, range: 20, char: 'O' },
+    { name: 'Goblin', hp: 25, atk: 10, def: 3, speed: 1.5, color: '#d84', xp: 12, range: 22, char: 'G' },
+    { name: 'Dark Knight', hp: 45, atk: 14, def: 5, speed: 1.0, color: '#88c', xp: 18, range: 26, char: 'K' }
+  ];
+
+  const count = room.isBoss ? 1 : 2 + Math.floor(Math.random() * 3) + floor;
+  const result = [];
+
+  for (let i = 0; i < count; i++) {
+    let t;
+    if (room.isBoss) {
+      t = {
+        name: 'Floor ' + floor + ' Boss',
+        hp: 100 + floor * 80, atk: 15 + floor * 5, def: 5 + floor * 3,
+        speed: 1.0, color: '#f44', xp: 50 + floor * 30, range: 30,
+        char: 'B', isBoss: true
+      };
+    } else {
+      const ti = floor >= 3 ? Math.floor(Math.random() * types.length) : Math.floor(Math.random() * Math.min(2 + floor, types.length));
+      t = { ...types[ti] };
+      t.hp = Math.floor(t.hp * (1 + (floor - 1) * 0.4));
+      t.atk = Math.floor(t.atk * (1 + (floor - 1) * 0.3));
+    }
+
+    const mx = room.x + 1 + Math.floor(Math.random() * (room.w - 2));
+    const my = room.y + 1 + Math.floor(Math.random() * (room.h - 2));
+
+    result.push({
+      ...t,
+      maxHp: t.hp,
+      x: mx * TILE + TILE / 2,
+      y: my * TILE + TILE / 2,
+      facing: Math.random() * Math.PI * 2,
+      attackCd: 0,
+      stunTimer: 0,
+      slowTimer: 0,
+      alive: true,
+      roomIdx: rooms.indexOf(room),
+      aggroRange: 120 + (room.isBoss ? 60 : 0)
+    });
+  }
+  return result;
+}
+
+// ============================================================
+//  ENTITY HELPERS
+// ============================================================
+function createEntity(classDef, x, y, isAI) {
+  return {
+    ...classDef,
+    x, y,
+    facing: 0,
+    vx: 0, vy: 0,
+    attackCd: 0,
+    abilityCd: [0, 0, 0],
+    stunTimer: 0,
+    slowTimer: 0,
+    smokeTimer: 0,
+    buffTimer: 0,
+    buffType: null,
+    isAI,
+    alive: true,
+    invincTimer: 0,
+    killCount: 0
+  };
+}
+
+function dist(a, b) {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+}
+
+function angleTo(a, b) {
+  return Math.atan2(b.y - a.y, b.x - a.x);
+}
+
+function isWalkable(px, py) {
+  const tx = Math.floor(px / TILE);
+  const ty = Math.floor(py / TILE);
+  if (ty < 0 || ty >= dungeon.length || tx < 0 || tx >= (dungeon[0] || []).length) return false;
+  return dungeon[ty][tx] > 0;
+}
+
+function canMoveTo(entity, nx, ny) {
+  const r = 8;
+  return isWalkable(nx - r, ny - r) && isWalkable(nx + r, ny - r) &&
+         isWalkable(nx - r, ny + r) && isWalkable(nx + r, ny + r);
+}
+
+// ============================================================
+//  INPUT
+// ============================================================
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (['1','2','3',' ','e'].includes(e.key.toLowerCase())) e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ============================================================
+//  GAME INITIALIZATION
+// ============================================================
+function startGame(playerClass) {
+  gameState = 'playing';
+  score = 0;
+  totalLoot = 0;
+  currentFloor = 1;
+  overlay.classList.add('hidden');
+  initFloor(1, playerClass);
+}
+
+function initFloor(floor, playerClass) {
+  currentFloor = floor;
+  const allyClass = COMPLEMENT[playerClass] || 'warrior';
+
+  const rms = generateDungeon(floor);
+  monsters = [];
+  lootItems = [];
+  projectiles = [];
+  particles = [];
+  floatingTexts = [];
+  roomsCleared = 0;
+  currentRoom = 0;
+
+  // spawn monsters in rooms (not first room)
+  for (let i = 1; i < rms.length; i++) {
+    const rm = rms[i];
+    const ms = spawnMonsters(rm, floor);
+    monsters.push(...ms);
+  }
+  rms[0].cleared = true;
+  roomsCleared = 1;
+
+  // spawn player and ally in first room
+  const startRoom = rms[0];
+  const sx = startRoom.cx * TILE + TILE / 2;
+  const sy = startRoom.cy * TILE + TILE / 2;
+
+  player = createEntity(CLASS_DEFS[playerClass], sx - 16, sy, false);
+  player.className = playerClass;
+  ally = createEntity(CLASS_DEFS[allyClass], sx + 16, sy, true);
+  ally.className = allyClass;
+
+  // restore HP between floors with bonus
+  if (floor > 1) {
+    player.hp = Math.min(player.maxHp, player.hp + Math.floor(player.maxHp * 0.3));
+    ally.hp = Math.min(ally.maxHp, ally.hp + Math.floor(ally.maxHp * 0.3));
+  }
+
+  updateHUD();
+}
+
+// ============================================================
+//  LOOT
+// ============================================================
+function dropLoot(x, y, fromBoss) {
+  const roll = Math.random();
+  if (roll < 0.35 || fromBoss) {
+    const types = [
+      { name: 'Health Potion', color: '#f44', value: 5, effect: 'heal', amount: 30, char: '+' },
+      { name: 'Atk Scroll', color: '#ff4', value: 8, effect: 'atkUp', amount: 5, char: '^' },
+      { name: 'Def Scroll', color: '#4af', value: 8, effect: 'defUp', amount: 3, char: '#' },
+      { name: 'Gold Pile', color: '#fa0', value: 15, effect: 'gold', amount: 0, char: '$' },
+      { name: 'Speed Boots', color: '#4ff', value: 12, effect: 'speedUp', amount: 0.3, char: '>' }
+    ];
+    const t = fromBoss ? types[Math.floor(Math.random() * types.length)] : types[Math.floor(Math.random() * 4)];
+    lootItems.push({
+      ...t,
+      x: x + (Math.random() - 0.5) * 16,
+      y: y + (Math.random() - 0.5) * 16,
+      sparkle: 0,
+      alive: true
+    });
+    if (fromBoss && Math.random() < 0.5) {
+      const t2 = types[Math.floor(Math.random() * types.length)];
+      lootItems.push({
+        ...t2,
+        x: x + (Math.random() - 0.5) * 24,
+        y: y + (Math.random() - 0.5) * 24,
+        sparkle: 0,
+        alive: true
+      });
+    }
+  }
+}
+
+function pickupLoot(entity, loot) {
+  if (loot.effect === 'heal') {
+    entity.hp = Math.min(entity.maxHp, entity.hp + loot.amount);
+    spawnFloatingText(entity.x, entity.y - 12, '+' + loot.amount + ' HP', '#4f4');
+  } else if (loot.effect === 'atkUp') {
+    entity.atk += loot.amount;
+    spawnFloatingText(entity.x, entity.y - 12, '+' + loot.amount + ' ATK', '#ff4');
+  } else if (loot.effect === 'defUp') {
+    entity.def += loot.amount;
+    spawnFloatingText(entity.x, entity.y - 12, '+' + loot.amount + ' DEF', '#4af');
+  } else if (loot.effect === 'gold') {
+    spawnFloatingText(entity.x, entity.y - 12, '+' + loot.value + ' Gold', '#fa0');
+  } else if (loot.effect === 'speedUp') {
+    entity.speed += loot.amount;
+    spawnFloatingText(entity.x, entity.y - 12, '+SPD', '#4ff');
+  }
+  score += loot.value;
+  totalLoot += loot.value;
+  loot.alive = false;
+}
+
+// ============================================================
+//  COMBAT
+// ============================================================
+function meleeAttack(attacker, target) {
+  const d = dist(attacker, target);
+  if (d > attacker.range + 8) return false;
+  const angle = angleTo(attacker, target);
+  const diff = Math.abs(((angle - attacker.facing) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+  if (diff > attacker.attackArc / 2 + 0.2) return false;
+
+  let dmg = Math.max(1, attacker.atk - target.def + Math.floor(Math.random() * 4));
+  if (attacker.buffType === 'atkUp') dmg = Math.floor(dmg * 1.4);
+  target.hp -= dmg;
+  spawnFloatingText(target.x, target.y - 12, '-' + dmg, '#f44');
+  spawnHitParticles(target.x, target.y, attacker.color || '#fff');
+  return true;
+}
+
+function useAbility(user, abilityIdx, targetAngle) {
+  if (user.abilityCd[abilityIdx] > 0) return false;
+  const ab = user.abilities[abilityIdx];
+  if (!ab) return false;
+  user.abilityCd[abilityIdx] = ab.cooldown;
+
+  if (ab.type === 'melee') {
+    // hit all enemies in range
+    const targets = monsters.filter(m => m.alive && dist(user, m) < ab.range + 8);
+    for (const t of targets) {
+      let dmg = Math.max(1, ab.damage + user.atk * 0.3 - t.def);
+      t.hp -= Math.floor(dmg);
+      if (ab.stun) t.stunTimer = ab.stun;
+      spawnFloatingText(t.x, t.y - 12, '-' + Math.floor(dmg), '#fa0');
+      spawnHitParticles(t.x, t.y, '#fa0');
+    }
+    return targets.length > 0;
+  }
+
+  if (ab.type === 'projectile') {
+    projectiles.push({
+      x: user.x, y: user.y,
+      vx: Math.cos(targetAngle) * 4,
+      vy: Math.sin(targetAngle) * 4,
+      damage: ab.damage + user.atk * 0.4,
+      radius: ab.radius || 0,
+      range: ab.range,
+      traveled: 0,
+      owner: user,
+      color: user.color,
+      alive: true
+    });
+    return true;
+  }
+
+  if (ab.type === 'aoe') {
+    // AoE around user
+    if (ab.buff) {
+      // buff allies
+      player.buffType = ab.buff;
+      player.buffTimer = ab.duration;
+      ally.buffType = ab.buff;
+      ally.buffTimer = ab.duration;
+      spawnFloatingText(user.x, user.y - 16, ab.name + '!', '#ff4');
+      for (let i = 0; i < 12; i++) {
+        const a = Math.random() * Math.PI * 2;
+        particles.push({ x: user.x, y: user.y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, life: 30, color: '#ff4' });
+      }
+    } else {
+      const targets = monsters.filter(m => m.alive && dist(user, m) < (ab.radius || 60));
+      for (const t of targets) {
+        let dmg = Math.max(1, ab.damage + user.atk * 0.2 - t.def * 0.5);
+        t.hp -= Math.floor(dmg);
+        if (ab.slow) t.slowTimer = ab.slow;
+        spawnFloatingText(t.x, t.y - 12, '-' + Math.floor(dmg), '#4af');
+        spawnHitParticles(t.x, t.y, '#4af');
+      }
+      // visual
+      for (let i = 0; i < 16; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * (ab.radius || 60);
+        particles.push({ x: user.x + Math.cos(a) * r, y: user.y + Math.sin(a) * r, vx: 0, vy: -1, life: 25, color: '#4af' });
+      }
+    }
+    return true;
+  }
+
+  if (ab.type === 'self') {
+    // smoke bomb / stealth
+    user.smokeTimer = ab.duration;
+    spawnFloatingText(user.x, user.y - 16, 'Stealth!', '#888');
+    for (let i = 0; i < 20; i++) {
+      const a = Math.random() * Math.PI * 2;
+      particles.push({ x: user.x, y: user.y, vx: Math.cos(a) * 1.5, vy: Math.sin(a) * 1.5, life: 40, color: '#666' });
+    }
+    return true;
+  }
+
+  return false;
+}
+
+// ============================================================
+//  AI ALLY BEHAVIOR
+// ============================================================
+function updateAlly(dt) {
+  if (!ally.alive) return;
+  if (ally.stunTimer > 0) { ally.stunTimer--; return; }
+
+  // find nearest monster
+  let nearest = null, nearDist = Infinity;
+  for (const m of monsters) {
+    if (!m.alive) continue;
+    const d = dist(ally, m);
+    if (d < nearDist) { nearDist = d; nearest = m; }
+  }
+
+  // find nearest loot (prioritize health if low HP)
+  let nearLoot = null, lootDist = Infinity;
+  const needsHeal = ally.hp < ally.maxHp * 0.4;
+  for (const l of lootItems) {
+    if (!l.alive) continue;
+    const d = dist(ally, l);
+    if (needsHeal && l.effect === 'heal' && d < lootDist) { nearLoot = l; lootDist = d; }
+    else if (!needsHeal && d < lootDist && d < 100) { nearLoot = l; lootDist = d; }
+  }
+
+  // decide target
+  const speed = ally.slowTimer > 0 ? ally.speed * 0.5 : ally.speed;
+  let targetX, targetY;
+
+  // heal priority
+  if (needsHeal && nearLoot && lootDist < 150) {
+    targetX = nearLoot.x;
+    targetY = nearLoot.y;
+    if (lootDist < 16) pickupLoot(ally, nearLoot);
+  }
+  // combat
+  else if (nearest && nearDist < 200) {
+    const idealRange = ally.range * 0.8;
+    if (ally.className === 'mage') {
+      // mage keeps distance
+      if (nearDist < 60) {
+        const away = angleTo(nearest, ally);
+        targetX = ally.x + Math.cos(away) * 30;
+        targetY = ally.y + Math.sin(away) * 30;
+      } else {
+        targetX = nearest.x;
+        targetY = nearest.y;
+      }
+    } else {
+      targetX = nearest.x;
+      targetY = nearest.y;
+    }
+
+    // attack if in range
+    ally.facing = angleTo(ally, nearest);
+    if (ally.attackCd <= 0 && nearDist < ally.range + 12) {
+      meleeAttack(ally, nearest);
+      ally.attackCd = 20;
+    }
+
+    // use abilities
+    if (nearest) {
+      // ability 1
+      if (ally.abilityCd[0] <= 0 && nearDist < ally.abilities[0].range + 10) {
+        useAbility(ally, 0, angleTo(ally, nearest));
+      }
+      // ability 2 (use when many enemies or low HP)
+      const nearbyCount = monsters.filter(m => m.alive && dist(ally, m) < 80).length;
+      if (ally.abilityCd[1] <= 0 && (nearbyCount >= 2 || ally.hp < ally.maxHp * 0.3)) {
+        useAbility(ally, 1, angleTo(ally, nearest));
+      }
+      // ability 3
+      if (ally.abilityCd[2] <= 0 && nearDist < ally.abilities[2].range + 10) {
+        useAbility(ally, 2, angleTo(ally, nearest));
+      }
+    }
+  }
+  // follow player
+  else {
+    const dToPlayer = dist(ally, player);
+    if (dToPlayer > 60) {
+      targetX = player.x;
+      targetY = player.y;
+    } else {
+      // idle near player, pick up nearby loot
+      if (nearLoot && lootDist < 60) {
+        targetX = nearLoot.x;
+        targetY = nearLoot.y;
+        if (lootDist < 16) pickupLoot(ally, nearLoot);
+      } else {
+        targetX = ally.x;
+        targetY = ally.y;
+      }
+    }
+  }
+
+  // movement
+  if (targetX !== undefined) {
+    const angle = angleTo(ally, { x: targetX, y: targetY });
+    const d = dist(ally, { x: targetX, y: targetY });
+    if (d > 8) {
+      const nx = ally.x + Math.cos(angle) * speed;
+      const ny = ally.y + Math.sin(angle) * speed;
+      if (canMoveTo(ally, nx, ny)) { ally.x = nx; ally.y = ny; }
+      else if (canMoveTo(ally, nx, ally.y)) { ally.x = nx; }
+      else if (canMoveTo(ally, ally.x, ny)) { ally.y = ny; }
+    }
+  }
+
+  // cooldowns
+  if (ally.attackCd > 0) ally.attackCd--;
+  for (let i = 0; i < 3; i++) if (ally.abilityCd[i] > 0) ally.abilityCd[i]--;
+  if (ally.slowTimer > 0) ally.slowTimer--;
+  if (ally.smokeTimer > 0) ally.smokeTimer--;
+  if (ally.buffTimer > 0) ally.buffTimer--;
+  else ally.buffType = null;
+}
+
+// ============================================================
+//  MONSTER AI
+// ============================================================
+function updateMonsters(dt) {
+  for (const m of monsters) {
+    if (!m.alive) continue;
+    if (m.stunTimer > 0) { m.stunTimer--; continue; }
+
+    // find nearest player/ally
+    let target = null, tDist = Infinity;
+    if (player.alive && (player.smokeTimer <= 0)) {
+      const d = dist(m, player);
+      if (d < m.aggroRange) { target = player; tDist = d; }
+    }
+    if (ally.alive && (ally.smokeTimer <= 0)) {
+      const d = dist(m, ally);
+      if (d < tDist && d < m.aggroRange) { target = ally; tDist = d; }
+    }
+
+    if (!target) continue;
+
+    const speed = m.slowTimer > 0 ? m.speed * 0.4 : m.speed;
+    const angle = angleTo(m, target);
+    m.facing = angle;
+
+    // move toward target
+    if (tDist > m.range) {
+      const nx = m.x + Math.cos(angle) * speed;
+      const ny = m.y + Math.sin(angle) * speed;
+      if (canMoveTo(m, nx, ny)) { m.x = nx; m.y = ny; }
+      else if (canMoveTo(m, nx, m.y)) m.x = nx;
+      else if (canMoveTo(m, m.x, ny)) m.y = ny;
+    }
+
+    // attack
+    if (tDist < m.range + 8 && m.attackCd <= 0) {
+      let dmg = Math.max(1, m.atk - target.def + Math.floor(Math.random() * 3));
+      if (target.smokeTimer > 0) dmg = Math.floor(dmg * 0.3);
+      target.hp -= dmg;
+      target.invincTimer = 10;
+      spawnFloatingText(target.x, target.y - 12, '-' + dmg, '#f88');
+      spawnHitParticles(target.x, target.y, m.color);
+      m.attackCd = m.isBoss ? 30 : 40;
+    }
+
+    if (m.attackCd > 0) m.attackCd--;
+    if (m.slowTimer > 0) m.slowTimer--;
+
+    // check death
+    if (m.hp <= 0) {
+      m.alive = false;
+      score += m.xp || 10;
+      player.killCount++;
+      dropLoot(m.x, m.y, m.isBoss);
+      spawnDeathParticles(m.x, m.y, m.color);
+
+      // check room clear
+      checkRoomClear(m.roomIdx);
+    }
+  }
+}
+
+function checkRoomClear(roomIdx) {
+  if (roomIdx < 0 || roomIdx >= rooms.length) return;
+  const room = rooms[roomIdx];
+  if (room.cleared) return;
+  const alive = monsters.filter(m => m.roomIdx === roomIdx && m.alive);
+  if (alive.length === 0) {
+    room.cleared = true;
+    roomsCleared++;
+    score += 20;
+    spawnFloatingText(room.cx * TILE, room.cy * TILE, 'ROOM CLEARED!', '#4f4');
+
+    // boss room cleared -> next floor
+    if (room.isBoss) {
+      score += 100 * currentFloor;
+      if (currentFloor >= MAX_FLOORS) {
+        // victory
+        setTimeout(() => {
+          gameState = 'over';
+          showOverlay('VICTORY!', 'All dungeon floors cleared!\nFinal Score: ' + score, true);
+        }, 500);
+      } else {
+        // next floor
+        spawnFloatingText(player.x, player.y - 24, 'DESCENDING...', '#a84');
+        setTimeout(() => {
+          initFloor(currentFloor + 1, player.className);
+        }, 1000);
+      }
+    }
+  }
+}
+
+// ============================================================
+//  PARTICLES & EFFECTS
+// ============================================================
+function spawnHitParticles(x, y, color) {
+  for (let i = 0; i < 6; i++) {
+    const a = Math.random() * Math.PI * 2;
+    particles.push({ x, y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, life: 15, color });
+  }
+}
+
+function spawnDeathParticles(x, y, color) {
+  for (let i = 0; i < 16; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 1 + Math.random() * 2;
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 30, color });
+  }
+}
+
+function spawnFloatingText(x, y, text, color) {
+  floatingTexts.push({ x, y, text, color, life: 45 });
+}
+
+// ============================================================
+//  UPDATE
+// ============================================================
+function update() {
+  if (gameState !== 'playing') return;
+
+  // player input
+  if (player.alive && player.stunTimer <= 0) {
+    const speed = player.slowTimer > 0 ? player.speed * 0.5 : player.speed;
+    let mx = 0, my = 0;
+    if (keys['w'] || keys['arrowup']) my = -1;
+    if (keys['s'] || keys['arrowdown']) my = 1;
+    if (keys['a'] || keys['arrowleft']) mx = -1;
+    if (keys['d'] || keys['arrowright']) mx = 1;
+    if (mx || my) {
+      const len = Math.sqrt(mx * mx + my * my);
+      mx /= len; my /= len;
+      player.facing = Math.atan2(my, mx);
+      const nx = player.x + mx * speed;
+      const ny = player.y + my * speed;
+      if (canMoveTo(player, nx, ny)) { player.x = nx; player.y = ny; }
+      else if (canMoveTo(player, nx, player.y)) player.x = nx;
+      else if (canMoveTo(player, player.x, ny)) player.y = ny;
+    }
+
+    // attack
+    if (keys[' '] && player.attackCd <= 0) {
+      // find nearest monster in front
+      let best = null, bestDist = Infinity;
+      for (const m of monsters) {
+        if (!m.alive) continue;
+        const d = dist(player, m);
+        if (d < player.range + 20 && d < bestDist) {
+          best = m; bestDist = d;
+        }
+      }
+      if (best) {
+        player.facing = angleTo(player, best);
+        if (player.className === 'mage') {
+          // ranged basic attack
+          projectiles.push({
+            x: player.x, y: player.y,
+            vx: Math.cos(player.facing) * 4,
+            vy: Math.sin(player.facing) * 4,
+            damage: player.atk,
+            radius: 0, range: player.range, traveled: 0,
+            owner: player, color: player.color, alive: true
+          });
+        } else {
+          meleeAttack(player, best);
+        }
+      } else if (player.className === 'mage') {
+        projectiles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(player.facing) * 4,
+          vy: Math.sin(player.facing) * 4,
+          damage: player.atk,
+          radius: 0, range: player.range, traveled: 0,
+          owner: player, color: player.color, alive: true
+        });
+      }
+      player.attackCd = player.className === 'rogue' ? 15 : 20;
+    }
+
+    // interact / pickup
+    if (keys['e']) {
+      for (const l of lootItems) {
+        if (!l.alive) continue;
+        if (dist(player, l) < 24) {
+          pickupLoot(player, l);
+          break;
+        }
+      }
+      keys['e'] = false;
+    }
+
+    // abilities
+    for (let i = 0; i < 3; i++) {
+      if (keys[String(i + 1)]) {
+        let targetAngle = player.facing;
+        // aim at nearest monster
+        let nearest = null, nd = Infinity;
+        for (const m of monsters) {
+          if (!m.alive) continue;
+          const d = dist(player, m);
+          if (d < nd) { nearest = m; nd = d; }
+        }
+        if (nearest) targetAngle = angleTo(player, nearest);
+        useAbility(player, i, targetAngle);
+        keys[String(i + 1)] = false;
+      }
+    }
+  }
+
+  // cooldowns
+  if (player.attackCd > 0) player.attackCd--;
+  for (let i = 0; i < 3; i++) if (player.abilityCd[i] > 0) player.abilityCd[i]--;
+  if (player.stunTimer > 0) player.stunTimer--;
+  if (player.slowTimer > 0) player.slowTimer--;
+  if (player.smokeTimer > 0) player.smokeTimer--;
+  if (player.buffTimer > 0) player.buffTimer--;
+  else player.buffType = null;
+  if (player.invincTimer > 0) player.invincTimer--;
+
+  // update ally
+  updateAlly(1);
+
+  // update monsters
+  updateMonsters(1);
+
+  // update projectiles
+  for (const p of projectiles) {
+    if (!p.alive) continue;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.traveled += Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    if (p.traveled > p.range || !isWalkable(p.x, p.y)) {
+      p.alive = false;
+      if (p.radius > 0) {
+        // AoE explosion
+        for (const m of monsters) {
+          if (!m.alive) continue;
+          if (dist(p, m) < p.radius) {
+            let dmg = Math.max(1, Math.floor(p.damage * 0.7) - m.def);
+            m.hp -= dmg;
+            spawnFloatingText(m.x, m.y - 12, '-' + dmg, '#fa0');
+            spawnHitParticles(m.x, m.y, '#f80');
+            if (m.hp <= 0) {
+              m.alive = false;
+              score += m.xp || 10;
+              player.killCount++;
+              dropLoot(m.x, m.y, m.isBoss);
+              spawnDeathParticles(m.x, m.y, m.color);
+              checkRoomClear(m.roomIdx);
+            }
+          }
+        }
+        for (let i = 0; i < 10; i++) {
+          const a = Math.random() * Math.PI * 2;
+          particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, life: 20, color: '#f80' });
+        }
+      }
+      continue;
+    }
+
+    // hit detection
+    for (const m of monsters) {
+      if (!m.alive) continue;
+      if (dist(p, m) < 14) {
+        let dmg = Math.max(1, Math.floor(p.damage) - m.def);
+        m.hp -= dmg;
+        spawnFloatingText(m.x, m.y - 12, '-' + dmg, '#fa0');
+        spawnHitParticles(m.x, m.y, p.color);
+        if (m.hp <= 0) {
+          m.alive = false;
+          score += m.xp || 10;
+          player.killCount++;
+          dropLoot(m.x, m.y, m.isBoss);
+          spawnDeathParticles(m.x, m.y, m.color);
+          checkRoomClear(m.roomIdx);
+        }
+        if (p.radius > 0) {
+          // AoE still triggers
+          for (const m2 of monsters) {
+            if (!m2.alive || m2 === m) continue;
+            if (dist(p, m2) < p.radius) {
+              let dmg2 = Math.max(1, Math.floor(p.damage * 0.5) - m2.def);
+              m2.hp -= dmg2;
+              spawnFloatingText(m2.x, m2.y - 12, '-' + dmg2, '#fa0');
+              if (m2.hp <= 0) {
+                m2.alive = false;
+                score += m2.xp || 10;
+                dropLoot(m2.x, m2.y, m2.isBoss);
+                spawnDeathParticles(m2.x, m2.y, m2.color);
+                checkRoomClear(m2.roomIdx);
+              }
+            }
+          }
+        }
+        p.alive = false;
+        break;
+      }
+    }
+  }
+
+  // cleanup
+  projectiles = projectiles.filter(p => p.alive);
+  lootItems = lootItems.filter(l => l.alive);
+
+  // update particles
+  for (const p of particles) {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.95;
+    p.vy *= 0.95;
+    p.life--;
+  }
+  particles = particles.filter(p => p.life > 0);
+
+  // floating texts
+  for (const ft of floatingTexts) {
+    ft.y -= 0.5;
+    ft.life--;
+  }
+  floatingTexts = floatingTexts.filter(ft => ft.life > 0);
+
+  // loot sparkle
+  for (const l of lootItems) {
+    if (l.alive) l.sparkle = (l.sparkle + 0.05) % (Math.PI * 2);
+  }
+
+  // check death
+  if (player.hp <= 0) {
+    player.alive = false;
+    player.hp = 0;
+    // if ally also dead -> game over
+    if (!ally.alive) {
+      gameState = 'over';
+      showOverlay('GAME OVER', 'Both heroes fell in the dungeon.\nScore: ' + score, false);
+    } else {
+      spawnFloatingText(player.x, player.y - 16, 'FALLEN!', '#f44');
+      // ally tries to survive alone for a bit; if ally dies -> game over checked next frame
+    }
+  }
+  if (ally.hp <= 0) {
+    ally.alive = false;
+    ally.hp = 0;
+    if (!player.alive) {
+      gameState = 'over';
+      showOverlay('GAME OVER', 'Both heroes fell in the dungeon.\nScore: ' + score, false);
+    } else {
+      spawnFloatingText(ally.x, ally.y - 16, 'ALLY DOWN!', '#f44');
+    }
+  }
+
+  // camera follows player
+  camera.x = player.x - W / 2;
+  camera.y = player.y - MAP_H / 2;
+
+  updateHUD();
+}
+
+// ============================================================
+//  RENDERING
+// ============================================================
+const WALL_COLORS = ['#2a2520', '#322e28', '#2e2a24'];
+const FLOOR_COLORS = ['#4a4238', '#524a3e', '#484035'];
+const CORRIDOR_COLOR = '#3a342c';
+const DOOR_COLOR = '#a84';
+
+function render() {
+  ctx.fillStyle = '#0e0e1a';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.translate(-camera.x, -camera.y);
+
+  // determine visible tile range
+  const startCol = Math.max(0, Math.floor(camera.x / TILE) - 1);
+  const endCol = Math.min((dungeon[0] || []).length, Math.ceil((camera.x + W) / TILE) + 1);
+  const startRow = Math.max(0, Math.floor(camera.y / TILE) - 1);
+  const endRow = Math.min(dungeon.length, Math.ceil((camera.y + MAP_H) / TILE) + 1);
+
+  // draw tiles
+  for (let r = startRow; r < endRow; r++) {
+    for (let c = startCol; c < endCol; c++) {
+      const tile = dungeon[r] ? dungeon[r][c] : 0;
+      const x = c * TILE, y = r * TILE;
+      if (tile === 0) {
+        // wall - only draw if adjacent to non-wall
+        let nearFloor = false;
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]]) {
+          const nr = r + dy, nc = c + dx;
+          if (nr >= 0 && nr < dungeon.length && nc >= 0 && nc < (dungeon[0]||[]).length && dungeon[nr][nc] > 0) {
+            nearFloor = true; break;
+          }
+        }
+        if (nearFloor) {
+          ctx.fillStyle = WALL_COLORS[(r * 7 + c * 13) % 3];
+          ctx.fillRect(x, y, TILE, TILE);
+          // brick pattern
+          ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(x + 1, y + 1, TILE - 2, TILE / 2 - 1);
+          ctx.strokeRect(x + TILE / 2, y + TILE / 2, TILE / 2 - 1, TILE / 2 - 1);
+        }
+      } else if (tile === 1) {
+        ctx.fillStyle = FLOOR_COLORS[(r * 3 + c * 7) % 3];
+        ctx.fillRect(x, y, TILE, TILE);
+        // floor detail
+        if ((r + c) % 5 === 0) {
+          ctx.fillStyle = 'rgba(170,136,68,0.06)';
+          ctx.fillRect(x + 4, y + 4, 4, 4);
+        }
+      } else if (tile === 2) {
+        ctx.fillStyle = '#3a342c';
+        ctx.fillRect(x, y, TILE, TILE);
+        ctx.fillStyle = DOOR_COLOR;
+        ctx.fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
+        ctx.fillStyle = '#654';
+        ctx.fillRect(x + 6, y + 6, TILE - 12, TILE - 12);
+      } else if (tile === 3) {
+        ctx.fillStyle = CORRIDOR_COLOR;
+        ctx.fillRect(x, y, TILE, TILE);
+      }
+    }
+  }
+
+  // draw room indicators for uncleared rooms
+  for (const room of rooms) {
+    if (!room.cleared) {
+      const cx = room.cx * TILE, cy = room.cy * TILE;
+      ctx.fillStyle = room.isBoss ? 'rgba(255,68,68,0.08)' : 'rgba(255,100,50,0.05)';
+      ctx.fillRect(room.x * TILE, room.y * TILE, room.w * TILE, room.h * TILE);
+    }
+  }
+
+  // draw loot
+  for (const l of lootItems) {
+    if (!l.alive) continue;
+    const sparkleSize = 1 + Math.sin(l.sparkle * 3) * 0.5;
+
+    // sparkle effect
+    ctx.save();
+    ctx.globalAlpha = 0.3 + Math.sin(l.sparkle * 4) * 0.2;
+    ctx.fillStyle = l.color;
+    ctx.beginPath();
+    ctx.arc(l.x, l.y, 8 * sparkleSize, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // item
+    ctx.fillStyle = l.color;
+    ctx.font = 'bold 14px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = l.color;
+    ctx.shadowBlur = 6;
+    ctx.fillText(l.char, l.x, l.y);
+    ctx.shadowBlur = 0;
+  }
+
+  // draw monsters
+  for (const m of monsters) {
+    if (!m.alive) continue;
+
+    // body
+    const size = m.isBoss ? 14 : 8;
+    ctx.fillStyle = m.color;
+    ctx.shadowColor = m.color;
+    ctx.shadowBlur = m.isBoss ? 10 : 4;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // character icon
+    ctx.fillStyle = '#111';
+    ctx.font = (m.isBoss ? 'bold 16px' : 'bold 11px') + ' Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(m.char, m.x, m.y);
+
+    // health bar
+    if (m.hp < m.maxHp) {
+      const bw = m.isBoss ? 36 : 20;
+      const bh = 3;
+      const bx = m.x - bw / 2;
+      const by = m.y - size - 6;
+      ctx.fillStyle = '#400';
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = m.hp > m.maxHp * 0.3 ? '#4f4' : '#f44';
+      ctx.fillRect(bx, by, bw * (m.hp / m.maxHp), bh);
+    }
+
+    // stun indicator
+    if (m.stunTimer > 0) {
+      ctx.fillStyle = '#ff0';
+      ctx.font = '8px Courier New';
+      ctx.fillText('*', m.x + size, m.y - size);
+    }
+  }
+
+  // draw ally
+  if (ally.alive) {
+    drawCharacter(ally, true);
+  }
+
+  // draw player
+  if (player.alive) {
+    drawCharacter(player, false);
+  }
+
+  // draw projectiles
+  for (const p of projectiles) {
+    if (!p.alive) continue;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // trail
+    ctx.strokeStyle = p.color;
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x - p.vx * 3, p.y - p.vy * 3);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // draw particles
+  for (const p of particles) {
+    ctx.globalAlpha = p.life / 30;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+  }
+  ctx.globalAlpha = 1;
+
+  // draw floating texts
+  for (const ft of floatingTexts) {
+    ctx.globalAlpha = ft.life / 45;
+    ctx.fillStyle = ft.color;
+    ctx.font = 'bold 12px Courier New';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = ft.color;
+    ctx.shadowBlur = 4;
+    ctx.fillText(ft.text, ft.x, ft.y);
+    ctx.shadowBlur = 0;
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+
+  // HUD at bottom
+  drawHUD();
+
+  // minimap
+  drawMinimap();
+}
+
+function drawCharacter(entity, isAlly) {
+  const size = 10;
+
+  // smoke effect
+  if (entity.smokeTimer > 0) {
+    ctx.globalAlpha = 0.4;
+  }
+
+  // buff glow
+  if (entity.buffTimer > 0) {
+    ctx.fillStyle = 'rgba(255,255,68,0.15)';
+    ctx.beginPath();
+    ctx.arc(entity.x, entity.y, 16, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // body
+  ctx.fillStyle = entity.color;
+  ctx.shadowColor = entity.color;
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.arc(entity.x, entity.y, size, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // facing indicator
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(entity.x, entity.y);
+  ctx.lineTo(entity.x + Math.cos(entity.facing) * 14, entity.y + Math.sin(entity.facing) * 14);
+  ctx.stroke();
+
+  // class icon
+  ctx.fillStyle = '#111';
+  ctx.font = 'bold 11px Courier New';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const icons = { warrior: 'W', mage: 'M', rogue: 'R' };
+  ctx.fillText(icons[entity.className] || '?', entity.x, entity.y);
+
+  // label
+  ctx.fillStyle = isAlly ? '#aaa' : '#fff';
+  ctx.font = '9px Courier New';
+  ctx.fillText(isAlly ? 'ALLY' : 'YOU', entity.x, entity.y - 16);
+
+  // health bar
+  const bw = 24, bh = 3;
+  const bx = entity.x - bw / 2;
+  const by = entity.y + size + 4;
+  ctx.fillStyle = '#400';
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = entity.hp > entity.maxHp * 0.3 ? '#4f4' : '#f44';
+  ctx.fillRect(bx, by, bw * Math.max(0, entity.hp / entity.maxHp), bh);
+
+  // invincibility flash
+  if (entity.invincTimer > 0 && entity.invincTimer % 4 < 2) {
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(entity.x, entity.y, size + 3, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  // bottom HUD bar
+  ctx.fillStyle = 'rgba(26,26,46,0.9)';
+  ctx.fillRect(0, MAP_H, W, HUD_H);
+  ctx.strokeStyle = 'rgba(170,136,68,0.3)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, MAP_H);
+  ctx.lineTo(W, MAP_H);
+  ctx.stroke();
+
+  // player HP
+  ctx.fillStyle = '#aaa';
+  ctx.font = '10px Courier New';
+  ctx.textAlign = 'left';
+  const pHpText = player.alive ? `You: ${player.hp}/${player.maxHp}` : 'You: DEAD';
+  ctx.fillText(pHpText, 6, MAP_H + 14);
+
+  // ally HP
+  const aHpText = ally.alive ? `Ally: ${ally.hp}/${ally.maxHp}` : 'Ally: DEAD';
+  ctx.fillText(aHpText, 140, MAP_H + 14);
+
+  // abilities
+  ctx.textAlign = 'right';
+  for (let i = 0; i < 3; i++) {
+    const ab = player.abilities[i];
+    if (!ab) continue;
+    const ready = player.abilityCd[i] <= 0;
+    ctx.fillStyle = ready ? '#a84' : '#555';
+    const cdText = ready ? 'RDY' : Math.ceil(player.abilityCd[i] / 60) + 's';
+    ctx.fillText(`[${i + 1}]${ab.name.substring(0, 6)} ${cdText}`, W - 6 - (2 - i) * 140, MAP_H + 14);
+  }
+}
+
+function drawMinimap() {
+  const mmW = 100, mmH = 70;
+  const mmX = W - mmW - 4, mmY = 4;
+  const scaleX = mmW / ((dungeon[0] || []).length);
+  const scaleY = mmH / dungeon.length;
+
+  ctx.fillStyle = 'rgba(10,10,20,0.8)';
+  ctx.fillRect(mmX, mmY, mmW, mmH);
+  ctx.strokeStyle = 'rgba(170,136,68,0.4)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(mmX, mmY, mmW, mmH);
+
+  // rooms
+  for (const room of rooms) {
+    ctx.fillStyle = room.cleared ? 'rgba(68,255,68,0.3)' : (room.isBoss ? 'rgba(255,68,68,0.4)' : 'rgba(170,136,68,0.3)');
+    ctx.fillRect(mmX + room.x * scaleX, mmY + room.y * scaleY, room.w * scaleX, room.h * scaleY);
+  }
+
+  // player dot
+  if (player.alive) {
+    ctx.fillStyle = player.color;
+    ctx.fillRect(mmX + (player.x / TILE) * scaleX - 1, mmY + (player.y / TILE) * scaleY - 1, 3, 3);
+  }
+  // ally dot
+  if (ally.alive) {
+    ctx.fillStyle = ally.color;
+    ctx.fillRect(mmX + (ally.x / TILE) * scaleX - 1, mmY + (ally.y / TILE) * scaleY - 1, 3, 3);
+  }
+  // monster dots
+  for (const m of monsters) {
+    if (!m.alive) continue;
+    ctx.fillStyle = m.isBoss ? '#f44' : '#f84';
+    ctx.fillRect(mmX + (m.x / TILE) * scaleX, mmY + (m.y / TILE) * scaleY, m.isBoss ? 3 : 2, m.isBoss ? 3 : 2);
+  }
+}
+
+// ============================================================
+//  HUD UPDATE
+// ============================================================
+function updateHUD() {
+  scoreEl.textContent = score;
+  floorEl.textContent = currentFloor + '/' + MAX_FLOORS;
+  roomEl.textContent = roomsCleared + '/' + rooms.length;
+  lootEl.textContent = totalLoot;
+}
+
+// ============================================================
+//  OVERLAY
+// ============================================================
+function showOverlay(title, msg, isWin) {
+  overlay.classList.remove('hidden');
+  classSelect.style.display = 'none';
+  restartBtn.style.display = 'block';
+  overlay.querySelector('h1').textContent = title;
+  overlay.querySelector('h1').style.color = isWin ? '#4f4' : '#f44';
+  overlayMsg.textContent = msg;
+  overlayMsg.style.whiteSpace = 'pre-line';
+}
+
+// ============================================================
+//  GAME LOOP
+// ============================================================
+let lastTime = 0;
+function gameLoop(ts) {
+  const dt = Math.min(32, ts - lastTime);
+  lastTime = ts;
+
+  update();
+  render();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+//  EVENT HANDLERS
+// ============================================================
+classSelect.querySelectorAll('.class-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const cls = btn.dataset.class;
+    startGame(cls);
+  });
+});
+
+restartBtn.addEventListener('click', () => {
+  overlay.classList.remove('hidden');
+  classSelect.style.display = 'flex';
+  restartBtn.style.display = 'none';
+  overlay.querySelector('h1').textContent = 'CO-OP DUNGEON CRAWLER';
+  overlay.querySelector('h1').style.color = '#a84';
+  overlayMsg.textContent = '';
+  gameState = 'waiting';
+});
+
+// ============================================================
+//  EXPOSE GAME DATA & START
+// ============================================================
+window.gameData = {};
+function exposeGameData() {
+  window.gameData = {
+    gameState,
+    score,
+    currentFloor,
+    roomsCleared,
+    totalRooms: rooms.length,
+    totalLoot,
+    playerAlive: player ? player.alive : false,
+    allyAlive: ally ? ally.alive : false,
+    playerHp: player ? player.hp : 0,
+    allyHp: ally ? ally.hp : 0,
+    monstersAlive: monsters.filter(m => m.alive).length
+  };
+}
+
+setInterval(exposeGameData, 200);
+
+requestAnimationFrame(gameLoop);
+</script>
+<script src="../recorder.js?v=2"></script>
+</body>
+</html>

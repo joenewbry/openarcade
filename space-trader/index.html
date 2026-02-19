@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Space Trader</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 10px;
+      width: 600px;
+    }
+    .back { color: #a8f; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(170, 136, 255, 0.4); }
+    h1 { color: #a8f; font-size: 1.6rem; text-shadow: 0 0 15px rgba(170, 136, 255, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 600px;
+      margin-bottom: 6px;
+      font-size: 0.95rem;
+    }
+    .score-bar span { color: #a8f; }
+    .info-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 6px;
+      font-size: 0.8rem;
+      color: #888;
+    }
+    canvas {
+      border: 2px solid #a8f;
+      box-shadow: 0 0 20px rgba(170, 136, 255, 0.2);
+      display: block;
+      cursor: pointer;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #a8f;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.9);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(170, 136, 255, 0.5); }
+    .overlay p { font-size: 1rem; color: #aaa; margin-bottom: 6px; }
+    .overlay .subtitle { font-size: 0.85rem; color: #777; }
+    .controls {
+      width: 600px;
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .controls button {
+      background: #2a2a4e;
+      color: #a8f;
+      border: 1px solid #a8f;
+      padding: 6px 14px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    .controls button:hover { background: #3a3a5e; box-shadow: 0 0 8px rgba(170, 136, 255, 0.3); }
+    .controls button:disabled { opacity: 0.4; cursor: default; }
+    .controls button.active { background: #a8f; color: #1a1a2e; }
+    .log {
+      width: 600px;
+      margin-top: 8px;
+      max-height: 100px;
+      overflow-y: auto;
+      font-size: 0.75rem;
+      color: #888;
+      background: #12122a;
+      border: 1px solid #333;
+      padding: 6px;
+      border-radius: 3px;
+    }
+    .log div { margin-bottom: 2px; }
+    .log .event-trade { color: #8f8; }
+    .log .event-combat { color: #f88; }
+    .log .event-diplo { color: #8cf; }
+    .log .event-system { color: #a8f; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>SPACE TRADER</h1>
+  </div>
+  <div class="score-bar">
+    <div>Wealth: <span id="score">0</span> cr</div>
+    <div style="color:#888;font-size:0.85rem;" id="turnInfo">Turn 1/30</div>
+    <div>Ship: <span id="shipInfo">---</span></div>
+  </div>
+  <div class="info-bar" id="infoBar">
+    <span id="locationInfo">Location: ---</span>
+    <span id="cargoInfo">Cargo: 0/10</span>
+    <span id="repInfo">Rep: Neutral</span>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:500px;">
+      <h2 id="overlayTitle">SPACE TRADER</h2>
+      <p id="overlayText">Elite-inspired trading across the stars</p>
+      <p class="subtitle" id="overlaySub">Click to launch</p>
+    </div>
+  </div>
+  <div class="controls" id="controls">
+    <button id="btnMap" class="active">Star Map</button>
+    <button id="btnTrade">Trade</button>
+    <button id="btnShip">Ship</button>
+    <button id="btnEnd">End Turn</button>
+  </div>
+  <div class="log" id="log"></div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 500;
+    const scoreEl = document.getElementById('score');
+    const shipInfoEl = document.getElementById('shipInfo');
+    const turnInfoEl = document.getElementById('turnInfo');
+    const locationInfoEl = document.getElementById('locationInfo');
+    const cargoInfoEl = document.getElementById('cargoInfo');
+    const repInfoEl = document.getElementById('repInfo');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const overlaySub = document.getElementById('overlaySub');
+    const logEl = document.getElementById('log');
+    const btnMap = document.getElementById('btnMap');
+    const btnTrade = document.getElementById('btnTrade');
+    const btnShip = document.getElementById('btnShip');
+    const btnEnd = document.getElementById('btnEnd');
+
+    document.addEventListener('keydown', e => {
+      if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
+    });
+
+    // ---- CONSTANTS ----
+    const GOODS = ['Food', 'Tech', 'Minerals', 'Luxuries', 'Weapons'];
+    const GOOD_COLORS = { Food: '#8f8', Tech: '#8cf', Minerals: '#fa8', Luxuries: '#f8f', Weapons: '#f88' };
+    const GOOD_BASE = { Food: 20, Tech: 80, Minerals: 40, Luxuries: 120, Weapons: 100 };
+    const MAX_TURNS = 30;
+    const FACTIONS = ['Federation', 'Syndicate', 'Frontier'];
+    const FACTION_COLORS = ['#48f', '#f84', '#8f4'];
+
+    // ---- STAR SYSTEMS ----
+    const SYSTEM_DEFS = [
+      { name: 'Sol', x: 300, y: 250, faction: 0, produces: 'Tech', consumes: 'Food' },
+      { name: 'Alpha Cen', x: 180, y: 180, faction: 0, produces: 'Food', consumes: 'Luxuries' },
+      { name: 'Sirius', x: 420, y: 170, faction: 0, produces: 'Minerals', consumes: 'Tech' },
+      { name: 'Vega', x: 100, y: 100, faction: 1, produces: 'Weapons', consumes: 'Minerals' },
+      { name: 'Rigel', x: 500, y: 100, faction: 1, produces: 'Luxuries', consumes: 'Weapons' },
+      { name: 'Betelgeuse', x: 500, y: 280, faction: 1, produces: 'Tech', consumes: 'Food' },
+      { name: 'Polaris', x: 300, y: 80, faction: 2, produces: 'Minerals', consumes: 'Luxuries' },
+      { name: 'Arcturus', x: 100, y: 300, faction: 2, produces: 'Food', consumes: 'Weapons' },
+      { name: 'Capella', x: 200, y: 400, faction: 2, produces: 'Luxuries', consumes: 'Tech' },
+      { name: 'Deneb', x: 400, y: 400, faction: 0, produces: 'Weapons', consumes: 'Minerals' },
+      { name: 'Altair', x: 500, y: 420, faction: 1, produces: 'Food', consumes: 'Tech' },
+      { name: 'Procyon', x: 80, y: 440, faction: 2, produces: 'Minerals', consumes: 'Food' },
+    ];
+
+    const LANES = [
+      [0,1],[0,2],[0,6],[1,3],[1,7],[2,4],[2,5],[3,6],[4,5],[4,6],
+      [5,10],[7,8],[7,11],[8,9],[8,0],[9,10],[9,0],[10,5],[11,8]
+    ];
+
+    // ---- GAME STATE ----
+    let gameState = 'title';
+    let score = 0;
+    let turn = 1;
+    let view = 'map';
+    let systems = [];
+    let players = [];
+    let combatState = null;
+    let hoverSystem = -1;
+    let tradeButtons = [];
+    let shipButtons = [];
+    let combatButtons = [];
+    let messages = [];
+    let animFrame = 0;
+    let starField = [];
+    let playerMoved = false;
+    let playerTraded = false;
+
+    for (let i = 0; i < 200; i++) {
+      starField.push({ x: Math.random() * W, y: Math.random() * H, s: Math.random() * 1.5 + 0.5, b: Math.random() });
+    }
+
+    // ---- HELPERS ----
+    function dist(a, b) { return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2); }
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    function rnd(lo, hi) { return Math.floor(Math.random() * (hi - lo + 1)) + lo; }
+    function rndF(lo, hi) { return Math.random() * (hi - lo) + lo; }
+
+    function addLog(msg, cls) {
+      cls = cls || 'event-system';
+      messages.unshift({ msg: msg, cls: cls });
+      if (messages.length > 50) messages.pop();
+      logEl.innerHTML = messages.map(function(m) { return '<div class="' + m.cls + '">' + m.msg + '</div>'; }).join('');
+    }
+
+    function neighbors(sysIdx) {
+      var nb = [];
+      for (var i = 0; i < LANES.length; i++) {
+        var a = LANES[i][0], b = LANES[i][1];
+        if (a === sysIdx) nb.push(b);
+        if (b === sysIdx) nb.push(a);
+      }
+      var unique = [];
+      for (var j = 0; j < nb.length; j++) {
+        if (unique.indexOf(nb[j]) === -1) unique.push(nb[j]);
+      }
+      return unique;
+    }
+
+    function cargoCount(p) {
+      var c = 0;
+      for (var i = 0; i < GOODS.length; i++) c += (p.cargo[GOODS[i]] || 0);
+      return c;
+    }
+
+    function totalWealth(p) {
+      var w = p.credits;
+      for (var i = 0; i < GOODS.length; i++) {
+        w += (p.cargo[GOODS[i]] || 0) * GOOD_BASE[GOODS[i]];
+      }
+      return w;
+    }
+
+    function getRepLevel(p) {
+      var sys = systems[p.system];
+      var r = p.rep[sys.faction];
+      if (r >= 3) return 'Allied';
+      if (r >= 1) return 'Friendly';
+      if (r >= -1) return 'Neutral';
+      if (r >= -3) return 'Hostile';
+      return 'Enemy';
+    }
+
+    function priceMod(p, sys) {
+      var r = p.rep[sys.faction];
+      return 1 - r * 0.03;
+    }
+
+    function getReachable(p) {
+      var nbs = neighbors(p.system);
+      var reachable = nbs.slice();
+      if (p.engine >= 2) {
+        for (var i = 0; i < nbs.length; i++) {
+          var nbs2 = neighbors(nbs[i]);
+          for (var j = 0; j < nbs2.length; j++) {
+            if (nbs2[j] !== p.system && reachable.indexOf(nbs2[j]) === -1) reachable.push(nbs2[j]);
+          }
+        }
+      }
+      if (p.engine >= 3) {
+        var extended = reachable.slice();
+        for (var k = 0; k < extended.length; k++) {
+          var nbs3 = neighbors(extended[k]);
+          for (var l = 0; l < nbs3.length; l++) {
+            if (nbs3[l] !== p.system && reachable.indexOf(nbs3[l]) === -1) reachable.push(nbs3[l]);
+          }
+        }
+      }
+      return reachable;
+    }
+
+    function findPath(from, to) {
+      var visited = {};
+      visited[from] = true;
+      var queue = [[from]];
+      while (queue.length > 0) {
+        var path = queue.shift();
+        var node = path[path.length - 1];
+        if (node === to) return path;
+        var nbs = neighbors(node);
+        for (var i = 0; i < nbs.length; i++) {
+          if (!visited[nbs[i]]) {
+            visited[nbs[i]] = true;
+            queue.push(path.concat([nbs[i]]));
+          }
+        }
+      }
+      return [from];
+    }
+
+    // ---- INITIALIZATION ----
+    function initGame() {
+      systems = [];
+      for (var i = 0; i < SYSTEM_DEFS.length; i++) {
+        var s = SYSTEM_DEFS[i];
+        var prices = {};
+        var stock = {};
+        for (var gi = 0; gi < GOODS.length; gi++) {
+          var g = GOODS[gi];
+          var base = GOOD_BASE[g];
+          if (g === s.produces) { prices[g] = Math.round(base * rndF(0.4, 0.7)); stock[g] = rnd(15, 30); }
+          else if (g === s.consumes) { prices[g] = Math.round(base * rndF(1.4, 1.8)); stock[g] = rnd(2, 8); }
+          else { prices[g] = Math.round(base * rndF(0.8, 1.2)); stock[g] = rnd(5, 15); }
+        }
+        systems.push({ name: s.name, x: s.x, y: s.y, faction: s.faction, produces: s.produces, consumes: s.consumes, idx: i, prices: prices, stock: stock });
+      }
+
+      players = [
+        { name: 'You', color: '#a8f', ai: false, system: 0, credits: 500, cargo: {}, cargoMax: 10, engine: 1, weapons: 1, shields: 1, rep: [0, 0, 0], alive: true, type: 'trader' },
+        { name: 'Merchant Zara', color: '#f84', ai: true, system: 4, credits: 500, cargo: {}, cargoMax: 12, engine: 1, weapons: 0, shields: 1, rep: [1, 1, 1], alive: true, type: 'merchant' },
+        { name: 'Pirate Kael', color: '#f44', ai: true, system: 7, credits: 300, cargo: {}, cargoMax: 8, engine: 2, weapons: 3, shields: 2, rep: [-2, -1, -2], alive: true, type: 'pirate' },
+        { name: 'Trader Mira', color: '#4cf', ai: true, system: 10, credits: 500, cargo: {}, cargoMax: 10, engine: 1, weapons: 1, shields: 1, rep: [0, 1, 0], alive: true, type: 'trader' },
+      ];
+
+      turn = 1;
+      score = 0;
+      view = 'map';
+      combatState = null;
+      playerMoved = false;
+      playerTraded = false;
+      messages = [];
+      logEl.innerHTML = '';
+      addLog('Welcome to the galaxy, trader. 30 turns to amass wealth.', 'event-system');
+      addLog('Buy low at production worlds, sell high at consumer worlds.', 'event-system');
+      updateUI();
+    }
+
+    // ---- UPDATE UI ----
+    function updateUI() {
+      var p = players[0];
+      score = totalWealth(p);
+      scoreEl.textContent = score;
+      turnInfoEl.textContent = 'Turn ' + turn + '/' + MAX_TURNS;
+      locationInfoEl.textContent = 'Location: ' + systems[p.system].name;
+      cargoInfoEl.textContent = 'Cargo: ' + cargoCount(p) + '/' + p.cargoMax;
+      repInfoEl.textContent = 'Rep: ' + getRepLevel(p);
+      shipInfoEl.textContent = 'E' + p.engine + ' W' + p.weapons + ' S' + p.shields;
+      btnMap.className = view === 'map' ? 'active' : '';
+      btnTrade.className = view === 'trade' ? 'active' : '';
+      btnShip.className = view === 'ship' ? 'active' : '';
+    }
+
+    // ---- MARKET FLUCTUATION ----
+    function fluctuateMarkets() {
+      for (var si = 0; si < systems.length; si++) {
+        var sys = systems[si];
+        for (var gi = 0; gi < GOODS.length; gi++) {
+          var g = GOODS[gi];
+          var base = GOOD_BASE[g];
+          var drift = rndF(-0.05, 0.05);
+          if (g === sys.produces) {
+            sys.prices[g] = clamp(Math.round(sys.prices[g] * (1 + drift)), Math.round(base * 0.3), Math.round(base * 0.8));
+            sys.stock[g] = clamp(sys.stock[g] + rnd(1, 4), 0, 40);
+          } else if (g === sys.consumes) {
+            sys.prices[g] = clamp(Math.round(sys.prices[g] * (1 + drift)), Math.round(base * 1.2), Math.round(base * 2.2));
+            sys.stock[g] = clamp(sys.stock[g] + rnd(-2, 1), 0, 20);
+          } else {
+            sys.prices[g] = clamp(Math.round(sys.prices[g] * (1 + drift)), Math.round(base * 0.6), Math.round(base * 1.5));
+            sys.stock[g] = clamp(sys.stock[g] + rnd(-1, 2), 0, 25);
+          }
+        }
+      }
+    }
+
+    // ---- AI LOGIC ----
+    function aiBestTradeRoute(p) {
+      var curSys = systems[p.system];
+      var nbs = getReachable(p);
+      var bestProfit = -Infinity;
+      var bestGood = null, bestDest = null;
+      for (var gi = 0; gi < GOODS.length; gi++) {
+        var g = GOODS[gi];
+        var buyPrice = Math.round(curSys.prices[g] * priceMod(p, curSys));
+        if (curSys.stock[g] < 1) continue;
+        var canBuy = Math.min(curSys.stock[g], p.cargoMax - cargoCount(p), Math.floor(p.credits / buyPrice));
+        if (canBuy < 1) continue;
+        for (var ni = 0; ni < nbs.length; ni++) {
+          var destSys = systems[nbs[ni]];
+          var sellPrice = Math.round(destSys.prices[g] / priceMod(p, destSys));
+          var profit = (sellPrice - buyPrice) * canBuy;
+          if (profit > bestProfit) {
+            bestProfit = profit;
+            bestGood = g;
+            bestDest = nbs[ni];
+          }
+        }
+      }
+      return { good: bestGood, dest: bestDest, profit: bestProfit };
+    }
+
+    function aiTurn(p) {
+      if (!p.alive) return;
+      var curSys = systems[p.system];
+
+      // Sell any cargo first
+      for (var gi = 0; gi < GOODS.length; gi++) {
+        var g = GOODS[gi];
+        var qty = p.cargo[g] || 0;
+        if (qty > 0) {
+          var sellPrice = Math.round(curSys.prices[g] / priceMod(p, curSys));
+          p.credits += sellPrice * qty;
+          curSys.stock[g] = (curSys.stock[g] || 0) + qty;
+          p.cargo[g] = 0;
+          addLog(p.name + ' sold ' + qty + ' ' + g + ' at ' + curSys.name, 'event-trade');
+        }
+      }
+
+      if (p.type === 'pirate') {
+        // Pirate: hunt other traders at nearby systems
+        var nbs = neighbors(p.system);
+        var targets = [];
+        for (var ti = 0; ti < players.length; ti++) {
+          if (players[ti] !== p && players[ti].alive && nbs.indexOf(players[ti].system) >= 0) targets.push(players[ti]);
+        }
+        if (targets.length > 0 && Math.random() < 0.5) {
+          var target = targets[rnd(0, targets.length - 1)];
+          p.system = target.system;
+          addLog(p.name + ' jumps to ' + systems[p.system].name + ' hunting prey!', 'event-combat');
+          var atkPow = p.weapons + rnd(1, 3);
+          var defPow = target.shields + rnd(1, 3);
+          if (atkPow > defPow && target.ai) {
+            var stolen = Math.min(target.credits, rnd(30, 100));
+            target.credits -= stolen;
+            p.credits += stolen;
+            p.rep[systems[p.system].faction] -= 1;
+            addLog(p.name + ' raids ' + target.name + ' for ' + stolen + ' credits!', 'event-combat');
+          } else if (atkPow > defPow && !target.ai) {
+            combatState = { attacker: p, defender: target, phase: 'ambush' };
+            view = 'combat';
+            addLog(p.name + ' ambushes you at ' + systems[p.system].name + '!', 'event-combat');
+            return;
+          } else {
+            addLog(p.name + ' tried to raid ' + target.name + ' but was repelled.', 'event-combat');
+          }
+        } else {
+          var nbs2 = neighbors(p.system);
+          p.system = nbs2[rnd(0, nbs2.length - 1)];
+        }
+        // Buy cheap goods opportunistically
+        var route = aiBestTradeRoute(p);
+        if (route.good && route.profit > 20) {
+          var buyP = Math.round(systems[p.system].prices[route.good] * priceMod(p, systems[p.system]));
+          var canBuy = Math.min(systems[p.system].stock[route.good], p.cargoMax, Math.floor(p.credits / buyP));
+          if (canBuy > 0) {
+            p.cargo[route.good] = (p.cargo[route.good] || 0) + canBuy;
+            p.credits -= buyP * canBuy;
+            systems[p.system].stock[route.good] -= canBuy;
+          }
+        }
+      } else {
+        // Merchant/Trader: find best trade route
+        var route2 = aiBestTradeRoute(p);
+        if (route2.good && route2.profit > 0) {
+          var buyP2 = Math.round(curSys.prices[route2.good] * priceMod(p, curSys));
+          var canBuy2 = Math.min(curSys.stock[route2.good], p.cargoMax - cargoCount(p), Math.floor(p.credits / buyP2));
+          if (canBuy2 > 0) {
+            p.cargo[route2.good] = (p.cargo[route2.good] || 0) + canBuy2;
+            p.credits -= buyP2 * canBuy2;
+            curSys.stock[route2.good] -= canBuy2;
+            addLog(p.name + ' buys ' + canBuy2 + ' ' + route2.good + ' at ' + curSys.name, 'event-trade');
+          }
+          var path = findPath(p.system, route2.dest);
+          if (path.length > 1) {
+            var steps = Math.min(p.engine, path.length - 1);
+            p.system = path[steps];
+            addLog(p.name + ' travels to ' + systems[p.system].name, 'event-system');
+          }
+        } else {
+          var nbs3 = neighbors(p.system);
+          p.system = nbs3[rnd(0, nbs3.length - 1)];
+        }
+
+        // Diplomacy: merchants improve reputation
+        if (p.type === 'merchant' && Math.random() < 0.3) {
+          var fac = systems[p.system].faction;
+          p.rep[fac] = clamp(p.rep[fac] + 1, -5, 5);
+        }
+
+        // AI upgrades
+        if (p.credits > 400 && p.engine < 3 && Math.random() < 0.2) {
+          p.credits -= 200; p.engine++;
+          addLog(p.name + ' upgrades engine to level ' + p.engine, 'event-system');
+        }
+        if (p.credits > 400 && p.cargoMax < 16 && Math.random() < 0.2) {
+          p.credits -= 150; p.cargoMax += 2;
+          addLog(p.name + ' expands cargo to ' + p.cargoMax, 'event-system');
+        }
+        if (p.type === 'trader' && p.credits > 300 && p.weapons < 2 && Math.random() < 0.15) {
+          p.credits -= 200; p.weapons++;
+        }
+      }
+    }
+
+    // ---- PLAYER ACTIONS ----
+    function playerTravel(destIdx) {
+      if (playerMoved) { addLog('Already traveled this turn.', 'event-system'); return; }
+      var p = players[0];
+      var reachable = getReachable(p);
+      if (reachable.indexOf(destIdx) < 0) {
+        addLog('Too far! Upgrade your engine.', 'event-system');
+        return;
+      }
+      p.system = destIdx;
+      playerMoved = true;
+      addLog('Traveled to ' + systems[destIdx].name, 'event-system');
+      var fac = systems[destIdx].faction;
+      if (Math.random() < 0.15) {
+        p.rep[fac] = clamp(p.rep[fac] + 1, -5, 5);
+        addLog('Reputation with ' + FACTIONS[fac] + ' improved!', 'event-diplo');
+      }
+      updateUI();
+    }
+
+    function playerBuy(good, qty) {
+      var p = players[0];
+      var sys = systems[p.system];
+      var price = Math.round(sys.prices[good] * priceMod(p, sys));
+      var maxQty = Math.min(qty, sys.stock[good], p.cargoMax - cargoCount(p), Math.floor(p.credits / price));
+      if (maxQty < 1) { addLog('Cannot buy: check credits/cargo/stock.', 'event-system'); return; }
+      p.cargo[good] = (p.cargo[good] || 0) + maxQty;
+      p.credits -= price * maxQty;
+      sys.stock[good] -= maxQty;
+      playerTraded = true;
+      addLog('Bought ' + maxQty + ' ' + good + ' for ' + (price * maxQty) + ' cr', 'event-trade');
+      updateUI();
+    }
+
+    function playerSell(good, qty) {
+      var p = players[0];
+      var sys = systems[p.system];
+      var price = Math.round(sys.prices[good] / priceMod(p, sys));
+      var maxQty = Math.min(qty, p.cargo[good] || 0);
+      if (maxQty < 1) { addLog('Nothing to sell.', 'event-system'); return; }
+      p.cargo[good] -= maxQty;
+      p.credits += price * maxQty;
+      sys.stock[good] += maxQty;
+      playerTraded = true;
+      addLog('Sold ' + maxQty + ' ' + good + ' for ' + (price * maxQty) + ' cr', 'event-trade');
+      updateUI();
+    }
+
+    function playerUpgrade(type) {
+      var p = players[0];
+      if (type === 'cargo') {
+        if (p.cargoMax >= 20) { addLog('Cargo hold maxed out!', 'event-system'); return; }
+        if (p.credits < 150) { addLog('Need 150 credits.', 'event-system'); return; }
+        p.credits -= 150; p.cargoMax += 2;
+        addLog('Cargo hold expanded to ' + p.cargoMax, 'event-system');
+      } else if (type === 'engine') {
+        if (p.engine >= 3) { addLog('Engine maxed out!', 'event-system'); return; }
+        if (p.credits < 200) { addLog('Need 200 credits.', 'event-system'); return; }
+        p.credits -= 200; p.engine++;
+        addLog('Engine upgraded to level ' + p.engine + ' (reach +1 systems)', 'event-system');
+      } else if (type === 'weapons') {
+        if (p.weapons >= 5) { addLog('Weapons maxed out!', 'event-system'); return; }
+        if (p.credits < 200) { addLog('Need 200 credits.', 'event-system'); return; }
+        p.credits -= 200; p.weapons++;
+        addLog('Weapons upgraded to level ' + p.weapons, 'event-system');
+      } else if (type === 'shields') {
+        if (p.shields >= 5) { addLog('Shields maxed out!', 'event-system'); return; }
+        if (p.credits < 180) { addLog('Need 180 credits.', 'event-system'); return; }
+        p.credits -= 180; p.shields++;
+        addLog('Shields upgraded to level ' + p.shields, 'event-system');
+      }
+      updateUI();
+    }
+
+    function endTurn() {
+      if (view === 'combat') return;
+      for (var i = 1; i < players.length; i++) {
+        aiTurn(players[i]);
+        if (view === 'combat') return;
+      }
+      fluctuateMarkets();
+      turn++;
+      playerMoved = false;
+      playerTraded = false;
+      if (turn > MAX_TURNS) { endGame(); return; }
+      // Random events
+      if (Math.random() < 0.12) {
+        var sys = systems[rnd(0, 11)];
+        var g = GOODS[rnd(0, 4)];
+        if (Math.random() < 0.5) {
+          sys.prices[g] = Math.round(sys.prices[g] * 1.5);
+          sys.stock[g] = Math.max(0, sys.stock[g] - 5);
+          addLog('Shortage of ' + g + ' at ' + sys.name + '! Prices soar!', 'event-trade');
+        } else {
+          sys.prices[g] = Math.round(sys.prices[g] * 0.6);
+          sys.stock[g] += 10;
+          addLog(g + ' surplus at ' + sys.name + '! Prices crash!', 'event-trade');
+        }
+      }
+      updateUI();
+      addLog('--- Turn ' + turn + ' ---', 'event-system');
+    }
+
+    function endGame() {
+      gameState = 'gameover';
+      var rankings = [];
+      for (var i = 0; i < players.length; i++) {
+        if (players[i].alive) rankings.push({ name: players[i].name, wealth: totalWealth(players[i]) });
+      }
+      rankings.sort(function(a, b) { return b.wealth - a.wealth; });
+      var rank = -1;
+      for (var j = 0; j < rankings.length; j++) { if (rankings[j].name === 'You') { rank = j + 1; break; } }
+      score = totalWealth(players[0]);
+      overlayTitle.textContent = rank === 1 ? 'TRADE EMPIRE!' : 'RANK #' + rank;
+      overlayText.textContent = 'Final Wealth: ' + score + ' credits';
+      var lines = [];
+      for (var k = 0; k < rankings.length; k++) lines.push((k + 1) + '. ' + rankings[k].name + ': ' + rankings[k].wealth + ' cr');
+      overlaySub.textContent = lines.join(' | ');
+      overlay.style.display = 'flex';
+      overlay.style.pointerEvents = 'auto';
+      updateUI();
+    }
+
+    // ---- COMBAT ----
+    function resolveCombat(action) {
+      if (!combatState) return;
+      var p = players[0];
+      var atk = combatState.attacker;
+
+      if (action === 'fight') {
+        var pPow = p.weapons + rnd(1, 4);
+        var aPow = atk.weapons + rnd(1, 3);
+        if (pPow >= aPow) {
+          var loot = Math.min(atk.credits, rnd(50, 150));
+          atk.credits -= loot;
+          p.credits += loot;
+          addLog('You defeated ' + atk.name + '! Looted ' + loot + ' credits!', 'event-combat');
+          p.rep[systems[p.system].faction] = clamp(p.rep[systems[p.system].faction] + 1, -5, 5);
+        } else {
+          var lost = Math.min(p.credits, rnd(30, 100));
+          p.credits -= lost;
+          atk.credits += lost;
+          for (var gi = 0; gi < GOODS.length; gi++) {
+            var g = GOODS[gi];
+            if ((p.cargo[g] || 0) > 0) {
+              var lose = Math.min(p.cargo[g], rnd(1, 3));
+              p.cargo[g] -= lose;
+              addLog('Lost ' + lose + ' ' + g + ' in the battle!', 'event-combat');
+            }
+          }
+          addLog(atk.name + ' overpowered you! Lost ' + lost + ' credits.', 'event-combat');
+        }
+      } else if (action === 'flee') {
+        var fleeChance = 0.4 + p.engine * 0.15;
+        if (Math.random() < fleeChance) {
+          var nbs = neighbors(p.system);
+          p.system = nbs[rnd(0, nbs.length - 1)];
+          addLog('Escaped to ' + systems[p.system].name + '!', 'event-combat');
+        } else {
+          var lost2 = Math.min(p.credits, rnd(20, 60));
+          p.credits -= lost2;
+          atk.credits += lost2;
+          addLog('Failed to flee! ' + atk.name + ' took ' + lost2 + ' credits.', 'event-combat');
+        }
+      } else if (action === 'bribe') {
+        var bribe = Math.min(p.credits, rnd(50, 100));
+        p.credits -= bribe;
+        atk.credits += bribe;
+        addLog('Bribed ' + atk.name + ' with ' + bribe + ' credits.', 'event-diplo');
+      }
+      combatState = null;
+      view = 'map';
+      updateUI();
+    }
+
+    // ---- RENDERING ----
+    function drawStarField() {
+      animFrame++;
+      for (var i = 0; i < starField.length; i++) {
+        var s = starField[i];
+        var twinkle = 0.5 + 0.5 * Math.sin(animFrame * 0.02 + s.b * 10);
+        ctx.fillStyle = 'rgba(200,200,255,' + (twinkle * 0.7) + ')';
+        ctx.fillRect(s.x, s.y, s.s, s.s);
+      }
+    }
+
+    function drawNebula() {
+      ctx.save();
+      ctx.globalAlpha = 0.04;
+      var grd = ctx.createRadialGradient(300, 250, 50, 300, 250, 300);
+      grd.addColorStop(0, '#a8f');
+      grd.addColorStop(0.5, '#63c');
+      grd.addColorStop(1, 'transparent');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, W, H);
+      var grd2 = ctx.createRadialGradient(480, 380, 30, 480, 380, 200);
+      grd2.addColorStop(0, '#f8a');
+      grd2.addColorStop(1, 'transparent');
+      ctx.fillStyle = grd2;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    function drawRoundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    function drawMap() {
+      ctx.fillStyle = '#0a0a1e';
+      ctx.fillRect(0, 0, W, H);
+      drawStarField();
+      drawNebula();
+
+      var p = players[0];
+      var reachable = playerMoved ? [] : getReachable(p);
+
+      // Draw lanes
+      ctx.lineWidth = 1;
+      for (var li = 0; li < LANES.length; li++) {
+        var a = LANES[li][0], b = LANES[li][1];
+        var sa = systems[a], sb = systems[b];
+        ctx.strokeStyle = 'rgba(170,136,255,0.15)';
+        ctx.beginPath();
+        ctx.moveTo(sa.x, sa.y);
+        ctx.lineTo(sb.x, sb.y);
+        ctx.stroke();
+      }
+
+      // Draw reachable lanes highlighted
+      if (!playerMoved) {
+        for (var ri = 0; ri < reachable.length; ri++) {
+          var path = findPath(p.system, reachable[ri]);
+          ctx.strokeStyle = 'rgba(170,136,255,0.35)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+          for (var pi = 0; pi < path.length - 1; pi++) {
+            var pa = systems[path[pi]], pb = systems[path[pi + 1]];
+            ctx.beginPath();
+            ctx.moveTo(pa.x, pa.y);
+            ctx.lineTo(pb.x, pb.y);
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+        }
+        ctx.lineWidth = 1;
+      }
+
+      // Draw systems
+      for (var si = 0; si < systems.length; si++) {
+        var s = systems[si];
+        var isHover = si === hoverSystem;
+        var isPlayer = si === p.system;
+        var isReachable = reachable.indexOf(si) >= 0;
+        var fColor = FACTION_COLORS[s.faction];
+
+        // Glow for player location
+        if (isPlayer) {
+          ctx.save();
+          ctx.shadowColor = '#a8f';
+          ctx.shadowBlur = 20;
+          ctx.fillStyle = '#a8f';
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, 14, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // System circle
+        var radius = isHover ? 11 : 9;
+        ctx.fillStyle = isPlayer ? '#a8f' : (isReachable ? fColor : '#555');
+        ctx.strokeStyle = fColor;
+        ctx.lineWidth = isReachable ? 2 : 1;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Production icon
+        ctx.fillStyle = GOOD_COLORS[s.produces];
+        ctx.beginPath();
+        ctx.arc(s.x + 12, s.y - 8, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // System name
+        ctx.font = '10px Courier New';
+        ctx.fillStyle = isPlayer ? '#fff' : (isReachable ? '#ccc' : '#777');
+        ctx.textAlign = 'center';
+        ctx.fillText(s.name, s.x, s.y + 22);
+
+        // Other players at system
+        var othersHere = [];
+        for (var oi = 1; oi < players.length; oi++) {
+          if (players[oi].alive && players[oi].system === si) othersHere.push(players[oi]);
+        }
+        for (var oh = 0; oh < othersHere.length; oh++) {
+          ctx.fillStyle = othersHere[oh].color;
+          ctx.beginPath();
+          ctx.arc(s.x + 16 + oh * 10, s.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
+      }
+
+      // Hover tooltip
+      if (hoverSystem >= 0) {
+        var hs = systems[hoverSystem];
+        var tx = hs.x + 20, ty = hs.y - 50;
+        if (tx + 170 > W) tx = hs.x - 190;
+        if (ty < 10) ty = hs.y + 20;
+        ctx.fillStyle = 'rgba(20,20,50,0.94)';
+        ctx.strokeStyle = '#a8f';
+        ctx.lineWidth = 1;
+        drawRoundRect(tx, ty, 170, 108, 4);
+        ctx.fill();
+        ctx.stroke();
+        ctx.font = '11px Courier New';
+        ctx.fillStyle = FACTION_COLORS[hs.faction];
+        ctx.textAlign = 'left';
+        ctx.fillText(hs.name + ' [' + FACTIONS[hs.faction] + ']', tx + 6, ty + 14);
+        ctx.fillStyle = '#8f8';
+        ctx.fillText('Produces: ' + hs.produces, tx + 6, ty + 28);
+        ctx.fillStyle = '#f88';
+        ctx.fillText('Demands: ' + hs.consumes, tx + 6, ty + 42);
+        var yi = 56;
+        for (var tgi = 0; tgi < GOODS.length; tgi++) {
+          var tg = GOODS[tgi];
+          ctx.fillStyle = GOOD_COLORS[tg];
+          ctx.fillText(tg + ': ' + hs.prices[tg] + 'cr (' + hs.stock[tg] + ')', tx + 6, ty + yi);
+          yi += 12;
+        }
+      }
+
+      // Legend
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      for (var f = 0; f < FACTIONS.length; f++) {
+        ctx.fillStyle = FACTION_COLORS[f];
+        ctx.fillText('\u25A0 ' + FACTIONS[f], 10, H - 30 + f * 11);
+      }
+
+      // Move hint
+      if (!playerMoved) {
+        ctx.font = '10px Courier New';
+        ctx.fillStyle = '#666';
+        ctx.textAlign = 'center';
+        ctx.fillText('Click a highlighted system to travel', W / 2, H - 8);
+      } else {
+        ctx.font = '10px Courier New';
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'center';
+        ctx.fillText('Already moved. Trade or End Turn.', W / 2, H - 8);
+      }
+    }
+
+    function drawTrade() {
+      ctx.fillStyle = '#0a0a1e';
+      ctx.fillRect(0, 0, W, H);
+      drawStarField();
+
+      var p = players[0];
+      var sys = systems[p.system];
+      var mod = priceMod(p, sys);
+
+      ctx.font = 'bold 16px Courier New';
+      ctx.fillStyle = '#a8f';
+      ctx.textAlign = 'center';
+      ctx.fillText(sys.name + ' Trading Post', W / 2, 30);
+      ctx.font = '11px Courier New';
+      ctx.fillStyle = FACTION_COLORS[sys.faction];
+      ctx.fillText(FACTIONS[sys.faction] + ' Territory | Rep: ' + getRepLevel(p), W / 2, 48);
+
+      tradeButtons = [];
+      var startY = 70;
+      ctx.font = '11px Courier New';
+
+      // Header
+      ctx.fillStyle = '#888';
+      ctx.textAlign = 'left';
+      ctx.fillText('Good', 30, startY);
+      ctx.fillText('Buy', 140, startY);
+      ctx.fillText('Sell', 200, startY);
+      ctx.fillText('Stock', 260, startY);
+      ctx.fillText('Have', 310, startY);
+      ctx.strokeStyle = '#333';
+      ctx.beginPath();
+      ctx.moveTo(20, startY + 6);
+      ctx.lineTo(580, startY + 6);
+      ctx.stroke();
+
+      for (var gi = 0; gi < GOODS.length; gi++) {
+        var g = GOODS[gi];
+        var y = startY + 30 + gi * 60;
+        var buyP = Math.round(sys.prices[g] * mod);
+        var sellP = Math.round(sys.prices[g] / mod);
+        var have = p.cargo[g] || 0;
+        var isProd = g === sys.produces;
+        var isCons = g === sys.consumes;
+
+        ctx.fillStyle = GOOD_COLORS[g];
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 12px Courier New';
+        ctx.fillText(g, 30, y);
+        ctx.font = '10px Courier New';
+        ctx.fillStyle = isProd ? '#8f8' : (isCons ? '#f88' : '#666');
+        ctx.fillText(isProd ? '(produces)' : (isCons ? '(demands)' : ''), 30, y + 14);
+
+        ctx.font = '12px Courier New';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(buyP + 'cr', 140, y);
+        ctx.fillText(sellP + 'cr', 200, y);
+        ctx.fillStyle = '#aaa';
+        ctx.fillText('' + sys.stock[g], 265, y);
+        ctx.fillStyle = have > 0 ? '#fff' : '#555';
+        ctx.fillText('' + have, 315, y);
+
+        // Buy/Sell buttons
+        var btns = [
+          { label: 'Buy 1', qty: 1, bx: 365, action: 'buy' },
+          { label: 'Buy 5', qty: 5, bx: 420, action: 'buy' },
+          { label: 'Sell 1', qty: 1, bx: 480, action: 'sell' },
+          { label: 'Sell 5', qty: 5, bx: 535, action: 'sell' }
+        ];
+
+        for (var bi = 0; bi < btns.length; bi++) {
+          var btn = btns[bi];
+          var canDo = btn.action === 'buy' ?
+            (sys.stock[g] >= 1 && p.credits >= buyP && cargoCount(p) < p.cargoMax) :
+            (have >= 1);
+          ctx.fillStyle = canDo ? 'rgba(30,30,60,0.8)' : 'rgba(20,20,40,0.5)';
+          ctx.strokeStyle = canDo ? GOOD_COLORS[g] : '#333';
+          ctx.lineWidth = 1;
+          drawRoundRect(btn.bx, y - 12, 50, 22, 3);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = canDo ? '#fff' : '#555';
+          ctx.font = '10px Courier New';
+          ctx.textAlign = 'center';
+          ctx.fillText(btn.label, btn.bx + 25, y + 2);
+          ctx.textAlign = 'left';
+          tradeButtons.push({ x: btn.bx, y: y - 12, w: 50, h: 22, action: btn.action, good: g, qty: btn.qty, enabled: canDo });
+        }
+      }
+
+      // Credits / Cargo
+      ctx.fillStyle = '#a8f';
+      ctx.font = 'bold 14px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('Credits: ' + p.credits + ' | Cargo: ' + cargoCount(p) + '/' + p.cargoMax, W / 2, H - 90);
+
+      ctx.font = '10px Courier New';
+      ctx.fillStyle = '#777';
+      ctx.fillText('Tip: Buy ' + sys.produces + ' here (cheap), sell ' + sys.consumes + ' here (expensive)', W / 2, H - 70);
+
+      // Best routes
+      ctx.fillStyle = '#666';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('Best routes from here:', 20, H - 48);
+      var routes = [];
+      var nbs = neighbors(p.system);
+      for (var rgi = 0; rgi < GOODS.length; rgi++) {
+        var rg = GOODS[rgi];
+        for (var ni = 0; ni < nbs.length; ni++) {
+          var profit = Math.round(systems[nbs[ni]].prices[rg] / priceMod(p, systems[nbs[ni]])) - Math.round(sys.prices[rg] * mod);
+          if (profit > 0) routes.push({ g: rg, dest: systems[nbs[ni]].name, profit: profit });
+        }
+      }
+      routes.sort(function(a, b) { return b.profit - a.profit; });
+      for (var ri = 0; ri < Math.min(3, routes.length); ri++) {
+        ctx.fillStyle = GOOD_COLORS[routes[ri].g];
+        ctx.fillText('  ' + routes[ri].g + ' -> ' + routes[ri].dest + ': +' + routes[ri].profit + '/unit', 20, H - 34 + ri * 13);
+      }
+    }
+
+    function drawShip() {
+      ctx.fillStyle = '#0a0a1e';
+      ctx.fillRect(0, 0, W, H);
+      drawStarField();
+
+      var p = players[0];
+
+      ctx.font = 'bold 18px Courier New';
+      ctx.fillStyle = '#a8f';
+      ctx.textAlign = 'center';
+      ctx.fillText('SHIP STATUS', W / 2, 35);
+
+      // Ship ASCII art
+      ctx.font = '12px Courier New';
+      ctx.fillStyle = '#a8f';
+      var shipArt = [
+        '     /\\',
+        '    /  \\',
+        '   / ** \\',
+        '  /______\\',
+        ' |   ||   |',
+        ' | TRADE  |',
+        ' |________|',
+        '  \\||  ||/',
+        '   \\|  |/',
+        '    \\__/',
+        '    /|\\',
+        '   / | \\'
+      ];
+      for (var ai = 0; ai < shipArt.length; ai++) {
+        ctx.fillText(shipArt[ai], 150, 65 + ai * 14);
+      }
+
+      // Stats
+      var sx = 310, sy = 65;
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 13px Courier New';
+      ctx.fillStyle = '#fff';
+      ctx.fillText('Ship Systems:', sx, sy);
+
+      var stats = [
+        { label: 'Engine', val: p.engine, max: 3, cost: 200, type: 'engine', desc: 'Range: ' + p.engine + ' jump' + (p.engine > 1 ? 's' : '') },
+        { label: 'Cargo Hold', val: p.cargoMax, max: 20, cost: 150, type: 'cargo', desc: 'Capacity: ' + p.cargoMax + ' units' },
+        { label: 'Weapons', val: p.weapons, max: 5, cost: 200, type: 'weapons', desc: 'Attack power: +' + p.weapons },
+        { label: 'Shields', val: p.shields, max: 5, cost: 180, type: 'shields', desc: 'Defense power: +' + p.shields }
+      ];
+
+      shipButtons = [];
+      for (var si2 = 0; si2 < stats.length; si2++) {
+        var st = stats[si2];
+        var y = sy + 25 + si2 * 55;
+        ctx.font = 'bold 12px Courier New';
+        ctx.fillStyle = '#a8f';
+        ctx.fillText(st.label, sx, y);
+        ctx.font = '10px Courier New';
+        ctx.fillStyle = '#aaa';
+        ctx.fillText(st.desc, sx, y + 14);
+
+        // Level bar
+        var barMax = st.type === 'cargo' ? 10 : st.max;
+        var barVal = st.type === 'cargo' ? Math.floor((st.val - 10) / 2) + 1 : st.val;
+        for (var j = 0; j < st.max; j++) {
+          ctx.fillStyle = (st.type === 'cargo' ? j * 2 + 10 < st.val : j < st.val) ? '#a8f' : '#333';
+          if (st.type === 'cargo') {
+            ctx.fillStyle = j * 2 + 10 <= st.val ? '#a8f' : '#333';
+          }
+          ctx.fillRect(sx + j * 18, y + 20, 14, 8);
+        }
+
+        // Upgrade button
+        var canUp = (st.type === 'cargo' ? st.val < st.max : st.val < st.max) && p.credits >= st.cost;
+        var bx = sx + 150, by = y + 16;
+        ctx.fillStyle = canUp ? 'rgba(30,30,60,0.9)' : 'rgba(20,20,40,0.5)';
+        ctx.strokeStyle = canUp ? '#a8f' : '#444';
+        ctx.lineWidth = 1;
+        drawRoundRect(bx, by, 110, 20, 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = canUp ? '#fff' : '#555';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        var upLabel = st.val >= st.max ? 'MAXED' : 'Upgrade ' + st.cost + 'cr';
+        ctx.fillText(upLabel, bx + 55, by + 14);
+        ctx.textAlign = 'left';
+        shipButtons.push({ x: bx, y: by, w: 110, h: 20, type: st.type, enabled: canUp });
+      }
+
+      // Cargo manifest
+      ctx.font = 'bold 13px Courier New';
+      ctx.fillStyle = '#fff';
+      ctx.fillText('Cargo Manifest:', 30, 300);
+      ctx.font = '12px Courier New';
+      var cy = 320;
+      var totalVal = 0;
+      for (var cgi = 0; cgi < GOODS.length; cgi++) {
+        var cg = GOODS[cgi];
+        var cqty = p.cargo[cg] || 0;
+        var cval = cqty * GOOD_BASE[cg];
+        totalVal += cval;
+        ctx.fillStyle = cqty > 0 ? GOOD_COLORS[cg] : '#444';
+        ctx.fillText(cg + ': ' + cqty + ' (worth ~' + cval + ' cr)', 40, cy);
+        cy += 18;
+      }
+      ctx.fillStyle = '#a8f';
+      ctx.fillText('Total Cargo Value: ~' + totalVal + ' cr', 40, cy + 10);
+
+      // Reputation
+      ctx.font = 'bold 13px Courier New';
+      ctx.fillStyle = '#fff';
+      ctx.fillText('Faction Reputation:', 30, 430);
+      for (var fi = 0; fi < FACTIONS.length; fi++) {
+        ctx.font = '12px Courier New';
+        ctx.fillStyle = FACTION_COLORS[fi];
+        var r = p.rep[fi];
+        var rlabel = r >= 3 ? 'Allied' : r >= 1 ? 'Friendly' : r >= -1 ? 'Neutral' : r >= -3 ? 'Hostile' : 'Enemy';
+        ctx.fillText(FACTIONS[fi] + ': ' + rlabel + ' (' + (r >= 0 ? '+' : '') + r + ')', 40, 450 + fi * 18);
+        for (var rj = -5; rj <= 5; rj++) {
+          ctx.fillStyle = rj <= r ? (rj >= 0 ? '#8f8' : '#f88') : '#222';
+          ctx.fillRect(240 + (rj + 5) * 12, 442 + fi * 18, 10, 8);
+        }
+      }
+
+      // Leaderboard
+      ctx.font = 'bold 13px Courier New';
+      ctx.fillStyle = '#fff';
+      ctx.fillText('Leaderboard:', 350, 340);
+      var rankings = [];
+      for (var pi = 0; pi < players.length; pi++) {
+        if (players[pi].alive) rankings.push({ name: players[pi].name, wealth: totalWealth(players[pi]), color: players[pi].color });
+      }
+      rankings.sort(function(a, b) { return b.wealth - a.wealth; });
+      for (var lbi = 0; lbi < rankings.length; lbi++) {
+        ctx.font = '12px Courier New';
+        ctx.fillStyle = rankings[lbi].color;
+        ctx.fillText((lbi + 1) + '. ' + rankings[lbi].name + ': ' + rankings[lbi].wealth + ' cr', 360, 360 + lbi * 18);
+      }
+    }
+
+    function drawCombat() {
+      ctx.fillStyle = '#0a0a1e';
+      ctx.fillRect(0, 0, W, H);
+      drawStarField();
+
+      if (!combatState) return;
+      var atk = combatState.attacker;
+      var p = players[0];
+
+      // Alert
+      ctx.save();
+      ctx.shadowColor = '#f44';
+      ctx.shadowBlur = 30;
+      ctx.font = 'bold 24px Courier New';
+      ctx.fillStyle = '#f44';
+      ctx.textAlign = 'center';
+      ctx.fillText('COMBAT ALERT', W / 2, 60);
+      ctx.restore();
+
+      ctx.font = '14px Courier New';
+      ctx.fillStyle = '#f88';
+      ctx.textAlign = 'center';
+      ctx.fillText(atk.name + ' attacks!', W / 2, 90);
+
+      // VS display
+      ctx.font = '12px Courier New';
+      ctx.fillStyle = '#a8f';
+      ctx.fillText('YOUR SHIP', 170, 130);
+      ctx.fillStyle = atk.color;
+      ctx.fillText(atk.name.toUpperCase(), 430, 130);
+      ctx.fillStyle = '#888';
+      ctx.font = '40px Courier New';
+      ctx.fillText('VS', W / 2, 180);
+
+      // Stats comparison
+      ctx.font = '12px Courier New';
+      var cy2 = 210;
+      var cmpStats = [
+        ['Weapons', p.weapons, atk.weapons],
+        ['Shields', p.shields, atk.shields],
+        ['Engine', p.engine, atk.engine],
+        ['Credits', p.credits, atk.credits]
+      ];
+      for (var ci = 0; ci < cmpStats.length; ci++) {
+        var cs = cmpStats[ci];
+        ctx.fillStyle = '#aaa';
+        ctx.textAlign = 'center';
+        ctx.fillText(cs[0], W / 2, cy2);
+        ctx.fillStyle = cs[1] >= cs[2] ? '#8f8' : '#f88';
+        ctx.textAlign = 'right';
+        ctx.fillText('' + cs[1], 230, cy2);
+        ctx.fillStyle = cs[2] >= cs[1] ? '#8f8' : '#f88';
+        ctx.textAlign = 'left';
+        ctx.fillText('' + cs[2], 370, cy2);
+        cy2 += 22;
+      }
+
+      // Action buttons
+      combatButtons = [];
+      var btnY = 340;
+      var fleeP = Math.round((0.4 + p.engine * 0.15) * 100);
+      var actions = [
+        { label: 'FIGHT', action: 'fight', desc: 'Wpn(' + p.weapons + ')+d4 vs ' + atk.weapons + '+d3', color: '#f44' },
+        { label: 'FLEE', action: 'flee', desc: fleeP + '% chance (engine)', color: '#ff8' },
+        { label: 'BRIBE', action: 'bribe', desc: 'Pay 50-100cr to escape', color: '#8cf' }
+      ];
+
+      for (var cbi = 0; cbi < actions.length; cbi++) {
+        var ac = actions[cbi];
+        var abx = 100 + cbi * 160, aby = btnY;
+        ctx.fillStyle = 'rgba(30,30,60,0.9)';
+        ctx.strokeStyle = ac.color;
+        ctx.lineWidth = 2;
+        drawRoundRect(abx, aby, 140, 50, 5);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = ac.color;
+        ctx.font = 'bold 16px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(ac.label, abx + 70, aby + 22);
+        ctx.font = '8px Courier New';
+        ctx.fillStyle = '#aaa';
+        ctx.fillText(ac.desc, abx + 70, aby + 38);
+        combatButtons.push({ x: abx, y: aby, w: 140, h: 50, action: ac.action });
+      }
+
+      ctx.font = '11px Courier New';
+      ctx.fillStyle = '#666';
+      ctx.textAlign = 'center';
+      ctx.fillText('Your cargo and credits are at stake!', W / 2, 420);
+    }
+
+    function draw() {
+      if (gameState === 'title') {
+        ctx.fillStyle = '#0a0a1e';
+        ctx.fillRect(0, 0, W, H);
+        drawStarField();
+        drawNebula();
+        return;
+      }
+      if (view === 'map') drawMap();
+      else if (view === 'trade') drawTrade();
+      else if (view === 'ship') drawShip();
+      else if (view === 'combat') drawCombat();
+    }
+
+    // ---- INPUT ----
+    canvas.addEventListener('mousemove', function(e) {
+      var rect = canvas.getBoundingClientRect();
+      var mx = (e.clientX - rect.left) * (W / rect.width);
+      var my = (e.clientY - rect.top) * (H / rect.height);
+      hoverSystem = -1;
+      if (view === 'map' && gameState === 'playing') {
+        for (var i = 0; i < systems.length; i++) {
+          if (dist({ x: mx, y: my }, systems[i]) < 20) {
+            hoverSystem = i;
+            break;
+          }
+        }
+      }
+    });
+
+    canvas.addEventListener('click', function(e) {
+      var rect = canvas.getBoundingClientRect();
+      var mx = (e.clientX - rect.left) * (W / rect.width);
+      var my = (e.clientY - rect.top) * (H / rect.height);
+
+      if (gameState === 'title') {
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        overlay.style.pointerEvents = 'none';
+        initGame();
+        return;
+      }
+
+      if (gameState === 'gameover') {
+        gameState = 'title';
+        overlay.style.display = 'flex';
+        overlay.style.pointerEvents = 'auto';
+        overlayTitle.textContent = 'SPACE TRADER';
+        overlayText.textContent = 'Elite-inspired trading across the stars';
+        overlaySub.textContent = 'Click to launch';
+        return;
+      }
+
+      if (view === 'map') {
+        for (var i = 0; i < systems.length; i++) {
+          if (dist({ x: mx, y: my }, systems[i]) < 20 && i !== players[0].system) {
+            playerTravel(i);
+            return;
+          }
+        }
+      }
+
+      if (view === 'trade') {
+        for (var ti = 0; ti < tradeButtons.length; ti++) {
+          var tb = tradeButtons[ti];
+          if (tb.enabled && mx >= tb.x && mx <= tb.x + tb.w && my >= tb.y && my <= tb.y + tb.h) {
+            if (tb.action === 'buy') playerBuy(tb.good, tb.qty);
+            else playerSell(tb.good, tb.qty);
+            return;
+          }
+        }
+      }
+
+      if (view === 'ship') {
+        for (var sbi = 0; sbi < shipButtons.length; sbi++) {
+          var sb = shipButtons[sbi];
+          if (sb.enabled && mx >= sb.x && mx <= sb.x + sb.w && my >= sb.y && my <= sb.y + sb.h) {
+            playerUpgrade(sb.type);
+            return;
+          }
+        }
+      }
+
+      if (view === 'combat') {
+        for (var cbi = 0; cbi < combatButtons.length; cbi++) {
+          var cb = combatButtons[cbi];
+          if (mx >= cb.x && mx <= cb.x + cb.w && my >= cb.y && my <= cb.y + cb.h) {
+            resolveCombat(cb.action);
+            return;
+          }
+        }
+      }
+    });
+
+    // Button handlers
+    btnMap.addEventListener('click', function() { if (gameState === 'playing' && view !== 'combat') { view = 'map'; updateUI(); } });
+    btnTrade.addEventListener('click', function() { if (gameState === 'playing' && view !== 'combat') { view = 'trade'; updateUI(); } });
+    btnShip.addEventListener('click', function() { if (gameState === 'playing' && view !== 'combat') { view = 'ship'; updateUI(); } });
+    btnEnd.addEventListener('click', function() { if (gameState === 'playing') endTurn(); });
+
+    // ---- GAME LOOP ----
+    function gameLoop() {
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ---- Expose game data ----
+    window.gameData = {};
+    function updateGameData() {
+      window.gameData = {
+        gameState: gameState,
+        score: score,
+        turn: turn,
+        view: view
+      };
+    }
+
+    // ---- Initialize ----
+    function init() {
+      overlay.style.display = 'flex';
+      overlay.style.pointerEvents = 'auto';
+      gameLoop();
+      setInterval(updateGameData, 500);
+    }
+
+    init();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

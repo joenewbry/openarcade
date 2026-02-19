@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Territory Control MMO - OpenArcade</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#1a1a2e; color:#e0e0e0; font-family:'Courier New',monospace; overflow:hidden; display:flex; justify-content:center; align-items:center; min-height:100vh; }
+#game-container { position:relative; }
+canvas#game { display:block; border:2px solid #c64; box-shadow:0 0 20px rgba(204,102,68,0.4); }
+#back-link { position:absolute; top:6px; left:8px; color:#c64; text-decoration:none; font-size:13px; z-index:20; cursor:pointer; }
+#back-link:hover { text-shadow:0 0 8px rgba(204,102,68,0.8); }
+#overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(26,26,46,0.92); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:30; }
+#overlay.hidden { display:none; }
+#overlay h1 { color:#c64; font-size:28px; margin-bottom:10px; text-shadow:0 0 16px rgba(204,102,68,0.7); }
+#overlay h2 { color:#c64; font-size:22px; margin-bottom:8px; text-shadow:0 0 12px rgba(204,102,68,0.6); }
+#overlayTitle { color:#c64; font-size:28px; margin-bottom:10px; text-shadow:0 0 16px rgba(204,102,68,0.7); }
+#overlayText { color:#aaa; font-size:13px; margin:4px 0; max-width:460px; text-align:center; line-height:1.5; }
+#overlay p { color:#aaa; font-size:13px; margin:4px 0; max-width:460px; text-align:center; line-height:1.5; }
+#overlay button { margin-top:16px; padding:10px 32px; background:#c64; color:#fff; border:none; font-family:'Courier New',monospace; font-size:16px; cursor:pointer; text-shadow:0 0 4px rgba(255,255,255,0.3); box-shadow:0 0 12px rgba(204,102,68,0.5); }
+#overlay button:hover { background:#d87; box-shadow:0 0 20px rgba(204,102,68,0.8); }
+#ui-panel { position:absolute; bottom:0; left:0; right:0; height:110px; background:rgba(26,26,46,0.95); border-top:2px solid #c64; display:flex; z-index:10; font-size:11px; }
+#ui-panel.hidden { display:none; }
+#res-panel { width:140px; padding:6px 8px; border-right:1px solid #444; }
+#res-panel div { margin:2px 0; }
+#res-panel .rlbl { color:#888; }
+#res-panel .rval { color:#fff; font-weight:bold; }
+#info-panel { flex:1; padding:6px 8px; display:flex; flex-direction:column; }
+#info-panel .info-title { color:#c64; font-weight:bold; margin-bottom:3px; font-size:12px; }
+#info-panel .info-text { color:#ccc; font-size:11px; line-height:1.4; }
+#build-panel { width:240px; padding:4px 6px; border-left:1px solid #444; display:flex; flex-wrap:wrap; gap:3px; align-content:flex-start; }
+#build-panel button { padding:3px 6px; background:#2a2a4e; color:#ddd; border:1px solid #555; font-family:'Courier New',monospace; font-size:10px; cursor:pointer; flex:0 0 auto; }
+#build-panel button:hover { background:#3a3a5e; border-color:#c64; }
+#build-panel button.active { background:#c64; color:#fff; border-color:#fff; }
+#build-panel button:disabled { opacity:0.35; cursor:default; }
+#turn-info { position:absolute; top:36px; right:8px; color:#c64; font-size:12px; z-index:10; text-align:right; }
+#action-log { position:absolute; top:50px; left:8px; color:#aaa; font-size:10px; z-index:10; max-width:200px; pointer-events:none; }
+#action-log div { margin:1px 0; opacity:0.9; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="game" width="600" height="500"></canvas>
+  <a id="back-link" href="../">&#x2190; ARCADE</a>
+  <div id="turn-info"></div>
+  <div id="action-log"></div>
+  <div id="ui-panel" class="hidden">
+    <div id="res-panel"></div>
+    <div id="info-panel"><div class="info-title">Select a territory</div><div class="info-text">Click a hex on the map to see details and take actions.</div></div>
+    <div id="build-panel"></div>
+  </div>
+  <div id="overlay">
+    <div id="overlayTitle">TERRITORY CONTROL</div>
+    <p>Lead your Empire faction to dominate the map! Claim territories, build structures, train troops, and conquer enemy lands.</p>
+    <p style="color:#c64;font-size:11px;margin-top:8px;">3 Factions | 30 Turns | Hex Map | Build &amp; Conquer</p>
+    <p style="font-size:11px;margin-top:6px;">FARM=Food MINE=Ore FOREST=Wood PLAINS=Gold<br>Build outposts to claim, forts to defend, barracks for troops.<br>Click enemy neighbors to attack!</p>
+    <div id="overlayText"></div>
+    <button id="start-btn">START GAME</button>
+  </div>
+</div>
+
+<script type="module">
+  import { createGame } from './game.js';
+  createGame();
+</script>
+<script src="../rating.js?v=2"></script>
+</body>
+</html>

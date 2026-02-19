@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sandbox Physics - OpenArcade</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #eee; font-family: 'Courier New', monospace; overflow: hidden; display: flex; flex-direction: column; align-items: center; height: 100vh; }
+#topBar { width: 600px; display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #16213e; border-bottom: 2px solid #8a4; }
+#topBar a { color: #8a4; text-decoration: none; font-size: 14px; }
+#topBar a:hover { text-shadow: 0 0 8px #8a4; }
+#scoreBar { color: #8a4; font-size: 13px; text-shadow: 0 0 6px #8a4; }
+#game { border: 2px solid #8a4; display: block; cursor: crosshair; box-shadow: 0 0 20px rgba(136,170,68,0.3); }
+#overlay { position: absolute; top: 0; left: 0; width: 600px; height: 500px; background: rgba(26,26,46,0.92); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; pointer-events: auto; }
+#overlay.hidden { display: none; }
+#overlay h1 { color: #8a4; font-size: 28px; text-shadow: 0 0 15px #8a4; margin-bottom: 10px; }
+#overlay h2 { color: #cda; font-size: 16px; margin-bottom: 18px; font-weight: normal; }
+#overlay p { color: #aab; font-size: 13px; margin-bottom: 6px; max-width: 500px; text-align: center; line-height: 1.5; }
+#overlay button { margin-top: 16px; padding: 10px 30px; background: transparent; color: #8a4; border: 2px solid #8a4; font-family: 'Courier New', monospace; font-size: 16px; cursor: pointer; transition: all 0.2s; }
+#overlay button:hover { background: #8a4; color: #1a1a2e; box-shadow: 0 0 15px #8a4; }
+#toolbar { width: 600px; display: flex; justify-content: center; gap: 4px; padding: 5px; background: #16213e; border-top: 2px solid #8a4; flex-wrap: wrap; }
+.tool-btn { padding: 4px 10px; background: transparent; color: #8a4; border: 1px solid #8a4; font-family: 'Courier New', monospace; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+.tool-btn:hover, .tool-btn.active { background: #8a4; color: #1a1a2e; }
+#statusBar { width: 600px; padding: 4px 10px; background: #0f0f23; color: #8a4; font-size: 11px; text-align: center; border-top: 1px solid #333; }
+#gameWrap { position: relative; }
+</style>
+</head>
+<body>
+<div id="topBar">
+  <a href="../index.html">&larr; OpenArcade</a>
+  <span id="scoreBar">P1: 0 | AI: 0 | Challenge 0/5</span>
+</div>
+<div id="gameWrap">
+  <canvas id="game" width="600" height="500"></canvas>
+  <div id="overlay">
+    <h1>SANDBOX PHYSICS</h1>
+    <h2>Build Machines. Defy Gravity. Outsmart AI.</h2>
+    <p>Place blocks, wheels, springs, rockets, hinges &amp; ropes to build contraptions. Complete 5 physics challenges against an AI opponent.</p>
+    <p>Click to place objects. Drag between objects to connect with hinges/ropes. Build phase (30s) then watch physics play out!</p>
+    <button id="startBtn">START GAME</button>
+  </div>
+</div>
+<div id="toolbar">
+  <span class="tool-btn active" data-tool="wood">Wood</span>
+  <span class="tool-btn" data-tool="metal">Metal</span>
+  <span class="tool-btn" data-tool="rubber">Rubber</span>
+  <span class="tool-btn" data-tool="wheel">Wheel</span>
+  <span class="tool-btn" data-tool="spring">Spring</span>
+  <span class="tool-btn" data-tool="rocket">Rocket</span>
+  <span class="tool-btn" data-tool="hinge">Hinge</span>
+  <span class="tool-btn" data-tool="rope">Rope</span>
+  <span class="tool-btn" data-tool="delete" style="border-color:#f55;color:#f55;">Delete</span>
+</div>
+<div id="statusBar">Select a tool and click in your build zone to place objects</div>
+
+<script type="module">
+  import { createGame } from './game.js';
+  createGame();
+</script>
+<script src="../rating.js?v=2"></script>
+</body>
+</html>

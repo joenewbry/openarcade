@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Naval Commander - OpenArcade</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #e0e0e0; font-family: 'Courier New', monospace; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow-x: hidden; }
+a { color: #48c; text-decoration: none; }
+a:hover { text-decoration: underline; }
+#back-link { position: absolute; top: 12px; left: 16px; font-size: 14px; z-index: 100; }
+#score-bar { width: 600px; display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: #0f0f23; border: 1px solid #48c; border-bottom: none; font-size: 14px; margin-top: 48px; }
+#score-bar .label { color: #888; }
+#score-bar .value { color: #48c; text-shadow: 0 0 8px #48c88; font-weight: bold; }
+#game-container { position: relative; }
+canvas#game { display: block; border: 1px solid #48c; box-shadow: 0 0 20px #48c44; cursor: crosshair; }
+#overlay { position: absolute; top: 0; left: 0; width: 600px; height: 500px; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(26,26,46,0.92); z-index: 50; text-align: center; }
+#overlay.hidden { display: none; }
+#overlay h1 { font-size: 32px; color: #48c; text-shadow: 0 0 16px #48c; margin-bottom: 8px; }
+#overlay h2 { font-size: 18px; color: #aaa; margin-bottom: 20px; font-weight: normal; }
+#overlay .info { font-size: 13px; color: #888; margin-bottom: 16px; line-height: 1.6; max-width: 420px; }
+#overlay button { padding: 12px 36px; font-size: 16px; font-family: 'Courier New', monospace; background: transparent; color: #48c; border: 2px solid #48c; cursor: pointer; text-transform: uppercase; letter-spacing: 2px; transition: all 0.2s; }
+#overlay button:hover { background: #48c; color: #1a1a2e; box-shadow: 0 0 20px #48c88; }
+#info-panel { width: 600px; background: #0f0f23; border: 1px solid #48c; border-top: none; padding: 10px 16px; font-size: 12px; min-height: 60px; display: flex; gap: 16px; flex-wrap: wrap; }
+#info-panel .section { flex: 1; min-width: 120px; }
+#info-panel .section-title { color: #48c; font-weight: bold; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; }
+#info-panel .section-body { color: #aaa; line-height: 1.5; }
+</style>
+</head>
+<body>
+<a id="back-link" href="../">&#8592; Back</a>
+<div id="score-bar">
+  <span><span class="label">TURN </span><span class="value" id="hud-turn">1/20</span></span>
+  <span><span class="label">GOLD </span><span class="value" id="hud-gold">10</span></span>
+  <span><span class="label">PORTS </span><span class="value" id="hud-ports">1</span></span>
+  <span><span class="label">SHIPS </span><span class="value" id="hud-ships">3</span></span>
+  <span><span class="label">SCORE </span><span class="value" id="hud-score">0</span></span>
+</div>
+<div id="game-container">
+  <canvas id="game" width="600" height="500"></canvas>
+  <div id="overlay">
+    <h1>NAVAL COMMANDER</h1>
+    <h2>Control the Seas</h2>
+    <div class="info">
+      Build fleets, capture ports, control sea lanes.<br>
+      Click ports to build ships. Click fleets to select, then click a destination.<br>
+      Ship types: Frigate (fast scout), Destroyer (balanced), Battleship (powerful).<br>
+      20 turns. Highest score wins.
+    </div>
+    <button id="start-btn">SET SAIL</button>
+  </div>
+</div>
+<div id="info-panel">
+  <div class="section"><div class="section-title">Selection</div><div class="section-body" id="info-selection">Click a port or fleet</div></div>
+  <div class="section"><div class="section-title">Actions</div><div class="section-body" id="info-actions">-</div></div>
+  <div class="section"><div class="section-title">Intel</div><div class="section-body" id="info-intel">-</div></div>
+</div>
+<script type="module">
+  import { createGame } from './game.js';
+  createGame();
+</script>
+<script src="../rating.js?v=2"></script>
+</body>
+</html>

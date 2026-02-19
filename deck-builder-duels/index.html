@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deck Builder Duels</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #b266ff; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(178, 102, 255, 0.5); }
+    h1 { color: #b266ff; font-size: 1.5rem; text-shadow: 0 0 15px rgba(178, 102, 255, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+    .score-bar span { color: #b266ff; }
+    canvas {
+      border: 2px solid #b266ff;
+      box-shadow: 0 0 20px rgba(178, 102, 255, 0.2);
+      display: block;
+      cursor: pointer;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #b266ff;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 15px rgba(178, 102, 255, 0.5); }
+    .overlay p { font-size: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>DECK BUILDER DUELS</h1>
+  </div>
+  <div class="score-bar">
+    <div>VP: <span id="score">0</span></div>
+    <div>Best: <span id="best">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="600"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:600px;">
+      <h2 id="overlayTitle">DECK BUILDER DUELS</h2>
+      <p id="overlayText">Click to Start</p>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 600;
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+    });
+
+    let gameState = 'waiting';
+    let score = 0;
+    let bestScore = parseInt(localStorage.getItem('deckBuilderDuelsBest') || '0');
+    bestEl.textContent = bestScore;
+
+    // ===================== THEME =====================
+    const THEME = '#b266ff';
+    const THEME_RGB = '178,102,255';
+    const CARD_COLORS = {
+      treasure: '#ffd700',
+      victory: '#40c040',
+      action: '#4488ff',
+      attack: '#ff5555',
+      defense: '#44ccaa',
+      cursor: '#b266ff'
+    };
+
+    // ===================== CARD DEFINITIONS =====================
+    const CARD_DEFS = {
+      copper:    { name: 'Copper',    type: 'treasure', cost: 0, coins: 1, vp: 0, desc: '+1 Coin' },
+      estate:    { name: 'Estate',    type: 'victory',  cost: 2, coins: 0, vp: 1, desc: '+1 VP' },
+      silver:    { name: 'Silver',    type: 'treasure', cost: 3, coins: 2, vp: 0, desc: '+2 Coins' },
+      gold:      { name: 'Gold',      type: 'treasure', cost: 6, coins: 3, vp: 0, desc: '+3 Coins' },
+      duchy:     { name: 'Duchy',     type: 'victory',  cost: 5, coins: 0, vp: 3, desc: '+3 VP' },
+      province:  { name: 'Province',  type: 'victory',  cost: 8, coins: 0, vp: 6, desc: '+6 VP' },
+      smithy:    { name: 'Smithy',    type: 'action',   cost: 4, coins: 0, vp: 0, desc: '+3 Cards',          cards: 3, actions: 0, extraCoins: 0 },
+      village:   { name: 'Village',   type: 'action',   cost: 3, coins: 0, vp: 0, desc: '+1 Card +2 Act',    cards: 1, actions: 2, extraCoins: 0 },
+      market:    { name: 'Market',    type: 'action',   cost: 5, coins: 0, vp: 0, desc: '+1 Card +1A +1$',   cards: 1, actions: 1, extraCoins: 1, extraBuys: 1 },
+      festival:  { name: 'Festival',  type: 'action',   cost: 5, coins: 0, vp: 0, desc: '+2 Act +2$',        cards: 0, actions: 2, extraCoins: 2, extraBuys: 1 },
+      laboratory:{ name: 'Lab',       type: 'action',   cost: 5, coins: 0, vp: 0, desc: '+2 Cards +1 Act',   cards: 2, actions: 1, extraCoins: 0 },
+      woodcutter:{ name: 'Woodcut',   type: 'action',   cost: 3, coins: 0, vp: 0, desc: '+2 Coins',          cards: 0, actions: 0, extraCoins: 2 },
+      militia:   { name: 'Militia',   type: 'attack',   cost: 4, coins: 0, vp: 0, desc: '+2$ Opp->3 cards',  cards: 0, actions: 0, extraCoins: 2, attackType: 'discard' },
+      witch:     { name: 'Witch',     type: 'attack',   cost: 5, coins: 0, vp: 0, desc: '+2 Cards +Curse',   cards: 2, actions: 0, extraCoins: 0, attackType: 'curse' },
+      moat:      { name: 'Moat',      type: 'defense',  cost: 2, coins: 0, vp: 0, desc: '+2 Cards / Block',  cards: 2, actions: 0, extraCoins: 0, blocks: true },
+      curse:     { name: 'Curse',     type: 'victory',  cost: 0, coins: 0, vp: -1, desc: '-1 VP' }
+    };
+
+    // ===================== SUPPLY =====================
+    function createSupply() {
+      return {
+        copper: 46, silver: 40, gold: 30,
+        estate: 8, duchy: 8, province: 8,
+        smithy: 10, village: 10, market: 10,
+        festival: 10, laboratory: 10, woodcutter: 10,
+        militia: 10, witch: 10, moat: 10,
+        curse: 10
+      };
+    }
+
+    // ===================== STATE =====================
+    let supply = {};
+    let players = [];
+    let currentPlayer = 0;
+    let turnPhase = 'action';
+    let turnActions = 1;
+    let turnBuys = 1;
+    let turnCoins = 0;
+    let turnNumber = 0;
+    let logMessages = [];
+    let hoveredArea = null;
+    let selectedHandCard = -1;
+    let animFrame = 0;
+    let aiThinking = false;
+    let aiTimer = 0;
+    let statusMsg = '';
+
+    const VIEW = { MAIN: 0, MARKET: 1 };
+    let currentView = VIEW.MAIN;
+
+    function createPlayer(name, isAI) {
+      const deck = [];
+      for (let i = 0; i < 7; i++) deck.push('copper');
+      for (let i = 0; i < 3; i++) deck.push('estate');
+      shuffle(deck);
+      const hand = deck.splice(0, 5);
+      return { name, isAI, deck, hand, discard: [], playArea: [] };
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function drawCards(player, n) {
+      for (let i = 0; i < n; i++) {
+        if (player.deck.length === 0) {
+          if (player.discard.length === 0) break;
+          player.deck = shuffle([...player.discard]);
+          player.discard = [];
+        }
+        player.hand.push(player.deck.pop());
+      }
+    }
+
+    function calcVP(player) {
+      let vp = 0;
+      const all = [...player.deck, ...player.hand, ...player.discard, ...player.playArea];
+      for (const c of all) vp += CARD_DEFS[c].vp;
+      return vp;
+    }
+
+    function countAllCards(player) {
+      return player.deck.length + player.hand.length + player.discard.length + player.playArea.length;
+    }
+
+    function hasDefense(player) {
+      return player.hand.includes('moat');
+    }
+
+    // ===================== GAME INIT =====================
+    function initGame() {
+      supply = createSupply();
+      players = [createPlayer('You', false), createPlayer('AI', true)];
+      currentPlayer = 0;
+      turnPhase = 'action';
+      turnActions = 1;
+      turnBuys = 1;
+      turnCoins = 0;
+      turnNumber = 1;
+      logMessages = [];
+      hoveredArea = null;
+      selectedHandCard = -1;
+      currentView = VIEW.MAIN;
+      aiThinking = false;
+      statusMsg = 'Your turn - Action Phase';
+      addLog('Game started! Turn 1');
+      updateScore();
+    }
+
+    function addLog(msg) {
+      logMessages.push(msg);
+      if (logMessages.length > 60) logMessages.shift();
+    }
+
+    function updateScore() {
+      score = calcVP(players[0]);
+      scoreEl.textContent = score;
+    }
+
+    // ===================== TURN LOGIC =====================
+    function startTurn() {
+      turnActions = 1;
+      turnBuys = 1;
+      turnCoins = 0;
+      turnPhase = 'action';
+      selectedHandCard = -1;
+      const p = players[currentPlayer];
+      const hasActs = p.hand.some(c => {
+        const d = CARD_DEFS[c];
+        return d.type === 'action' || d.type === 'attack' || d.type === 'defense';
+      });
+      if (!hasActs) turnPhase = 'buy';
+
+      if (currentPlayer === 0) {
+        statusMsg = turnPhase === 'action' ? 'Your turn - Action Phase' : 'Your turn - Buy Phase';
+        addLog('--- Turn ' + turnNumber + ' (You) ---');
+      } else {
+        statusMsg = 'AI is thinking...';
+        addLog('--- Turn ' + turnNumber + ' (AI) ---');
+        aiThinking = true;
+        aiTimer = 35;
+      }
+    }
+
+    function playAction(player, handIdx) {
+      const cardId = player.hand[handIdx];
+      const def = CARD_DEFS[cardId];
+      if (def.type !== 'action' && def.type !== 'attack' && def.type !== 'defense') return false;
+      if (turnActions <= 0) return false;
+
+      player.hand.splice(handIdx, 1);
+      player.playArea.push(cardId);
+      turnActions--;
+      turnActions += (def.actions || 0);
+      turnCoins += (def.extraCoins || 0);
+      turnBuys += (def.extraBuys || 0);
+      if (def.cards) drawCards(player, def.cards);
+
+      addLog(player.name + ' plays ' + def.name);
+
+      if (def.type === 'attack') {
+        for (let i = 0; i < players.length; i++) {
+          if (i === currentPlayer) continue;
+          const target = players[i];
+          if (hasDefense(target)) {
+            addLog(target.name + ' blocks with Moat!');
+            continue;
+          }
+          if (def.attackType === 'discard') {
+            while (target.hand.length > 3) {
+              const worstIdx = pickWorstCard(target);
+              const disc = target.hand.splice(worstIdx, 1)[0];
+              target.discard.push(disc);
+              addLog(target.name + ' discards ' + CARD_DEFS[disc].name);
+            }
+          } else if (def.attackType === 'curse') {
+            if (supply.curse > 0) {
+              supply.curse--;
+              target.discard.push('curse');
+              addLog(target.name + ' gains a Curse!');
+            }
+          }
+        }
+      }
+
+      if (turnActions <= 0 || !player.hand.some(c => {
+        const d = CARD_DEFS[c];
+        return d.type === 'action' || d.type === 'attack' || d.type === 'defense';
+      })) {
+        turnPhase = 'buy';
+        if (currentPlayer === 0) statusMsg = 'Your turn - Buy Phase';
+      }
+
+      selectedHandCard = -1;
+      return true;
+    }
+
+    function pickWorstCard(player) {
+      let worstIdx = 0, worstScore = 999;
+      for (let i = 0; i < player.hand.length; i++) {
+        const cid = player.hand[i];
+        const def = CARD_DEFS[cid];
+        let s = def.cost;
+        if (def.type === 'action' || def.type === 'attack') s += 5;
+        if (def.type === 'defense') s += 4;
+        if (cid === 'curse') s = -10;
+        if (cid === 'copper') s = 0;
+        if (cid === 'estate') s = 1;
+        if (def.type === 'treasure') s += def.coins * 2;
+        if (s < worstScore) { worstScore = s; worstIdx = i; }
+      }
+      return worstIdx;
+    }
+
+    function playAllTreasures(player) {
+      let total = 0;
+      for (let i = player.hand.length - 1; i >= 0; i--) {
+        if (CARD_DEFS[player.hand[i]].type === 'treasure') {
+          turnCoins += CARD_DEFS[player.hand[i]].coins;
+          total += CARD_DEFS[player.hand[i]].coins;
+          player.playArea.push(player.hand[i]);
+          player.hand.splice(i, 1);
+        }
+      }
+      if (total > 0) addLog(player.name + ' plays treasures (+' + total + ' coins)');
+    }
+
+    function buyCard(cardId) {
+      const def = CARD_DEFS[cardId];
+      if (turnBuys <= 0 || supply[cardId] <= 0 || turnCoins < def.cost) return false;
+      supply[cardId]--;
+      turnCoins -= def.cost;
+      turnBuys--;
+      players[currentPlayer].discard.push(cardId);
+      addLog(players[currentPlayer].name + ' buys ' + def.name);
+      updateScore();
+      return true;
+    }
+
+    function endTurn() {
+      const p = players[currentPlayer];
+      p.discard.push(...p.hand, ...p.playArea);
+      p.hand = [];
+      p.playArea = [];
+      drawCards(p, 5);
+      selectedHandCard = -1;
+
+      if (checkGameEnd()) { endGame(); return; }
+
+      currentPlayer = (currentPlayer + 1) % players.length;
+      if (currentPlayer === 0) turnNumber++;
+      startTurn();
+    }
+
+    function checkGameEnd() {
+      if (supply.province <= 0) return true;
+      let empty = 0;
+      for (const k of Object.keys(supply)) { if (supply[k] <= 0) empty++; }
+      return empty >= 3;
+    }
+
+    function endGame() {
+      gameState = 'over';
+      const p0vp = calcVP(players[0]);
+      const p1vp = calcVP(players[1]);
+      score = p0vp;
+      scoreEl.textContent = score;
+      if (score > bestScore) {
+        bestScore = score;
+        bestEl.textContent = bestScore;
+        localStorage.setItem('deckBuilderDuelsBest', String(bestScore));
+      }
+      const result = p0vp > p1vp ? 'You Win!' : (p0vp < p1vp ? 'AI Wins!' : 'Tie!');
+      overlayTitle.textContent = result;
+      overlayText.textContent = 'You: ' + p0vp + ' VP | AI: ' + p1vp + ' VP | Click to play again';
+      overlay.style.display = 'flex';
+    }
+
+    // ===================== AI =====================
+    function aiCardValue(cardId) {
+      const def = CARD_DEFS[cardId];
+      const totalCards = countAllCards(players[1]);
+      const lateGame = supply.province <= 4;
+      const veryLate = supply.province <= 2;
+
+      if (cardId === 'province') return 100;
+      if (cardId === 'gold') return 55;
+      if (cardId === 'duchy') return lateGame ? 50 : 5;
+      if (cardId === 'estate') return veryLate ? 20 : -5;
+      if (cardId === 'silver') return totalCards < 15 ? 35 : 25;
+      if (cardId === 'laboratory') return 48;
+      if (cardId === 'witch') return supply.curse > 0 ? 46 : 15;
+      if (cardId === 'market') return 44;
+      if (cardId === 'festival') return 42;
+      if (cardId === 'smithy') return totalCards < 18 ? 38 : 28;
+      if (cardId === 'village') return 30;
+      if (cardId === 'militia') return 35;
+      if (cardId === 'moat') return 22;
+      if (cardId === 'woodcutter') return 16;
+      if (cardId === 'copper') return -10;
+      if (cardId === 'curse') return -50;
+      return 0;
+    }
+
+    function aiTurn() {
+      const p = players[currentPlayer];
+
+      // Action phase
+      if (turnPhase === 'action') {
+        let played = true;
+        while (played && turnActions > 0) {
+          played = false;
+          let bestIdx = -1, bestVal = -1;
+          for (let i = 0; i < p.hand.length; i++) {
+            const d = CARD_DEFS[p.hand[i]];
+            if (d.type === 'action' || d.type === 'attack' || d.type === 'defense') {
+              // Prefer cards that give actions first if we have one action left
+              let val = aiCardValue(p.hand[i]);
+              if (turnActions === 1 && (d.actions || 0) > 0) val += 10;
+              if (turnActions === 1 && (d.actions || 0) === 0) val -= 5;
+              if (val > bestVal) { bestVal = val; bestIdx = i; }
+            }
+          }
+          if (bestIdx >= 0) { playAction(p, bestIdx); played = true; }
+        }
+        turnPhase = 'buy';
+      }
+
+      // Buy phase
+      playAllTreasures(p);
+      let bought = true;
+      while (bought && turnBuys > 0) {
+        bought = false;
+        let bestCard = null, bestVal = -999;
+        for (const k of Object.keys(supply)) {
+          if (supply[k] <= 0 || CARD_DEFS[k].cost > turnCoins) continue;
+          if (k === 'curse' || k === 'copper') continue;
+          const val = aiCardValue(k);
+          if (CARD_DEFS[k].type === 'victory' && k !== 'province' && supply.province > 4) continue;
+          if (val > bestVal) { bestVal = val; bestCard = k; }
+        }
+        if (bestCard && bestVal > 0) { buyCard(bestCard); bought = true; }
+        else break;
+      }
+
+      endTurn();
+    }
+
+    // ===================== RENDERING =====================
+    const CARD_W = 56;
+    const CARD_H = 52;
+    const MCARD_W = 62;
+    const MCARD_H = 62;
+    let clickAreas = [];
+
+    function addClickArea(id, x, y, w, h, data) {
+      clickAreas.push({ id, x, y, w, h, data });
+    }
+
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    function drawCardRect(x, y, w, h, cardId, highlighted, dimmed) {
+      const def = CARD_DEFS[cardId];
+      const tc = CARD_COLORS[def.type] || '#888';
+      ctx.save();
+
+      // Shadow / glow
+      if (highlighted) {
+        ctx.shadowColor = tc;
+        ctx.shadowBlur = 14;
+      }
+
+      // Background
+      ctx.fillStyle = dimmed ? '#181828' : '#252540';
+      ctx.strokeStyle = highlighted ? '#fff' : (dimmed ? '#333' : tc);
+      ctx.lineWidth = highlighted ? 2.5 : 1.2;
+      roundRect(x, y, w, h, 5);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Top color bar
+      ctx.fillStyle = tc;
+      ctx.globalAlpha = dimmed ? 0.2 : 0.75;
+      roundRect(x + 2, y + 2, w - 4, 14, 3);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Name
+      ctx.fillStyle = dimmed ? '#555' : '#fff';
+      ctx.font = 'bold 8px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(def.name, x + w / 2, y + 3);
+
+      // Cost coin
+      ctx.beginPath();
+      ctx.arc(x + 11, y + 25, 7, 0, Math.PI * 2);
+      ctx.fillStyle = dimmed ? '#222' : '#1a1a2e';
+      ctx.fill();
+      ctx.strokeStyle = dimmed ? '#444' : '#ffd700';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = dimmed ? '#555' : '#ffd700';
+      ctx.font = 'bold 9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(def.cost, x + 11, y + 25);
+
+      // VP or coin indicator
+      if (def.vp !== 0) {
+        ctx.fillStyle = def.vp > 0 ? '#40c040' : '#ff4444';
+        ctx.font = 'bold 9px Courier New';
+        ctx.textAlign = 'right';
+        ctx.fillText((def.vp > 0 ? '+' : '') + def.vp + 'VP', x + w - 3, y + 25);
+      }
+      if (def.coins > 0) {
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 9px Courier New';
+        ctx.textAlign = 'right';
+        ctx.fillText('+' + def.coins + '$', x + w - 3, y + 25);
+      }
+
+      // Effect text - word wrap
+      ctx.fillStyle = dimmed ? '#444' : '#bbb';
+      ctx.font = '7px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const words = def.desc.split(' ');
+      let l1 = '', l2 = '';
+      for (const wd of words) {
+        if ((l1 + ' ' + wd).trim().length <= 10) l1 = (l1 + ' ' + wd).trim();
+        else l2 = (l2 + ' ' + wd).trim();
+      }
+      ctx.fillText(l1, x + w / 2, y + h - 16);
+      if (l2) ctx.fillText(l2, x + w / 2, y + h - 8);
+      else if (!def.vp && !def.coins) ctx.fillText('', x + w / 2, y + h - 8);
+
+      // Supply count badge
+      if (supply[cardId] !== undefined && (currentView === VIEW.MARKET)) {
+        const cnt = supply[cardId];
+        ctx.beginPath();
+        ctx.arc(x + w - 9, y + h - 9, 8, 0, Math.PI * 2);
+        ctx.fillStyle = cnt > 0 ? '#b266ff' : '#662222';
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 8px Courier New';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(cnt, x + w - 9, y + h - 9);
+      }
+
+      ctx.restore();
+    }
+
+    function drawBtn(x, y, w, h, text, hovered, color) {
+      ctx.save();
+      if (hovered) {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10;
+      }
+      ctx.fillStyle = hovered ? color : '#252540';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = hovered ? 2 : 1;
+      roundRect(x, y, w, h, 4);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = hovered ? '#1a1a2e' : color;
+      ctx.font = 'bold 10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + w / 2, y + h / 2);
+      ctx.restore();
+    }
+
+    function getAreaAt(mx, my) {
+      for (let i = clickAreas.length - 1; i >= 0; i--) {
+        const a = clickAreas[i];
+        if (mx >= a.x && mx <= a.x + a.w && my >= a.y && my <= a.y + a.h) return a;
+      }
+      return null;
+    }
+
+    // ===================== MAIN RENDER =====================
+    function render() {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+      clickAreas = [];
+      animFrame++;
+
+      if (gameState !== 'playing') return;
+
+      if (currentView === VIEW.MAIN) renderMain();
+      else renderMarket();
+    }
+
+    function renderMain() {
+      const p = players[0];
+      const ai = players[1];
+
+      // === AI INFO ===
+      ctx.fillStyle = '#666';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('AI: ' + ai.hand.length + ' hand | ' + ai.deck.length + ' deck | ' + ai.discard.length + ' disc | ' + calcVP(ai) + ' VP', 10, 16);
+
+      // === SUPPLY MINI-BAR ===
+      ctx.fillStyle = THEME;
+      ctx.font = 'bold 9px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('SUPPLY:', 10, 34);
+
+      const supplyKeys = ['copper','silver','gold','estate','duchy','province','smithy','village','market','festival','laboratory','woodcutter','militia','witch','moat','curse'];
+      const pw = 31, pgap = 1;
+      for (let i = 0; i < supplyKeys.length; i++) {
+        const sx = 65 + i * (pw + pgap);
+        const sy = 26;
+        const sk = supplyKeys[i];
+        const col = CARD_COLORS[CARD_DEFS[sk].type] || '#888';
+        ctx.fillStyle = supply[sk] > 0 ? col : '#333';
+        ctx.globalAlpha = supply[sk] > 0 ? 0.6 : 0.2;
+        ctx.fillRect(sx, sy, pw, 12);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = supply[sk] > 0 ? '#fff' : '#555';
+        ctx.font = '7px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(supply[sk], sx + pw / 2, sy + 9);
+      }
+
+      // Market button
+      const mhov = hoveredArea && hoveredArea.id === 'marketBtn';
+      drawBtn(10, 44, 100, 20, 'OPEN MARKET', mhov, THEME);
+      addClickArea('marketBtn', 10, 44, 100, 20, {});
+
+      // === TURN INFO BAR ===
+      ctx.fillStyle = '#1e1e38';
+      ctx.fillRect(0, 70, W, 28);
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(0, 70, W, 28);
+
+      ctx.fillStyle = THEME;
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('Turn ' + turnNumber, 10, 88);
+
+      ctx.fillStyle = '#ccc';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(statusMsg, W / 2, 88);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#4488ff';
+      ctx.fillText('Act:' + turnActions, W - 160, 88);
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText('$' + turnCoins, W - 90, 88);
+      ctx.fillStyle = '#40c040';
+      ctx.fillText('Buy:' + turnBuys, W - 15, 88);
+
+      // === PLAY AREA ===
+      ctx.fillStyle = '#1a1a30';
+      ctx.fillRect(5, 103, W - 10, 90);
+      ctx.strokeStyle = '#2a2a44';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(5, 103, W - 10, 90);
+      ctx.fillStyle = '#555';
+      ctx.font = '8px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('PLAYED THIS TURN', 12, 114);
+
+      const pa = players[currentPlayer === 0 ? 0 : 0].playArea; // always show human play area
+      if (pa.length > 0) {
+        const maxVis = Math.min(pa.length, 9);
+        const gap = Math.min(CARD_W + 4, (W - 20) / maxVis);
+        for (let i = 0; i < maxVis; i++) {
+          drawCardRect(10 + i * gap, 118, CARD_W, CARD_H - 4, pa[i], false, false);
+        }
+      }
+
+      // === LOG ===
+      ctx.fillStyle = '#171728';
+      ctx.fillRect(5, 198, W - 10, 75);
+      ctx.strokeStyle = '#252540';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(5, 198, W - 10, 75);
+      ctx.fillStyle = '#555';
+      ctx.font = '8px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('LOG', 12, 210);
+
+      const logs = logMessages.slice(-5);
+      ctx.font = '9px Courier New';
+      for (let i = 0; i < logs.length; i++) {
+        ctx.fillStyle = i === logs.length - 1 ? '#bbb' : '#666';
+        ctx.fillText(logs[i].substring(0, 72), 12, 222 + i * 12);
+      }
+
+      // === DECK / DISCARD ===
+      ctx.fillStyle = '#1e1e38';
+      ctx.fillRect(5, 278, W - 10, 24);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('Deck:' + p.deck.length, 12, 294);
+      ctx.fillText('Disc:' + p.discard.length, 100, 294);
+      ctx.fillText('Total:' + countAllCards(p), 200, 294);
+      ctx.fillStyle = '#40c040';
+      ctx.fillText('VP:' + calcVP(p), 310, 294);
+      ctx.fillStyle = '#ff8844';
+      ctx.textAlign = 'right';
+      ctx.fillText('AI VP:' + calcVP(ai), W - 12, 294);
+
+      // === BUTTONS ===
+      const isHumanTurn = currentPlayer === 0 && !aiThinking;
+      if (isHumanTurn) {
+        if (turnPhase === 'action') {
+          const bh = hoveredArea && hoveredArea.id === 'skipAction';
+          drawBtn(W - 135, 308, 125, 22, 'SKIP TO BUY >>', bh, '#ffd700');
+          addClickArea('skipAction', W - 135, 308, 125, 22, {});
+        }
+        if (turnPhase === 'buy') {
+          const hasTr = p.hand.some(c => CARD_DEFS[c].type === 'treasure');
+          if (hasTr) {
+            const bh = hoveredArea && hoveredArea.id === 'playTreasures';
+            drawBtn(10, 308, 140, 22, 'PLAY TREASURES', bh, '#ffd700');
+            addClickArea('playTreasures', 10, 308, 140, 22, {});
+          }
+          const eh = hoveredArea && hoveredArea.id === 'endTurn';
+          drawBtn(W - 115, 308, 105, 22, 'END TURN', eh, '#ff6666');
+          addClickArea('endTurn', W - 115, 308, 105, 22, {});
+        }
+      }
+
+      // === QUICK BUY ROW ===
+      if (isHumanTurn && turnPhase === 'buy') {
+        ctx.fillStyle = '#666';
+        ctx.font = '9px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText('QUICK BUY (or open market for full view):', 10, 345);
+
+        const buyable = Object.keys(supply).filter(k =>
+          supply[k] > 0 && CARD_DEFS[k].cost <= turnCoins && k !== 'curse'
+        ).sort((a, b) => CARD_DEFS[b].cost - CARD_DEFS[a].cost).slice(0, 9);
+
+        for (let i = 0; i < buyable.length; i++) {
+          const cx = 8 + i * (CARD_W + 6);
+          const cy = 352;
+          const isH = hoveredArea && hoveredArea.id === 'quickbuy' && hoveredArea.data.cardId === buyable[i];
+          drawCardRect(cx, cy, CARD_W, CARD_H, buyable[i], isH, false);
+          addClickArea('quickbuy', cx, cy, CARD_W, CARD_H, { cardId: buyable[i] });
+        }
+      } else if (isHumanTurn && turnPhase === 'action') {
+        ctx.fillStyle = '#666';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        // Pulsing hint
+        const alpha = 0.5 + 0.3 * Math.sin(animFrame * 0.06);
+        ctx.globalAlpha = alpha;
+        ctx.fillText('Click an action card in your hand to play it', W / 2, 380);
+        ctx.globalAlpha = 1;
+      }
+
+      // === HAND ===
+      const handY = 420;
+      ctx.fillStyle = '#1a1a30';
+      ctx.fillRect(0, handY - 8, W, H - handY + 8);
+      ctx.strokeStyle = THEME;
+      ctx.lineWidth = 1;
+      // Subtle glow on hand area border
+      ctx.save();
+      ctx.shadowColor = THEME;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(0, handY - 8);
+      ctx.lineTo(W, handY - 8);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.fillStyle = THEME;
+      ctx.font = 'bold 10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('YOUR HAND', 10, handY + 4);
+
+      const handLen = p.hand.length;
+      if (handLen > 0) {
+        const handCardH = CARD_H + 16;
+        const maxW = W - 20;
+        const spacing = Math.min(CARD_W + 6, maxW / handLen);
+        const startX = Math.max(10, (W - handLen * spacing) / 2);
+        const cy = handY + 12;
+
+        for (let i = 0; i < handLen; i++) {
+          const cx = startX + i * spacing;
+          const cardId = p.hand[i];
+          const def = CARD_DEFS[cardId];
+          const isH = hoveredArea && hoveredArea.id === 'hand' && hoveredArea.data.idx === i;
+          const canPlay = isHumanTurn && (
+            (turnPhase === 'action' && (def.type === 'action' || def.type === 'attack' || def.type === 'defense') && turnActions > 0) ||
+            (turnPhase === 'buy' && def.type === 'treasure')
+          );
+          const dy = isH ? cy - 10 : cy;
+          drawCardRect(cx, dy, CARD_W, handCardH, cardId, isH, !canPlay);
+          addClickArea('hand', cx, cy - 10, CARD_W, handCardH + 10, { idx: i });
+        }
+      }
+    }
+
+    function renderMarket() {
+      const p = players[0];
+
+      // Title
+      ctx.save();
+      ctx.shadowColor = THEME;
+      ctx.shadowBlur = 15;
+      ctx.fillStyle = THEME;
+      ctx.font = 'bold 16px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('SUPPLY MARKET', W / 2, 22);
+      ctx.restore();
+
+      // Close button
+      const cbh = hoveredArea && hoveredArea.id === 'closeMarket';
+      drawBtn(W - 80, 6, 70, 22, 'CLOSE [X]', cbh, THEME);
+      addClickArea('closeMarket', W - 80, 6, 70, 22, {});
+
+      // Resources
+      ctx.fillStyle = '#ffd700';
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('Coins: ' + turnCoins + '  Buys: ' + turnBuys, 10, 22);
+
+      const cats = [
+        { label: 'TREASURE', cards: ['copper', 'silver', 'gold'] },
+        { label: 'VICTORY', cards: ['estate', 'duchy', 'province', 'curse'] },
+        { label: 'ACTIONS', cards: ['smithy', 'village', 'woodcutter', 'market', 'festival', 'laboratory'] },
+        { label: 'ATTACK / DEFENSE', cards: ['militia', 'witch', 'moat'] }
+      ];
+
+      let yy = 40;
+      for (const cat of cats) {
+        // Category label
+        ctx.fillStyle = '#777';
+        ctx.font = 'bold 9px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText(cat.label, 12, yy + 10);
+        yy += 14;
+
+        const n = cat.cards.length;
+        const sp = Math.min(MCARD_W + 10, (W - 20) / n);
+        const sx = Math.max(10, (W - n * sp) / 2);
+
+        for (let i = 0; i < n; i++) {
+          const cx = sx + i * sp;
+          const cy = yy;
+          const cid = cat.cards[i];
+          const def = CARD_DEFS[cid];
+          const canBuy = turnCoins >= def.cost && supply[cid] > 0 && turnBuys > 0 && currentPlayer === 0 && turnPhase === 'buy';
+          const isH = hoveredArea && hoveredArea.id === 'marketCard' && hoveredArea.data.cardId === cid;
+
+          drawCardRect(cx, cy, MCARD_W, MCARD_H, cid, isH && canBuy, !canBuy);
+          if (canBuy) addClickArea('marketCard', cx, cy, MCARD_W, MCARD_H, { cardId: cid });
+        }
+        yy += MCARD_H + 10;
+      }
+
+      // Bottom buttons
+      const isHumanBuy = currentPlayer === 0 && turnPhase === 'buy' && !aiThinking;
+      if (isHumanBuy) {
+        const hasTr = p.hand.some(c => CARD_DEFS[c].type === 'treasure');
+        if (hasTr) {
+          const bh = hoveredArea && hoveredArea.id === 'playTreasures';
+          drawBtn(10, H - 55, 150, 24, 'PLAY TREASURES', bh, '#ffd700');
+          addClickArea('playTreasures', 10, H - 55, 150, 24, {});
+        }
+        const eh = hoveredArea && hoveredArea.id === 'endTurn';
+        drawBtn(W - 120, H - 55, 110, 24, 'END TURN', eh, '#ff6666');
+        addClickArea('endTurn', W - 120, H - 55, 110, 24, {});
+      }
+
+      // Hand preview
+      ctx.fillStyle = '#1e1e38';
+      ctx.fillRect(0, H - 26, W, 26);
+      ctx.fillStyle = '#888';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      const hs = p.hand.map(c => CARD_DEFS[c].name).join(', ');
+      ctx.fillText('Hand: ' + hs.substring(0, 80), 8, H - 11);
+    }
+
+    // ===================== INPUT =====================
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (W / rect.width);
+      const my = (e.clientY - rect.top) * (H / rect.height);
+      hoveredArea = getAreaAt(mx, my);
+      canvas.style.cursor = hoveredArea ? 'pointer' : 'default';
+    });
+
+    canvas.addEventListener('click', (e) => {
+      if (gameState === 'waiting' || gameState === 'over') {
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        initGame();
+        startTurn();
+        return;
+      }
+      if (aiThinking || currentPlayer !== 0) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (W / rect.width);
+      const my = (e.clientY - rect.top) * (H / rect.height);
+      const area = getAreaAt(mx, my);
+      if (!area) return;
+
+      const p = players[0];
+
+      switch (area.id) {
+        case 'hand': {
+          const idx = area.data.idx;
+          if (idx >= p.hand.length) break;
+          const cardId = p.hand[idx];
+          const def = CARD_DEFS[cardId];
+          if (turnPhase === 'action') {
+            if ((def.type === 'action' || def.type === 'attack' || def.type === 'defense') && turnActions > 0) {
+              playAction(p, idx);
+              updateScore();
+            }
+          } else if (turnPhase === 'buy') {
+            if (def.type === 'treasure') {
+              turnCoins += def.coins;
+              p.playArea.push(cardId);
+              p.hand.splice(idx, 1);
+              addLog('You play ' + def.name);
+            }
+          }
+          break;
+        }
+        case 'skipAction':
+          turnPhase = 'buy';
+          statusMsg = 'Your turn - Buy Phase';
+          break;
+        case 'playTreasures':
+          playAllTreasures(p);
+          break;
+        case 'endTurn':
+          currentView = VIEW.MAIN;
+          endTurn();
+          break;
+        case 'marketBtn':
+          currentView = VIEW.MARKET;
+          break;
+        case 'closeMarket':
+          currentView = VIEW.MAIN;
+          break;
+        case 'quickbuy':
+        case 'marketCard':
+          if (turnPhase === 'buy' && turnBuys > 0) {
+            buyCard(area.data.cardId);
+            if (turnBuys <= 0) statusMsg = 'No buys left - End Turn';
+          }
+          break;
+      }
+    });
+
+    // ===================== GAME LOOP =====================
+    function gameLoop() {
+      if (gameState === 'playing') {
+        if (aiThinking && currentPlayer !== 0) {
+          aiTimer--;
+          if (aiTimer <= 0) {
+            aiThinking = false;
+            aiTurn();
+          }
+        }
+        updateScore();
+      }
+      render();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ===================== EXPOSE =====================
+    window.gameData = {};
+    function updateGameData() {
+      window.gameData = { gameState, score, turnNumber, currentPlayer, supply: { ...supply } };
+    }
+
+    // ===================== START =====================
+    overlay.style.display = 'flex';
+    gameLoop();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

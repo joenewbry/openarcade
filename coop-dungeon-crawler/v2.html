@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Co-op Dungeon Crawler - OpenArcade</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a2e;
+  color: #eee;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+a { color: #a84; text-decoration: none; }
+a:hover { text-decoration: underline; }
+#back-link {
+  position: fixed; top: 12px; left: 16px;
+  font-size: 14px; z-index: 100;
+  color: #a84;
+  text-shadow: 0 0 6px #a84;
+}
+#score-bar {
+  width: 600px; max-width: 95vw;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px; margin-top: 48px; margin-bottom: 4px;
+  background: rgba(170,136,68,0.08);
+  border: 1px solid rgba(170,136,68,0.25);
+  border-radius: 6px;
+  font-size: 13px;
+  text-shadow: 0 0 6px rgba(170,136,68,0.4);
+}
+#score-bar .label { color: #888; }
+#score-bar .value { color: #a84; font-weight: bold; }
+#game-container {
+  position: relative;
+  width: 600px; height: 500px; max-width: 95vw;
+  margin-top: 4px;
+}
+canvas#game {
+  width: 100%; height: 100%;
+  border: 1px solid rgba(170,136,68,0.3);
+  border-radius: 4px;
+  display: block;
+}
+#overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(26,26,46,0.92);
+  border-radius: 4px; z-index: 10;
+  transition: opacity 0.3s;
+}
+#overlay.hidden { opacity: 0; pointer-events: none; }
+#overlay h1 {
+  font-size: 26px; color: #a84;
+  text-shadow: 0 0 18px #a84, 0 0 40px rgba(170,136,68,0.3);
+  margin-bottom: 10px;
+}
+#overlay h2 {
+  font-size: 18px; color: #a84;
+  text-shadow: 0 0 12px #a84;
+  margin-bottom: 8px;
+}
+#overlay p {
+  font-size: 12px; color: #aaa; margin: 3px 0;
+  text-align: center; max-width: 460px; line-height: 1.5;
+}
+#overlay .class-select {
+  display: flex; gap: 12px; margin: 16px 0;
+}
+#overlay .class-btn {
+  padding: 12px 18px;
+  background: transparent;
+  border: 2px solid #a84;
+  color: #a84; font-family: 'Courier New', monospace;
+  font-size: 13px; cursor: pointer;
+  border-radius: 4px;
+  text-shadow: 0 0 8px rgba(170,136,68,0.5);
+  box-shadow: 0 0 12px rgba(170,136,68,0.15);
+  transition: all 0.2s;
+  text-align: center;
+  min-width: 120px;
+}
+#overlay .class-btn:hover {
+  background: rgba(170,136,68,0.2);
+  box-shadow: 0 0 20px rgba(170,136,68,0.4);
+}
+#overlay .class-btn .name { font-size: 15px; font-weight: bold; display: block; margin-bottom: 4px; }
+#overlay .class-btn .stats { font-size: 10px; color: #999; display: block; }
+#overlay button.restart-btn {
+  margin-top: 16px; padding: 10px 32px;
+  background: transparent;
+  border: 2px solid #a84;
+  color: #a84; font-family: 'Courier New', monospace;
+  font-size: 15px; cursor: pointer;
+  border-radius: 4px;
+  text-shadow: 0 0 8px rgba(170,136,68,0.5);
+  box-shadow: 0 0 12px rgba(170,136,68,0.15);
+  transition: all 0.2s;
+}
+#overlay button.restart-btn:hover {
+  background: rgba(170,136,68,0.15);
+  box-shadow: 0 0 20px rgba(170,136,68,0.3);
+}
+#controls-hint {
+  width: 600px; max-width: 95vw;
+  margin-top: 6px;
+  font-size: 11px; color: #666;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+<a id="back-link" href="../">&larr; Back</a>
+<div id="score-bar">
+  <div><span class="label">Score: </span><span class="value" id="scoreVal">0</span></div>
+  <div><span class="label">Floor: </span><span class="value" id="floorVal">1</span></div>
+  <div><span class="label">Room: </span><span class="value" id="roomVal">0/0</span></div>
+  <div><span class="label">Loot: </span><span class="value" id="lootVal">0</span></div>
+</div>
+<div id="game-container">
+  <canvas id="game" width="600" height="500"></canvas>
+  <div id="overlay">
+    <h1>CO-OP DUNGEON CRAWLER</h1>
+    <p>Choose your class. Your AI ally picks a complementary class.<br>Clear all monsters in each room. Defeat the boss to descend deeper.</p>
+    <div class="class-select" id="classSelect">
+      <button class="class-btn" data-class="warrior"><span class="name">WARRIOR</span><span class="stats">HP: 150 | ATK: 18 | DEF: 8<br>Melee | Shield Bash | War Cry</span></button>
+      <button class="class-btn" data-class="mage"><span class="name">MAGE</span><span class="stats">HP: 80 | ATK: 22 | DEF: 3<br>Ranged AoE | Fireball | Frost Nova</span></button>
+      <button class="class-btn" data-class="rogue"><span class="name">ROGUE</span><span class="stats">HP: 100 | ATK: 20 | DEF: 5<br>Fast | Backstab | Smoke Bomb</span></button>
+    </div>
+    <p id="overlayMsg"></p>
+    <button class="restart-btn" id="restartBtn" style="display:none;">Play Again</button>
+  </div>
+</div>
+<div id="controls-hint">WASD: Move | Space: Attack | E: Interact/Pickup | 1-3: Abilities</div>
+
+<script type="module">
+  import { createGame } from './game.js';
+  createGame();
+</script>
+<script src="../rating.js?v=2"></script>
+</body>
+</html>

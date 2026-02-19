@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spy vs Spy</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #888; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(136, 136, 136, 0.5); }
+    h1 { color: #888; font-size: 1.6rem; text-shadow: 0 0 15px rgba(136, 136, 136, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1rem;
+    }
+    .score-bar span { color: #888; }
+    canvas {
+      border: 2px solid #888;
+      box-shadow: 0 0 20px rgba(136, 136, 136, 0.2);
+      display: block;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.85);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
+    .overlay p { font-size: 1rem; color: #aaa; }
+    .controls { color: #666; font-size: 0.75rem; margin-top: 10px; width: 600px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>SPY VS SPY</h1>
+  </div>
+  <div class="score-bar">
+    <div>You: <span id="playerDocs">0</span>/4 docs | Traps: <span id="playerTraps">0</span></div>
+    <div>Time: <span id="timer">3:00</span></div>
+    <div>Score: <span id="score">0</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="400"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:400px;">
+      <h2 id="overlayTitle">SPY VS SPY</h2>
+      <p id="overlayText">Press SPACE to infiltrate</p>
+    </div>
+  </div>
+  <div class="controls">Arrows=Move | SPACE=Interact/Door | Z=Set Trap | X=Search | C=Disguise</div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 400;
+    const playerDocsEl = document.getElementById('playerDocs');
+    const playerTrapsEl = document.getElementById('playerTraps');
+    const timerEl = document.getElementById('timer');
+    const scoreEl = document.getElementById('score');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+
+    let gameState = 'menu';
+    let score = 0;
+
+    // --- BUILDING LAYOUT ---
+    // 4x3 grid of rooms (12 rooms)
+    const COLS = 4, ROWS = 3;
+    const RW = 150, RH = 133;
+    // Doors between rooms (horizontal and vertical connections)
+    // Each room can connect right and down
+    const doors = {};
+    // Room class
+    class Room {
+      constructor(col, row, id) {
+        this.col = col;
+        this.row = row;
+        this.id = id;
+        this.x = col * RW;
+        this.y = row * RH;
+        this.furniture = []; // {type, x, y, searched, hasDoc, hasTrap, trapOwner}
+        this.isExit = false;
+      }
+    }
+
+    let rooms = [];
+    let roomGrid = [];
+    let player, ai;
+    let documents = [];
+    let timerMs = 180000;
+    let lastTime = 0;
+    let combatState = null; // {timer, playerChoice, aiChoice, result}
+    let messageText = '';
+    let messageTimer = 0;
+    let keys = {};
+
+    const FURNITURE_TYPES = ['desk', 'cabinet', 'safe', 'bookshelf', 'plant', 'locker'];
+    const FURNITURE_COLORS = {
+      desk: '#8B6914',
+      cabinet: '#5a5a7a',
+      safe: '#3a3a5a',
+      bookshelf: '#6B4226',
+      plant: '#2a6a2a',
+      locker: '#4a4a6a'
+    };
+
+    function initRooms() {
+      rooms = [];
+      roomGrid = [];
+      for (let r = 0; r < ROWS; r++) {
+        roomGrid[r] = [];
+        for (let c = 0; c < COLS; c++) {
+          const room = new Room(c, r, r * COLS + c);
+          roomGrid[r][c] = room;
+          rooms.push(room);
+        }
+      }
+
+      // Create doors - connect most adjacent rooms (not all, for maze-like feel)
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          // Right door
+          if (c < COLS - 1) {
+            // Always connect except occasionally skip
+            if (Math.random() < 0.8 || c === 0) {
+              const k1 = r * COLS + c + ',' + (r * COLS + c + 1);
+              const k2 = (r * COLS + c + 1) + ',' + (r * COLS + c);
+              doors[k1] = true;
+              doors[k2] = true;
+            }
+          }
+          // Down door
+          if (r < ROWS - 1) {
+            if (Math.random() < 0.8 || r === 0) {
+              const k1 = r * COLS + c + ',' + ((r + 1) * COLS + c);
+              const k2 = ((r + 1) * COLS + c) + ',' + (r * COLS + c);
+              doors[k1] = true;
+              doors[k2] = true;
+            }
+          }
+        }
+      }
+
+      // Ensure connectivity: BFS from room 0
+      ensureConnected();
+
+      // Place furniture in each room (2-4 pieces)
+      for (const room of rooms) {
+        const count = 2 + Math.floor(Math.random() * 3);
+        const positions = shuffleArray([
+          {x: 20, y: 20}, {x: 80, y: 20}, {x: 20, y: 70}, {x: 80, y: 70},
+          {x: 50, y: 45}, {x: 110, y: 45}
+        ]).slice(0, count);
+        for (let i = 0; i < count; i++) {
+          room.furniture.push({
+            type: FURNITURE_TYPES[Math.floor(Math.random() * FURNITURE_TYPES.length)],
+            x: positions[i].x,
+            y: positions[i].y,
+            searched: false,
+            hasDoc: false,
+            hasTrap: null, // null or 'player' or 'ai'
+            trapOwner: null
+          });
+        }
+      }
+
+      // Place 4 documents randomly in furniture
+      const allFurniture = [];
+      for (const room of rooms) {
+        for (const f of room.furniture) {
+          allFurniture.push(f);
+        }
+      }
+      const shuffled = shuffleArray(allFurniture);
+      for (let i = 0; i < 4; i++) {
+        shuffled[i].hasDoc = true;
+      }
+
+      // Set exit room (top-right or bottom-right)
+      const exitRoom = roomGrid[Math.random() < 0.5 ? 0 : ROWS - 1][COLS - 1];
+      exitRoom.isExit = true;
+    }
+
+    function ensureConnected() {
+      const visited = new Set();
+      const queue = [0];
+      visited.add(0);
+      while (queue.length > 0) {
+        const cur = queue.shift();
+        for (let i = 0; i < rooms.length; i++) {
+          if (!visited.has(i) && doors[cur + ',' + i]) {
+            visited.add(i);
+            queue.push(i);
+          }
+        }
+      }
+      // Connect any unvisited rooms
+      for (let i = 0; i < rooms.length; i++) {
+        if (!visited.has(i)) {
+          // Connect to a visited neighbor
+          const r = Math.floor(i / COLS), c = i % COLS;
+          const neighbors = [];
+          if (r > 0) neighbors.push((r - 1) * COLS + c);
+          if (r < ROWS - 1) neighbors.push((r + 1) * COLS + c);
+          if (c > 0) neighbors.push(r * COLS + c - 1);
+          if (c < COLS - 1) neighbors.push(r * COLS + c + 1);
+          for (const n of neighbors) {
+            if (visited.has(n)) {
+              doors[i + ',' + n] = true;
+              doors[n + ',' + i] = true;
+              visited.add(i);
+              queue.push(i);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    function shuffleArray(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function getAdjacentRooms(roomId) {
+      const adj = [];
+      for (let i = 0; i < rooms.length; i++) {
+        if (doors[roomId + ',' + i]) adj.push(i);
+      }
+      return adj;
+    }
+
+    // --- SPIES ---
+    function createSpy(roomId, isPlayer) {
+      const room = rooms[roomId];
+      return {
+        roomId: roomId,
+        x: room.x + RW / 2,
+        y: room.y + RH / 2,
+        localX: RW / 2,
+        localY: RH / 2,
+        docs: 0,
+        trapsSet: 0,
+        trapsTriggered: 0,
+        stunTimer: 0,
+        disguiseTimer: 0,
+        isPlayer: isPlayer,
+        speed: 2.5,
+        trapsAvailable: 5,
+        searchTimer: 0,
+        searchTarget: null,
+        // AI specific
+        targetRoom: -1,
+        aiState: 'explore',
+        visitedRooms: new Set(),
+        knownDocLocations: [],
+        moveDir: null,
+        aiActionTimer: 0,
+        aiSearching: false,
+        pathQueue: []
+      };
+    }
+
+    // --- INIT ---
+    function init() {
+      Object.keys(doors).forEach(k => delete doors[k]);
+      initRooms();
+      player = createSpy(0, true);
+      ai = createSpy(rooms.length - 1, false);
+      ai.visitedRooms.add(rooms.length - 1);
+      timerMs = 180000;
+      combatState = null;
+      messageText = '';
+      messageTimer = 0;
+      score = 0;
+      scoreEl.textContent = '0';
+      playerDocsEl.textContent = '0';
+      playerTrapsEl.textContent = '0';
+      timerEl.textContent = '3:00';
+    }
+
+    // --- UPDATE ---
+    function update(dt) {
+      if (gameState !== 'playing') return;
+
+      // Timer
+      timerMs -= dt;
+      if (timerMs <= 0) {
+        timerMs = 0;
+        endGame('time');
+        return;
+      }
+      const sec = Math.ceil(timerMs / 1000);
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      timerEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+
+      // Message timer
+      if (messageTimer > 0) {
+        messageTimer -= dt;
+        if (messageTimer <= 0) { messageText = ''; messageTimer = 0; }
+      }
+
+      // Combat
+      if (combatState) {
+        combatState.timer -= dt;
+        if (combatState.timer <= 0) {
+          resolveCombat();
+        }
+        return;
+      }
+
+      // Update player
+      updatePlayer(dt);
+
+      // Update AI
+      updateAI(dt);
+
+      // Check if same room -> combat
+      if (player.roomId === ai.roomId && player.stunTimer <= 0 && ai.stunTimer <= 0
+          && player.disguiseTimer <= 0 && ai.disguiseTimer <= 0 && !combatState) {
+        startCombat();
+      }
+    }
+
+    function updatePlayer(dt) {
+      if (player.stunTimer > 0) {
+        player.stunTimer -= dt;
+        return;
+      }
+      if (player.disguiseTimer > 0) player.disguiseTimer -= dt;
+      if (player.searchTimer > 0) {
+        player.searchTimer -= dt;
+        if (player.searchTimer <= 0 && player.searchTarget) {
+          completeSearch(player, player.searchTarget);
+          player.searchTarget = null;
+        }
+        return;
+      }
+
+      const room = rooms[player.roomId];
+      let dx = 0, dy = 0;
+      if (keys['ArrowLeft'] || keys['a']) dx -= 1;
+      if (keys['ArrowRight'] || keys['d']) dx += 1;
+      if (keys['ArrowUp'] || keys['w']) dy -= 1;
+      if (keys['ArrowDown'] || keys['s']) dy += 1;
+
+      if (dx !== 0 || dy !== 0) {
+        const len = Math.sqrt(dx * dx + dy * dy);
+        dx = dx / len * player.speed;
+        dy = dy / len * player.speed;
+        let newLocalX = player.localX + dx;
+        let newLocalY = player.localY + dy;
+
+        // Check door transitions
+        const margin = 8;
+        if (newLocalX < margin) {
+          // Try go left
+          const leftId = player.roomId - 1;
+          if (player.roomId % COLS > 0 && doors[player.roomId + ',' + leftId]) {
+            player.roomId = leftId;
+            player.localX = RW - margin - 1;
+            updateSpyWorldPos(player);
+            return;
+          }
+          newLocalX = margin;
+        }
+        if (newLocalX > RW - margin) {
+          const rightId = player.roomId + 1;
+          if (player.roomId % COLS < COLS - 1 && doors[player.roomId + ',' + rightId]) {
+            player.roomId = rightId;
+            player.localX = margin + 1;
+            updateSpyWorldPos(player);
+            return;
+          }
+          newLocalX = RW - margin;
+        }
+        if (newLocalY < margin) {
+          const upId = player.roomId - COLS;
+          if (Math.floor(player.roomId / COLS) > 0 && doors[player.roomId + ',' + upId]) {
+            player.roomId = upId;
+            player.localY = RH - margin - 1;
+            updateSpyWorldPos(player);
+            return;
+          }
+          newLocalY = margin;
+        }
+        if (newLocalY > RH - margin) {
+          const downId = player.roomId + COLS;
+          if (Math.floor(player.roomId / COLS) < ROWS - 1 && doors[player.roomId + ',' + downId]) {
+            player.roomId = downId;
+            player.localY = margin + 1;
+            updateSpyWorldPos(player);
+            return;
+          }
+          newLocalY = RH - margin;
+        }
+
+        player.localX = newLocalX;
+        player.localY = newLocalY;
+        updateSpyWorldPos(player);
+      }
+    }
+
+    function updateSpyWorldPos(spy) {
+      const room = rooms[spy.roomId];
+      spy.x = room.x + spy.localX;
+      spy.y = room.y + spy.localY;
+    }
+
+    // --- AI BEHAVIOR TREE ---
+    function updateAI(dt) {
+      if (ai.stunTimer > 0) {
+        ai.stunTimer -= dt;
+        return;
+      }
+      if (ai.disguiseTimer > 0) ai.disguiseTimer -= dt;
+      if (ai.searchTimer > 0) {
+        ai.searchTimer -= dt;
+        if (ai.searchTimer <= 0 && ai.searchTarget) {
+          completeSearch(ai, ai.searchTarget);
+          ai.searchTarget = null;
+          ai.aiSearching = false;
+        }
+        return;
+      }
+
+      ai.aiActionTimer -= dt;
+      ai.visitedRooms.add(ai.roomId);
+
+      const room = rooms[ai.roomId];
+
+      // Behavior tree
+      // 1. If has all 4 docs, go to exit
+      if (ai.docs >= 4) {
+        ai.aiState = 'exit';
+        const exitRoom = rooms.find(r => r.isExit);
+        if (exitRoom && ai.roomId === exitRoom.id) {
+          endGame('ai_exit');
+          return;
+        }
+        navigateToRoom(ai, exitRoom.id, dt);
+        return;
+      }
+
+      // 2. Search unsearched furniture in current room
+      const unsearched = room.furniture.filter(f => !f.searched);
+      if (unsearched.length > 0 && !ai.aiSearching && ai.aiActionTimer <= 0) {
+        const target = unsearched[0];
+        ai.searchTimer = 800;
+        ai.searchTarget = target;
+        ai.aiSearching = true;
+        ai.aiActionTimer = 200;
+        // Move toward furniture
+        const fx = room.x + target.x + 15;
+        const fy = room.y + target.y + 15;
+        ai.localX = target.x + 15;
+        ai.localY = target.y + 15;
+        updateSpyWorldPos(ai);
+        return;
+      }
+
+      // 3. Set trap occasionally (if has traps and room has searched furniture)
+      if (ai.trapsAvailable > 0 && ai.aiActionTimer <= 0 && Math.random() < 0.02) {
+        const searchedFurniture = room.furniture.filter(f => f.searched && !f.hasTrap);
+        if (searchedFurniture.length > 0) {
+          const target = searchedFurniture[Math.floor(Math.random() * searchedFurniture.length)];
+          target.hasTrap = 'ai';
+          target.trapOwner = 'ai';
+          target.searched = false; // Reset so it looks unsearched
+          ai.trapsAvailable--;
+          ai.trapsSet++;
+          ai.aiActionTimer = 500;
+        }
+      }
+
+      // 4. Move to unexplored room
+      if (ai.aiActionTimer <= 0) {
+        const adj = getAdjacentRooms(ai.roomId);
+        // Prefer unvisited rooms
+        const unvisited = adj.filter(id => !ai.visitedRooms.has(id));
+        let target;
+        if (unvisited.length > 0) {
+          target = unvisited[Math.floor(Math.random() * unvisited.length)];
+        } else {
+          // Go to room with most unsearched furniture
+          let bestRoom = -1, bestCount = -1;
+          for (const r of rooms) {
+            const count = r.furniture.filter(f => !f.searched).length;
+            if (count > bestCount) {
+              bestCount = count;
+              bestRoom = r.id;
+            }
+          }
+          if (bestRoom >= 0 && bestCount > 0) {
+            target = findNextStep(ai.roomId, bestRoom);
+          } else {
+            target = adj[Math.floor(Math.random() * adj.length)];
+          }
+        }
+        if (target !== undefined && target !== ai.roomId) {
+          const nextStep = findNextStep(ai.roomId, target);
+          if (nextStep !== undefined) {
+            ai.roomId = nextStep;
+            ai.localX = RW / 2 + (Math.random() - 0.5) * 40;
+            ai.localY = RH / 2 + (Math.random() - 0.5) * 30;
+            updateSpyWorldPos(ai);
+            ai.aiActionTimer = 600 + Math.random() * 400;
+          }
+        }
+      }
+    }
+
+    function findNextStep(fromId, toId) {
+      if (fromId === toId) return fromId;
+      // BFS shortest path
+      const visited = new Set();
+      const parent = {};
+      const queue = [fromId];
+      visited.add(fromId);
+      while (queue.length > 0) {
+        const cur = queue.shift();
+        if (cur === toId) {
+          // Trace back
+          let step = toId;
+          while (parent[step] !== fromId && parent[step] !== undefined) {
+            step = parent[step];
+          }
+          return step;
+        }
+        for (const n of getAdjacentRooms(cur)) {
+          if (!visited.has(n)) {
+            visited.add(n);
+            parent[n] = cur;
+            queue.push(n);
+          }
+        }
+      }
+      // No path found, try adjacent
+      const adj = getAdjacentRooms(fromId);
+      return adj.length > 0 ? adj[0] : fromId;
+    }
+
+    function navigateToRoom(spy, targetId, dt) {
+      if (spy.roomId === targetId) return;
+      const nextStep = findNextStep(spy.roomId, targetId);
+      if (nextStep !== undefined && nextStep !== spy.roomId) {
+        spy.roomId = nextStep;
+        spy.localX = RW / 2;
+        spy.localY = RH / 2;
+        updateSpyWorldPos(spy);
+      }
+    }
+
+    // --- ACTIONS ---
+    function playerSearch() {
+      if (player.stunTimer > 0 || player.searchTimer > 0 || combatState) return;
+      const room = rooms[player.roomId];
+      // Find nearest furniture
+      let nearest = null, nearDist = Infinity;
+      for (const f of room.furniture) {
+        const dx = (room.x + f.x + 15) - player.x;
+        const dy = (room.y + f.y + 15) - player.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < 40 && d < nearDist) {
+          nearDist = d;
+          nearest = f;
+        }
+      }
+      if (nearest) {
+        player.searchTimer = 600;
+        player.searchTarget = nearest;
+        showMessage('Searching ' + nearest.type + '...');
+      } else {
+        showMessage('Nothing to search nearby');
+      }
+    }
+
+    function completeSearch(spy, furniture) {
+      if (furniture.hasTrap && furniture.trapOwner !== (spy.isPlayer ? 'player' : 'ai')) {
+        // Triggered enemy trap!
+        spy.stunTimer = 2000;
+        furniture.hasTrap = null;
+        furniture.trapOwner = null;
+        if (spy.isPlayer) {
+          showMessage('TRAPPED! Stunned for 2 seconds!');
+          // Enemy gets score
+          ai.trapsTriggered++;
+        } else {
+          showMessage('AI hit your trap!');
+          player.trapsTriggered++;
+          score += 50;
+          scoreEl.textContent = score;
+        }
+        return;
+      }
+
+      furniture.searched = true;
+      if (furniture.hasDoc) {
+        spy.docs++;
+        furniture.hasDoc = false;
+        if (spy.isPlayer) {
+          showMessage('Found a SECRET DOCUMENT! (' + spy.docs + '/4)');
+          score += 100;
+          scoreEl.textContent = score;
+          playerDocsEl.textContent = spy.docs;
+        } else {
+          showMessage('AI found a document! (' + ai.docs + '/4)');
+        }
+      } else {
+        if (spy.isPlayer) {
+          showMessage('Nothing here...');
+        }
+      }
+    }
+
+    function playerSetTrap() {
+      if (player.stunTimer > 0 || player.searchTimer > 0 || combatState) return;
+      if (player.trapsAvailable <= 0) {
+        showMessage('No traps left!');
+        return;
+      }
+      const room = rooms[player.roomId];
+      let nearest = null, nearDist = Infinity;
+      for (const f of room.furniture) {
+        const dx = (room.x + f.x + 15) - player.x;
+        const dy = (room.y + f.y + 15) - player.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < 40 && d < nearDist && !f.hasTrap) {
+          nearDist = d;
+          nearest = f;
+        }
+      }
+      if (nearest) {
+        nearest.hasTrap = 'player';
+        nearest.trapOwner = 'player';
+        nearest.searched = false; // Looks unsearched to lure
+        player.trapsAvailable--;
+        player.trapsSet++;
+        playerTrapsEl.textContent = player.trapsSet;
+        showMessage('Trap set in ' + nearest.type + '!');
+      } else {
+        showMessage('No furniture nearby to trap');
+      }
+    }
+
+    function playerDisguise() {
+      if (player.stunTimer > 0 || combatState) return;
+      if (player.disguiseTimer > 0) {
+        showMessage('Already disguised!');
+        return;
+      }
+      player.disguiseTimer = 5000;
+      showMessage('Disguised for 5 seconds!');
+    }
+
+    function playerInteract() {
+      if (player.stunTimer > 0 || combatState) return;
+      const room = rooms[player.roomId];
+
+      // Check if at exit with all docs
+      if (room.isExit && player.docs >= 4) {
+        endGame('player_exit');
+        return;
+      }
+      if (room.isExit && player.docs < 4) {
+        showMessage('Need all 4 documents to exit! (' + player.docs + '/4)');
+        return;
+      }
+
+      // Otherwise try to search
+      playerSearch();
+    }
+
+    // --- COMBAT ---
+    function startCombat() {
+      combatState = {
+        timer: 2000,
+        phase: 'choose',
+        playerChoice: null,
+        aiChoice: null,
+        result: null
+      };
+      showMessage('COMBAT! Press 1=Rock, 2=Paper, 3=Scissors');
+    }
+
+    function playerCombatChoice(choice) {
+      if (!combatState || combatState.phase !== 'choose') return;
+      combatState.playerChoice = choice;
+      combatState.aiChoice = ['rock', 'paper', 'scissors'][Math.floor(Math.random() * 3)];
+      combatState.phase = 'resolve';
+      combatState.timer = 1500;
+
+      // Determine winner
+      const p = combatState.playerChoice;
+      const a = combatState.aiChoice;
+      if (p === a) {
+        combatState.result = 'draw';
+        showMessage('DRAW! Both chose ' + p);
+      } else if ((p === 'rock' && a === 'scissors') || (p === 'paper' && a === 'rock') || (p === 'scissors' && a === 'paper')) {
+        combatState.result = 'player';
+        showMessage('You WIN! ' + p + ' beats ' + a);
+      } else {
+        combatState.result = 'ai';
+        showMessage('You LOSE! ' + a + ' beats ' + p);
+      }
+    }
+
+    function resolveCombat() {
+      if (!combatState) return;
+      if (combatState.phase === 'choose') {
+        // Player didn't choose, auto-lose
+        combatState.result = 'ai';
+      }
+      if (combatState.result === 'player') {
+        ai.stunTimer = 3000;
+        // Steal a doc if AI has any
+        if (ai.docs > 0) {
+          ai.docs--;
+          player.docs++;
+          playerDocsEl.textContent = player.docs;
+          score += 75;
+          scoreEl.textContent = score;
+          showMessage('Stole a document from the enemy!');
+        }
+      } else if (combatState.result === 'ai') {
+        player.stunTimer = 3000;
+        if (player.docs > 0) {
+          player.docs--;
+          ai.docs++;
+          playerDocsEl.textContent = player.docs;
+          showMessage('Enemy stole a document from you!');
+        }
+      } else {
+        // Draw - both pushed back
+        player.stunTimer = 500;
+        ai.stunTimer = 500;
+      }
+      combatState = null;
+    }
+
+    // --- GAME END ---
+    function endGame(reason) {
+      gameState = 'gameover';
+      let title, text;
+
+      if (reason === 'player_exit') {
+        score += 500 + Math.floor(timerMs / 100);
+        title = 'MISSION COMPLETE!';
+        text = 'You escaped with all documents! Score: ' + score;
+      } else if (reason === 'ai_exit') {
+        title = 'MISSION FAILED';
+        text = 'Enemy escaped with the documents!';
+      } else {
+        // Time up
+        if (player.docs > ai.docs) {
+          score += 200;
+          title = 'TIME UP - YOU WIN!';
+          text = 'You: ' + player.docs + ' docs, Enemy: ' + ai.docs + ' docs. Score: ' + score;
+        } else if (ai.docs > player.docs) {
+          title = 'TIME UP - YOU LOSE';
+          text = 'You: ' + player.docs + ' docs, Enemy: ' + ai.docs + ' docs';
+        } else {
+          score += 100;
+          title = 'TIME UP - DRAW';
+          text = 'Both found ' + player.docs + ' documents. Score: ' + score;
+        }
+      }
+
+      scoreEl.textContent = score;
+      overlayTitle.textContent = title;
+      overlayText.textContent = text + ' | Press SPACE to play again';
+      overlay.style.display = 'flex';
+    }
+
+    function showMessage(msg) {
+      messageText = msg;
+      messageTimer = 2000;
+    }
+
+    // --- VISIBILITY ---
+    function isRoomVisible(roomId) {
+      if (roomId === player.roomId) return true;
+      return getAdjacentRooms(player.roomId).includes(roomId);
+    }
+
+    // --- DRAW ---
+    function draw() {
+      ctx.fillStyle = '#0a0a1e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Draw rooms
+      for (const room of rooms) {
+        const visible = isRoomVisible(room.id);
+        const isCurrentRoom = room.id === player.roomId;
+
+        // Room background
+        if (visible) {
+          ctx.fillStyle = isCurrentRoom ? '#1e1e3a' : '#151530';
+        } else {
+          ctx.fillStyle = '#0c0c1c';
+        }
+        ctx.fillRect(room.x + 1, room.y + 1, RW - 2, RH - 2);
+
+        // Room border
+        ctx.strokeStyle = visible ? '#444' : '#222';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(room.x, room.y, RW, RH);
+
+        // Draw doors
+        ctx.fillStyle = '#3a3a4a';
+        // Right door
+        if (room.col < COLS - 1 && doors[room.id + ',' + (room.id + 1)]) {
+          ctx.fillRect(room.x + RW - 2, room.y + RH / 2 - 12, 4, 24);
+        }
+        // Down door
+        if (room.row < ROWS - 1 && doors[room.id + ',' + (room.id + COLS)]) {
+          ctx.fillRect(room.x + RW / 2 - 12, room.y + RH - 2, 24, 4);
+        }
+
+        // Exit marker
+        if (room.isExit && visible) {
+          ctx.fillStyle = '#4f4';
+          ctx.font = '10px Courier New';
+          ctx.textAlign = 'center';
+          ctx.fillText('EXIT', room.x + RW / 2, room.y + RH - 5);
+          ctx.strokeStyle = '#4f4';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(room.x + 2, room.y + 2, RW - 4, RH - 4);
+        }
+
+        if (!visible) continue;
+
+        // Draw furniture
+        for (const f of room.furniture) {
+          const fx = room.x + f.x;
+          const fy = room.y + f.y;
+
+          ctx.fillStyle = FURNITURE_COLORS[f.type] || '#555';
+          if (f.searched) {
+            ctx.globalAlpha = 0.5;
+          }
+          // Draw furniture shape
+          if (f.type === 'desk') {
+            ctx.fillRect(fx, fy, 30, 20);
+            ctx.fillStyle = '#6a5010';
+            ctx.fillRect(fx + 2, fy + 2, 26, 4);
+          } else if (f.type === 'cabinet') {
+            ctx.fillRect(fx, fy, 24, 28);
+            ctx.fillStyle = '#7a7a9a';
+            ctx.fillRect(fx + 10, fy + 8, 4, 4);
+            ctx.fillRect(fx + 10, fy + 18, 4, 4);
+          } else if (f.type === 'safe') {
+            ctx.fillRect(fx, fy, 22, 22);
+            ctx.strokeStyle = '#6a6a8a';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(fx + 11, fy + 11, 6, 0, Math.PI * 2);
+            ctx.stroke();
+          } else if (f.type === 'bookshelf') {
+            ctx.fillRect(fx, fy, 28, 26);
+            ctx.fillStyle = '#845030';
+            for (let i = 0; i < 3; i++) {
+              ctx.fillRect(fx + 2, fy + 3 + i * 8, 24, 5);
+            }
+          } else if (f.type === 'plant') {
+            ctx.fillStyle = '#5a3a1a';
+            ctx.fillRect(fx + 6, fy + 15, 12, 10);
+            ctx.fillStyle = '#2a6a2a';
+            ctx.beginPath();
+            ctx.arc(fx + 12, fy + 12, 10, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (f.type === 'locker') {
+            ctx.fillRect(fx, fy, 20, 30);
+            ctx.fillStyle = '#6a6a8a';
+            ctx.fillRect(fx + 14, fy + 12, 3, 6);
+          }
+          ctx.globalAlpha = 1.0;
+
+          // Trap indicator (only your own traps)
+          if (f.hasTrap === 'player' && isCurrentRoom) {
+            ctx.fillStyle = '#f44';
+            ctx.font = '8px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('!', fx + 12, fy - 2);
+          }
+
+          // Document glow hint (subtle shimmer on unsearched furniture with docs, only in current room)
+          if (f.hasDoc && !f.searched && isCurrentRoom) {
+            ctx.strokeStyle = 'rgba(255, 255, 100, 0.15)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(fx - 2, fy - 2, 34, 34);
+          }
+        }
+
+        // Room label
+        ctx.fillStyle = '#333';
+        ctx.font = '8px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText('R' + room.id, room.x + 4, room.y + 12);
+      }
+
+      // Draw AI spy (only if in visible room and not disguised)
+      if (isRoomVisible(ai.roomId) && ai.disguiseTimer <= 0) {
+        drawSpy(ai, '#c44', 'AI');
+      }
+
+      // Draw player spy
+      drawSpy(player, '#4c4', 'YOU');
+
+      // Combat overlay
+      if (combatState) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(W / 2 - 120, H / 2 - 50, 240, 100);
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(W / 2 - 120, H / 2 - 50, 240, 100);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('COMBAT!', W / 2, H / 2 - 28);
+
+        if (combatState.phase === 'choose') {
+          ctx.font = '11px Courier New';
+          ctx.fillStyle = '#aaa';
+          ctx.fillText('1=Rock  2=Paper  3=Scissors', W / 2, H / 2 - 5);
+          const timeLeft = Math.ceil(combatState.timer / 1000);
+          ctx.fillText('Choose in ' + timeLeft + 's...', W / 2, H / 2 + 15);
+        } else {
+          ctx.font = '12px Courier New';
+          ctx.fillStyle = '#4c4';
+          ctx.fillText('You: ' + (combatState.playerChoice || '???'), W / 2 - 50, H / 2 - 5);
+          ctx.fillStyle = '#c44';
+          ctx.fillText('AI: ' + combatState.aiChoice, W / 2 + 50, H / 2 - 5);
+          ctx.fillStyle = combatState.result === 'player' ? '#4f4' : combatState.result === 'ai' ? '#f44' : '#ff0';
+          ctx.font = '14px Courier New';
+          const resultText = combatState.result === 'player' ? 'YOU WIN!' : combatState.result === 'ai' ? 'YOU LOSE!' : 'DRAW!';
+          ctx.fillText(resultText, W / 2, H / 2 + 20);
+        }
+      }
+
+      // Message bar
+      if (messageText) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, H - 28, W, 28);
+        ctx.fillStyle = '#888';
+        ctx.font = '12px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(messageText, W / 2, H - 10);
+      }
+
+      // HUD - doc icons top left
+      ctx.textAlign = 'left';
+      ctx.font = '10px Courier New';
+      ctx.fillStyle = '#888';
+      ctx.fillText('DOCS:', 5, 12);
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = i < player.docs ? '#ff0' : '#333';
+        ctx.fillRect(50 + i * 16, 3, 12, 12);
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(50 + i * 16, 3, 12, 12);
+        if (i < player.docs) {
+          ctx.fillStyle = '#000';
+          ctx.font = '8px Courier New';
+          ctx.fillText('D', 53 + i * 16, 12);
+        }
+      }
+      // Traps remaining
+      ctx.font = '10px Courier New';
+      ctx.fillStyle = '#888';
+      ctx.fillText('TRAPS:' + player.trapsAvailable, 125, 12);
+
+      // Stun indicator
+      if (player.stunTimer > 0) {
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#f44';
+        ctx.font = '24px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('STUNNED!', W / 2, H / 2);
+        ctx.font = '14px Courier New';
+        ctx.fillText(Math.ceil(player.stunTimer / 1000) + 's', W / 2, H / 2 + 24);
+      }
+
+      // Disguise indicator
+      if (player.disguiseTimer > 0) {
+        ctx.fillStyle = '#888';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'right';
+        ctx.fillText('DISGUISED ' + Math.ceil(player.disguiseTimer / 1000) + 's', W - 5, 12);
+      }
+    }
+
+    function drawSpy(spy, color, label) {
+      const x = spy.x;
+      const y = spy.y;
+
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(x, y + 10, 8, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body
+      ctx.fillStyle = spy.disguiseTimer > 0 ? '#555' : color;
+
+      // Hat (triangle/fedora)
+      ctx.beginPath();
+      ctx.moveTo(x - 10, y - 4);
+      ctx.lineTo(x, y - 16);
+      ctx.lineTo(x + 10, y - 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // Hat brim
+      ctx.fillRect(x - 12, y - 5, 24, 3);
+
+      // Face
+      ctx.fillStyle = spy.stunTimer > 0 ? '#666' : '#ddd';
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes (sneaky)
+      ctx.fillStyle = '#000';
+      ctx.fillRect(x - 4, y - 2, 3, 2);
+      ctx.fillRect(x + 1, y - 2, 3, 2);
+
+      // Body coat
+      ctx.fillStyle = spy.disguiseTimer > 0 ? '#444' : (spy.isPlayer ? '#2a5a2a' : '#5a2a2a');
+      ctx.fillRect(x - 6, y + 3, 12, 10);
+
+      // Coat collar
+      ctx.fillStyle = spy.disguiseTimer > 0 ? '#555' : color;
+      ctx.beginPath();
+      ctx.moveTo(x - 6, y + 3);
+      ctx.lineTo(x, y + 8);
+      ctx.lineTo(x + 6, y + 3);
+      ctx.stroke();
+
+      // Label
+      ctx.fillStyle = color;
+      ctx.font = 'bold 8px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, x, y - 19);
+
+      // Stun stars
+      if (spy.stunTimer > 0) {
+        const t = Date.now() / 200;
+        ctx.fillStyle = '#ff0';
+        ctx.font = '10px Courier New';
+        for (let i = 0; i < 3; i++) {
+          const angle = t + i * 2.1;
+          const sx = x + Math.cos(angle) * 14;
+          const sy = y - 8 + Math.sin(angle) * 8;
+          ctx.fillText('*', sx, sy);
+        }
+      }
+
+      // Search indicator
+      if (spy.searchTimer > 0) {
+        ctx.fillStyle = '#ff0';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        const dots = '.'.repeat(Math.floor(Date.now() / 300) % 4);
+        ctx.fillText('Searching' + dots, x, y - 24);
+      }
+    }
+
+    // --- INPUT ---
+    document.addEventListener('keydown', (e) => {
+      keys[e.key] = true;
+
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        if (gameState === 'menu') {
+          gameState = 'playing';
+          overlay.style.display = 'none';
+          init();
+        } else if (gameState === 'gameover') {
+          gameState = 'playing';
+          overlay.style.display = 'none';
+          init();
+        } else if (gameState === 'playing') {
+          playerInteract();
+        }
+      }
+
+      if (gameState === 'playing') {
+        if (e.key === 'z' || e.key === 'Z') playerSetTrap();
+        if (e.key === 'x' || e.key === 'X') playerSearch();
+        if (e.key === 'c' || e.key === 'C') playerDisguise();
+
+        // Combat choices
+        if (combatState && combatState.phase === 'choose') {
+          if (e.key === '1') playerCombatChoice('rock');
+          if (e.key === '2') playerCombatChoice('paper');
+          if (e.key === '3') playerCombatChoice('scissors');
+        }
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+
+    // --- GAME LOOP ---
+    function gameLoop(timestamp) {
+      const dt = lastTime ? Math.min(timestamp - lastTime, 50) : 16;
+      lastTime = timestamp;
+
+      update(dt);
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Start
+    init();
+    overlay.style.display = 'flex';
+    requestAnimationFrame(gameLoop);
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

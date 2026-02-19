@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Merchant Routes</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #da6; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(221, 170, 102, 0.5); }
+    h1 { color: #da6; font-size: 1.6rem; text-shadow: 0 0 15px rgba(221, 170, 102, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1rem;
+    }
+    .score-bar span { color: #da6; }
+    canvas {
+      border: 2px solid #da6;
+      box-shadow: 0 0 20px rgba(221, 170, 102, 0.2);
+      display: block;
+      cursor: pointer;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #da6;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.88);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 15px rgba(221, 170, 102, 0.5); }
+    .overlay p { font-size: 1rem; color: #aaa; margin-top: 4px; }
+    .info-panel {
+      width: 600px;
+      margin-top: 10px;
+      font-size: 0.85rem;
+      color: #aaa;
+      display: flex;
+      gap: 20px;
+      justify-content: space-between;
+    }
+    .info-panel div { flex: 1; }
+    .info-panel .label { color: #da6; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>MERCHANT ROUTES</h1>
+  </div>
+  <div class="score-bar">
+    <div>Gold: <span id="score">100</span></div>
+    <div id="turnInfo" style="color:#aaa; font-size:0.9rem;">Turn 1 / 25</div>
+    <div>AI Best: <span id="aiScore">100</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;">
+    <canvas id="game" width="600" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:500px;">
+      <h2 id="overlayTitle">MERCHANT ROUTES</h2>
+      <p id="overlayText">Click to Start</p>
+    </div>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <div id="inventoryInfo"></div>
+    <div id="cityInfo"></div>
+    <div id="eventInfo"></div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 500;
+    const scoreEl = document.getElementById('score');
+    const aiScoreEl = document.getElementById('aiScore');
+    const turnInfoEl = document.getElementById('turnInfo');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const inventoryInfoEl = document.getElementById('inventoryInfo');
+    const cityInfoEl = document.getElementById('cityInfo');
+    const eventInfoEl = document.getElementById('eventInfo');
+
+    document.addEventListener('keydown', e => {
+      if([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
+    });
+
+    let gameState = 'title'; // title, playing, shopping, gameover
+    let score = 100;
+
+    // ========== GOODS ==========
+    const GOODS = ['Grain','Ore','Silk','Spices','Wine','Lumber','Gems','Fish'];
+    const GOOD_COLORS = {
+      Grain:'#eda',Ore:'#aab',Silk:'#daf',Spices:'#fa8',
+      Wine:'#d6a',Lumber:'#a86',Gems:'#aef',Fish:'#8ce'
+    };
+    const BASE_PRICES = {
+      Grain:8,Ore:12,Silk:20,Spices:18,Wine:15,Lumber:10,Gems:30,Fish:7
+    };
+
+    // ========== CITIES ==========
+    const CITIES = [
+      { name:'Portshire',   x:80,  y:80,  produces:['Fish','Lumber'],   demands:['Silk','Spices'] },
+      { name:'Goldvale',    x:300, y:50,  produces:['Ore','Gems'],      demands:['Grain','Fish'] },
+      { name:'Silkwind',    x:520, y:80,  produces:['Silk','Spices'],   demands:['Ore','Lumber'] },
+      { name:'Millhaven',   x:140, y:200, produces:['Grain','Lumber'],  demands:['Wine','Gems'] },
+      { name:'Irondeep',    x:340, y:180, produces:['Ore','Lumber'],    demands:['Silk','Spices'] },
+      { name:'Winecrest',   x:500, y:220, produces:['Wine','Grain'],    demands:['Gems','Ore'] },
+      { name:'Gemharbor',   x:80,  y:340, produces:['Gems','Fish'],     demands:['Grain','Wine'] },
+      { name:'Spicemere',   x:280, y:320, produces:['Spices','Wine'],   demands:['Lumber','Fish'] },
+      { name:'Farmarket',   x:480, y:360, produces:['Grain','Fish'],    demands:['Silk','Gems'] },
+      { name:'Tradegate',   x:280, y:450, produces:['Silk','Ore'],      demands:['Wine','Grain'] }
+    ];
+
+    // Roads connect city indices
+    const ROADS = [
+      [0,1],[1,2],[0,3],[1,4],[2,5],[3,4],[4,5],
+      [3,6],[4,7],[5,8],[6,7],[7,8],[6,9],[7,9],[8,9]
+    ];
+
+    // ========== EVENTS ==========
+    const EVENTS = [
+      { name:'Drought!', desc:'Grain prices spike', effect:g=>g==='Grain'?2.2:1 },
+      { name:'Gold Rush!', desc:'Ore demand surges', effect:g=>g==='Ore'?2.0:1 },
+      { name:'Silk Road Opens', desc:'Silk prices drop', effect:g=>g==='Silk'?0.6:1 },
+      { name:'Festival Season', desc:'Wine demand high', effect:g=>g==='Wine'?2.0:1 },
+      { name:'Storm at Sea', desc:'Fish supply low', effect:g=>g==='Fish'?1.8:1 },
+      { name:'Mine Collapse', desc:'Gems become rare', effect:g=>g==='Gems'?2.5:1 },
+      { name:'Good Harvest', desc:'Grain price drops', effect:g=>g==='Grain'?0.5:1 },
+      { name:'Trade Embargo', desc:'Spices prices spike', effect:g=>g==='Spices'?2.3:1 },
+      { name:'Construction Boom', desc:'Lumber demand up', effect:g=>g==='Lumber'?1.9:1 },
+      { name:'Calm Seas', desc:'All prices stable', effect:g=>1 },
+      { name:'Bandit Activity', desc:'Travel costs +5 gold', effect:g=>1, special:'bandit' },
+      { name:'Merchant Fair', desc:'All sell prices +20%', effect:g=>1, special:'fair' },
+    ];
+
+    // ========== GAME STATE ==========
+    const MAX_TURNS = 25;
+    let turn = 1;
+    let currentEvent = null;
+    let players = [];
+    let currentPlayer = 0;
+    let phase = 'move'; // move, trade, done
+    let cityPrices = []; // per city price modifiers
+    let supplyDemand = []; // per city supply levels
+    let hoveredCity = -1;
+    let hoveredButton = -1;
+    let selectedGood = -1;
+    let message = '';
+    let messageTimer = 0;
+    let animating = false;
+    let animProgress = 0;
+    let animFrom = -1;
+    let animTo = -1;
+
+    // UI buttons for trade phase
+    let tradeButtons = [];
+
+    function initGame() {
+      turn = 1;
+      currentPlayer = 0;
+      phase = 'move';
+      message = '';
+      messageTimer = 0;
+      selectedGood = -1;
+      animating = false;
+
+      // Initialize players
+      players = [
+        { name:'You', gold:100, city:0, inventory:{}, maxCapacity:6, carts:1, isAI:false, color:'#4af' },
+        { name:'AI Merchant', gold:100, city:5, inventory:{}, maxCapacity:6, carts:1, isAI:true, color:'#f64' },
+        { name:'AI Trader', gold:100, city:9, inventory:{}, maxCapacity:6, carts:1, isAI:true, color:'#6d4' },
+      ];
+
+      // Initialize supply/demand for each city
+      supplyDemand = CITIES.map((city, ci) => {
+        let sd = {};
+        GOODS.forEach(g => {
+          if (city.produces.includes(g)) sd[g] = 3 + Math.floor(Math.random() * 3); // high supply
+          else if (city.demands.includes(g)) sd[g] = 0;
+          else sd[g] = 1 + Math.floor(Math.random() * 2);
+        });
+        return sd;
+      });
+
+      // Initialize prices
+      updatePrices();
+      rollEvent();
+      score = 100;
+      updateUI();
+    }
+
+    function getNeighbors(cityIdx) {
+      let neighbors = [];
+      ROADS.forEach(([a, b]) => {
+        if (a === cityIdx) neighbors.push(b);
+        if (b === cityIdx) neighbors.push(a);
+      });
+      return neighbors;
+    }
+
+    function getCityPrice(cityIdx, good) {
+      let city = CITIES[cityIdx];
+      let base = BASE_PRICES[good];
+      let supplyMod = 1;
+      let sd = supplyDemand[cityIdx][good] || 1;
+
+      if (city.produces.includes(good)) {
+        supplyMod = 0.5 + (sd > 3 ? -0.1 * (sd - 3) : 0.1 * (3 - sd));
+      } else if (city.demands.includes(good)) {
+        supplyMod = 1.8 + (sd < 2 ? 0.15 * (2 - sd) : -0.1 * (sd - 2));
+      } else {
+        supplyMod = 1.0 + (sd < 2 ? 0.2 : -0.1);
+      }
+
+      // Apply event modifier
+      let eventMod = currentEvent ? currentEvent.effect(good) : 1;
+
+      // Fair special
+      let fairMod = 1;
+
+      let price = Math.max(1, Math.round(base * supplyMod * eventMod));
+      return price;
+    }
+
+    function getBuyPrice(cityIdx, good) {
+      return getCityPrice(cityIdx, good);
+    }
+
+    function getSellPrice(cityIdx, good) {
+      let base = getCityPrice(cityIdx, good);
+      let fairBonus = (currentEvent && currentEvent.special === 'fair') ? 1.2 : 1.0;
+      return Math.max(1, Math.round(base * fairBonus));
+    }
+
+    function updatePrices() {
+      cityPrices = CITIES.map((city, ci) => {
+        let prices = {};
+        GOODS.forEach(g => {
+          prices[g] = { buy: getBuyPrice(ci, g), sell: getSellPrice(ci, g) };
+        });
+        return prices;
+      });
+    }
+
+    function rollEvent() {
+      if (turn % 3 === 1 || turn === 1) {
+        currentEvent = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+      }
+      updatePrices();
+    }
+
+    function getInventoryCount(player) {
+      let count = 0;
+      for (let g in player.inventory) count += player.inventory[g];
+      return count;
+    }
+
+    function getInventoryValue(player) {
+      let val = 0;
+      for (let g in player.inventory) {
+        val += player.inventory[g] * BASE_PRICES[g];
+      }
+      return val;
+    }
+
+    // ========== AI LOGIC ==========
+    function aiTurn(player) {
+      let neighbors = getNeighbors(player.city);
+
+      // First: sell everything profitable at current city
+      for (let g in player.inventory) {
+        if (player.inventory[g] > 0) {
+          let sellP = getSellPrice(player.city, g);
+          // Sell if profitable (price > base * 0.8) or if demand city
+          let city = CITIES[player.city];
+          if (city.demands.includes(g) || sellP >= BASE_PRICES[g] * 1.1) {
+            let qty = player.inventory[g];
+            player.gold += sellP * qty;
+            supplyDemand[player.city][g] = (supplyDemand[player.city][g] || 0) + qty;
+            delete player.inventory[g];
+          }
+        }
+      }
+
+      // Buy goods that are cheap here and expensive at a neighbor
+      let capacity = player.maxCapacity * player.carts - getInventoryCount(player);
+      if (capacity > 0) {
+        let city = CITIES[player.city];
+        // Find best profit opportunities
+        let opportunities = [];
+        GOODS.forEach(g => {
+          let buyP = getBuyPrice(player.city, g);
+          if (buyP > player.gold) return;
+          // Check all reachable cities for sell price
+          neighbors.forEach(ni => {
+            let sellP = getSellPrice(ni, g);
+            let profit = sellP - buyP;
+            if (profit > 2) {
+              opportunities.push({ good: g, buyP, sellP, profit, target: ni });
+            }
+          });
+          // Also check 2-hop cities
+          neighbors.forEach(ni => {
+            getNeighbors(ni).forEach(ni2 => {
+              if (ni2 === player.city) return;
+              let sellP = getSellPrice(ni2, g);
+              let profit = sellP - buyP;
+              if (profit > 5) {
+                opportunities.push({ good: g, buyP, sellP, profit, target: ni, hops: 2 });
+              }
+            });
+          });
+        });
+
+        opportunities.sort((a, b) => b.profit - a.profit);
+
+        for (let opp of opportunities) {
+          if (capacity <= 0) break;
+          if (opp.buyP > player.gold) continue;
+          let canBuy = Math.min(capacity, Math.floor(player.gold / opp.buyP), 3);
+          if (canBuy > 0 && supplyDemand[player.city][opp.good] > 0) {
+            player.inventory[opp.good] = (player.inventory[opp.good] || 0) + canBuy;
+            player.gold -= opp.buyP * canBuy;
+            supplyDemand[player.city][opp.good] = Math.max(0, supplyDemand[player.city][opp.good] - canBuy);
+            capacity -= canBuy;
+          }
+        }
+
+        // Buy a cart if wealthy enough and only 1 cart
+        if (player.gold > 80 && player.carts < 3) {
+          player.gold -= 50;
+          player.carts++;
+          player.maxCapacity = 6 * player.carts;
+        }
+      }
+
+      // Move to best neighbor (highest potential profit)
+      let bestNeighbor = neighbors[0];
+      let bestScore = -999;
+      neighbors.forEach(ni => {
+        let sc = 0;
+        // Score based on selling inventory here
+        for (let g in player.inventory) {
+          sc += (getSellPrice(ni, g) - BASE_PRICES[g]) * (player.inventory[g] || 0);
+        }
+        // Score based on cheap goods to buy
+        CITIES[ni].produces.forEach(g => {
+          sc += (BASE_PRICES[g] * 1.5 - getBuyPrice(ni, g)) * 2;
+        });
+        // Slight randomness for variety
+        sc += Math.random() * 5;
+        if (sc > bestScore) { bestScore = sc; bestNeighbor = ni; }
+      });
+
+      // Bandit tax
+      if (currentEvent && currentEvent.special === 'bandit') {
+        player.gold = Math.max(0, player.gold - 5);
+      }
+
+      player.city = bestNeighbor;
+    }
+
+    // ========== DRAWING ==========
+    function drawMap() {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+
+      // Draw roads
+      ROADS.forEach(([a, b]) => {
+        let ca = CITIES[a], cb = CITIES[b];
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(ca.x, ca.y);
+        ctx.lineTo(cb.x, cb.y);
+        ctx.stroke();
+
+        // Highlight if player can travel here
+        if (gameState === 'playing' && phase === 'move' && !animating && currentPlayer === 0) {
+          let player = players[0];
+          if (a === player.city || b === player.city) {
+            ctx.strokeStyle = 'rgba(221,170,102,0.3)';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(ca.x, ca.y);
+            ctx.lineTo(cb.x, cb.y);
+            ctx.stroke();
+          }
+        }
+      });
+
+      // Draw cities
+      CITIES.forEach((city, ci) => {
+        let isHovered = ci === hoveredCity;
+        let isPlayerHere = players.some(p => p.city === ci);
+        let r = isHovered ? 22 : 18;
+
+        // City glow
+        if (isPlayerHere || isHovered) {
+          ctx.beginPath();
+          ctx.arc(city.x, city.y, r + 8, 0, Math.PI * 2);
+          ctx.fillStyle = isHovered ? 'rgba(221,170,102,0.15)' : 'rgba(100,100,255,0.1)';
+          ctx.fill();
+        }
+
+        // City circle
+        ctx.beginPath();
+        ctx.arc(city.x, city.y, r, 0, Math.PI * 2);
+        let grad = ctx.createRadialGradient(city.x - 3, city.y - 3, 2, city.x, city.y, r);
+        grad.addColorStop(0, '#3a3a5e');
+        grad.addColorStop(1, '#252545');
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.strokeStyle = isHovered ? '#da6' : '#555';
+        ctx.lineWidth = isHovered ? 2.5 : 1.5;
+        ctx.stroke();
+
+        // City name
+        ctx.fillStyle = isHovered ? '#fff' : '#bbb';
+        ctx.font = (isHovered ? 'bold ' : '') + '10px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(city.name, city.x, city.y - r - 6);
+
+        // Produces/demands icons (small colored dots)
+        city.produces.forEach((g, i) => {
+          ctx.beginPath();
+          ctx.arc(city.x - 8 + i * 10, city.y + r + 10, 3, 0, Math.PI * 2);
+          ctx.fillStyle = GOOD_COLORS[g];
+          ctx.fill();
+          ctx.strokeStyle = '#555';
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        });
+
+        // Player markers at city
+        let playersHere = players.filter(p => p.city === ci);
+        playersHere.forEach((p, pi) => {
+          let px = city.x - 12 + pi * 12;
+          let py = city.y + 4;
+          // Cart icon
+          ctx.fillStyle = p.color;
+          ctx.fillRect(px - 4, py - 3, 8, 6);
+          ctx.fillRect(px - 5, py + 3, 10, 2);
+          // Wheels
+          ctx.beginPath();
+          ctx.arc(px - 3, py + 6, 2, 0, Math.PI * 2);
+          ctx.arc(px + 3, py + 6, 2, 0, Math.PI * 2);
+          ctx.fillStyle = '#888';
+          ctx.fill();
+        });
+      });
+
+      // Animation: player moving
+      if (animating && animFrom >= 0 && animTo >= 0) {
+        let from = CITIES[animFrom];
+        let to = CITIES[animTo];
+        let px = from.x + (to.x - from.x) * animProgress;
+        let py = from.y + (to.y - from.y) * animProgress;
+        let p = players[currentPlayer];
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    function drawTradePanel() {
+      if (phase !== 'trade' || currentPlayer !== 0) return;
+
+      let player = players[0];
+      let city = CITIES[player.city];
+      let panelX = 20, panelY = 10;
+      let panelW = W - 40, panelH = 490;
+
+      // Semi-transparent panel
+      ctx.fillStyle = 'rgba(20,20,40,0.95)';
+      ctx.fillRect(panelX, panelY, panelW, panelH);
+      ctx.strokeStyle = '#da6';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+      // Title
+      ctx.fillStyle = '#da6';
+      ctx.font = 'bold 16px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('TRADING AT ' + city.name.toUpperCase(), W / 2, panelY + 28);
+
+      // Gold and capacity
+      ctx.font = '12px Courier New';
+      ctx.fillStyle = '#da6';
+      ctx.textAlign = 'left';
+      ctx.fillText('Gold: ' + player.gold, panelX + 20, panelY + 50);
+      ctx.textAlign = 'right';
+      let invCount = getInventoryCount(player);
+      ctx.fillText('Cargo: ' + invCount + '/' + (player.maxCapacity), panelX + panelW - 20, panelY + 50);
+
+      // Cart count
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('Carts: ' + player.carts, W / 2, panelY + 50);
+
+      tradeButtons = [];
+
+      // Goods table
+      let startY = panelY + 70;
+      let rowH = 40;
+
+      // Header
+      ctx.fillStyle = '#888';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText('GOOD', panelX + 20, startY);
+      ctx.textAlign = 'center';
+      ctx.fillText('BUY PRICE', panelX + 180, startY);
+      ctx.fillText('SELL PRICE', panelX + 280, startY);
+      ctx.fillText('OWNED', panelX + 370, startY);
+      ctx.fillText('ACTIONS', panelX + 475, startY);
+
+      startY += 8;
+
+      GOODS.forEach((g, gi) => {
+        let y = startY + gi * rowH;
+        let buyP = getBuyPrice(player.city, g);
+        let sellP = getSellPrice(player.city, g);
+        let owned = player.inventory[g] || 0;
+        let isProduce = city.produces.includes(g);
+        let isDemand = city.demands.includes(g);
+
+        // Row background
+        if (gi % 2 === 0) {
+          ctx.fillStyle = 'rgba(221,170,102,0.05)';
+          ctx.fillRect(panelX + 10, y + 2, panelW - 20, rowH - 2);
+        }
+
+        // Good name with color indicator
+        ctx.beginPath();
+        ctx.arc(panelX + 25, y + 20, 5, 0, Math.PI * 2);
+        ctx.fillStyle = GOOD_COLORS[g];
+        ctx.fill();
+
+        ctx.fillStyle = '#e0e0e0';
+        ctx.font = '12px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText(g, panelX + 36, y + 24);
+
+        // Tag: produce or demand
+        if (isProduce) {
+          ctx.fillStyle = '#6a6';
+          ctx.font = '9px Courier New';
+          ctx.fillText('CHEAP', panelX + 100, y + 24);
+        } else if (isDemand) {
+          ctx.fillStyle = '#d66';
+          ctx.font = '9px Courier New';
+          ctx.fillText('WANTED', panelX + 100, y + 24);
+        }
+
+        // Buy price
+        ctx.fillStyle = isProduce ? '#6d6' : '#ccc';
+        ctx.font = '13px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(buyP + 'g', panelX + 180, y + 24);
+
+        // Sell price
+        ctx.fillStyle = isDemand ? '#ff8' : '#ccc';
+        ctx.fillText(sellP + 'g', panelX + 280, y + 24);
+
+        // Owned
+        ctx.fillStyle = owned > 0 ? '#fff' : '#555';
+        ctx.fillText(owned, panelX + 370, y + 24);
+
+        // Buy button
+        let buyBtnX = panelX + 430;
+        let buyBtnY = y + 8;
+        let btnW = 40, btnH = 22;
+        let canBuy = buyP <= player.gold && invCount < player.maxCapacity && supplyDemand[player.city][g] > 0;
+        ctx.fillStyle = canBuy ? '#2a4a2a' : '#2a2a2a';
+        ctx.fillRect(buyBtnX, buyBtnY, btnW, btnH);
+        ctx.strokeStyle = canBuy ? '#6a6' : '#444';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(buyBtnX, buyBtnY, btnW, btnH);
+        ctx.fillStyle = canBuy ? '#6d6' : '#555';
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('BUY', buyBtnX + btnW / 2, buyBtnY + 15);
+        tradeButtons.push({ x: buyBtnX, y: buyBtnY, w: btnW, h: btnH, action: 'buy', good: g, enabled: canBuy });
+
+        // Sell button
+        let sellBtnX = panelX + 480;
+        let canSell = owned > 0;
+        ctx.fillStyle = canSell ? '#4a2a2a' : '#2a2a2a';
+        ctx.fillRect(sellBtnX, buyBtnY, btnW, btnH);
+        ctx.strokeStyle = canSell ? '#d66' : '#444';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sellBtnX, buyBtnY, btnW, btnH);
+        ctx.fillStyle = canSell ? '#f88' : '#555';
+        ctx.fillText('SELL', sellBtnX + btnW / 2, buyBtnY + 15);
+        tradeButtons.push({ x: sellBtnX, y: buyBtnY, w: btnW, h: btnH, action: 'sell', good: g, enabled: canSell });
+      });
+
+      // Buy cart button
+      let cartY = startY + 8 * rowH + 10;
+      let cartBtnW = 160, cartBtnH = 28;
+      let cartBtnX = W / 2 - cartBtnW - 10;
+      let cartCost = 50 * player.carts;
+      let canBuyCart = player.gold >= cartCost && player.carts < 4;
+
+      ctx.fillStyle = canBuyCart ? '#2a3a4a' : '#2a2a2a';
+      ctx.fillRect(cartBtnX, cartY, cartBtnW, cartBtnH);
+      ctx.strokeStyle = canBuyCart ? '#68c' : '#444';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cartBtnX, cartY, cartBtnW, cartBtnH);
+      ctx.fillStyle = canBuyCart ? '#8af' : '#555';
+      ctx.font = '11px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('BUY CART (' + cartCost + 'g)', cartBtnX + cartBtnW / 2, cartY + 19);
+      tradeButtons.push({ x: cartBtnX, y: cartY, w: cartBtnW, h: cartBtnH, action: 'cart', enabled: canBuyCart });
+
+      // Done button
+      let doneBtnX = W / 2 + 10;
+      ctx.fillStyle = '#3a3a1a';
+      ctx.fillRect(doneBtnX, cartY, cartBtnW, cartBtnH);
+      ctx.strokeStyle = '#da6';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(doneBtnX, cartY, cartBtnW, cartBtnH);
+      ctx.fillStyle = '#da6';
+      ctx.fillText('END TURN >>>', doneBtnX + cartBtnW / 2, cartY + 19);
+      tradeButtons.push({ x: doneBtnX, y: cartY, w: cartBtnW, h: cartBtnH, action: 'done', enabled: true });
+
+      // Event banner
+      if (currentEvent) {
+        ctx.fillStyle = 'rgba(60,40,10,0.9)';
+        ctx.fillRect(panelX + 10, panelY + panelH - 32, panelW - 20, 24);
+        ctx.fillStyle = '#fa8';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('EVENT: ' + currentEvent.name + ' - ' + currentEvent.desc, W / 2, panelY + panelH - 16);
+      }
+    }
+
+    function drawHUD() {
+      // Message bar at bottom of canvas (when in map mode)
+      if (phase === 'trade' && currentPlayer === 0) return;
+
+      // Event banner
+      if (currentEvent && phase === 'move') {
+        ctx.fillStyle = 'rgba(60,40,10,0.85)';
+        ctx.fillRect(10, H - 35, W - 20, 28);
+        ctx.fillStyle = '#fa8';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('EVENT: ' + currentEvent.name + ' - ' + currentEvent.desc, W / 2, H - 17);
+      }
+
+      // Instructions
+      if (phase === 'move' && currentPlayer === 0 && !animating) {
+        ctx.fillStyle = 'rgba(20,20,40,0.85)';
+        ctx.fillRect(10, 2, W - 20, 22);
+        ctx.fillStyle = '#da6';
+        ctx.font = '11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('CLICK AN ADJACENT CITY TO TRAVEL (or click your city to stay & trade)', W / 2, 16);
+      }
+
+      // AI thinking
+      if (currentPlayer > 0 && !animating) {
+        ctx.fillStyle = 'rgba(20,20,40,0.85)';
+        ctx.fillRect(10, 2, W - 20, 22);
+        ctx.fillStyle = players[currentPlayer].color;
+        ctx.font = '11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(players[currentPlayer].name + ' is trading...', W / 2, 16);
+      }
+
+      // Floating message
+      if (messageTimer > 0) {
+        let alpha = Math.min(1, messageTimer / 30);
+        ctx.fillStyle = 'rgba(20,20,40,' + (0.85 * alpha) + ')';
+        ctx.fillRect(100, H / 2 - 20, W - 200, 30);
+        ctx.strokeStyle = 'rgba(221,170,102,' + alpha + ')';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(100, H / 2 - 20, W - 200, 30);
+        ctx.fillStyle = 'rgba(221,170,102,' + alpha + ')';
+        ctx.font = 'bold 12px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(message, W / 2, H / 2);
+      }
+
+      // Mini inventory on map (right side)
+      if (phase === 'move' && currentPlayer === 0) {
+        let player = players[0];
+        let px = W - 145, py = 30;
+        ctx.fillStyle = 'rgba(20,20,40,0.9)';
+        ctx.fillRect(px, py, 135, 170);
+        ctx.strokeStyle = '#da6';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px, py, 135, 170);
+
+        ctx.fillStyle = '#da6';
+        ctx.font = 'bold 10px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText('YOUR CARGO', px + 8, py + 14);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '9px Courier New';
+        ctx.fillText('Gold: ' + player.gold, px + 8, py + 28);
+        ctx.fillText('Carts: ' + player.carts + ' (' + getInventoryCount(player) + '/' + player.maxCapacity + ')', px + 8, py + 40);
+
+        let yi = 0;
+        GOODS.forEach(g => {
+          let qty = player.inventory[g] || 0;
+          if (qty > 0) {
+            ctx.beginPath();
+            ctx.arc(px + 14, py + 56 + yi * 16, 4, 0, Math.PI * 2);
+            ctx.fillStyle = GOOD_COLORS[g];
+            ctx.fill();
+            ctx.fillStyle = '#ccc';
+            ctx.font = '10px Courier New';
+            ctx.textAlign = 'left';
+            ctx.fillText(g + ' x' + qty, px + 22, py + 60 + yi * 16);
+            yi++;
+          }
+        });
+        if (yi === 0) {
+          ctx.fillStyle = '#555';
+          ctx.font = '10px Courier New';
+          ctx.fillText('(empty)', px + 8, py + 60);
+        }
+      }
+    }
+
+    function draw() {
+      drawMap();
+      if (phase === 'trade' && currentPlayer === 0) {
+        drawTradePanel();
+      } else {
+        drawHUD();
+      }
+    }
+
+    function updateUI() {
+      let player = players[0];
+      score = player.gold + getInventoryValue(player);
+      scoreEl.textContent = player.gold;
+      turnInfoEl.textContent = 'Turn ' + turn + ' / ' + MAX_TURNS;
+
+      // AI best score
+      let bestAI = 0;
+      players.forEach(p => {
+        if (p.isAI) {
+          let total = p.gold + getInventoryValue(p);
+          if (total > bestAI) bestAI = total;
+        }
+      });
+      aiScoreEl.textContent = bestAI;
+
+      // Info panel
+      let player0 = players[0];
+      let inv = [];
+      for (let g in player0.inventory) {
+        if (player0.inventory[g] > 0) inv.push(g + ':' + player0.inventory[g]);
+      }
+      inventoryInfoEl.innerHTML = '<span class="label">Inventory:</span> ' + (inv.length ? inv.join(', ') : 'empty');
+
+      let city = CITIES[player0.city];
+      cityInfoEl.innerHTML = '<span class="label">City:</span> ' + city.name +
+        ' | Produces: ' + city.produces.join(', ') +
+        ' | Demands: ' + city.demands.join(', ');
+
+      eventInfoEl.innerHTML = '<span class="label">Event:</span> ' + (currentEvent ? currentEvent.name : 'None');
+    }
+
+    // ========== INPUT ==========
+    let mouseX = 0, mouseY = 0;
+
+    canvas.addEventListener('mousemove', e => {
+      let rect = canvas.getBoundingClientRect();
+      mouseX = (e.clientX - rect.left) * (W / rect.width);
+      mouseY = (e.clientY - rect.top) * (H / rect.height);
+
+      hoveredCity = -1;
+      if (phase === 'move') {
+        CITIES.forEach((city, ci) => {
+          let dx = mouseX - city.x, dy = mouseY - city.y;
+          if (dx * dx + dy * dy < 25 * 25) hoveredCity = ci;
+        });
+      }
+    });
+
+    canvas.addEventListener('click', e => {
+      let rect = canvas.getBoundingClientRect();
+      let cx = (e.clientX - rect.left) * (W / rect.width);
+      let cy = (e.clientY - rect.top) * (H / rect.height);
+
+      if (gameState === 'title') {
+        gameState = 'playing';
+        overlay.style.display = 'none';
+        initGame();
+        return;
+      }
+
+      if (gameState === 'gameover') {
+        gameState = 'title';
+        overlay.style.display = 'flex';
+        overlayTitle.textContent = 'MERCHANT ROUTES';
+        overlayText.textContent = 'Click to Play Again';
+        return;
+      }
+
+      if (gameState !== 'playing') return;
+      if (animating) return;
+      if (currentPlayer !== 0) return;
+
+      // MOVE PHASE
+      if (phase === 'move') {
+        let clickedCity = -1;
+        CITIES.forEach((city, ci) => {
+          let dx = cx - city.x, dy = cy - city.y;
+          if (dx * dx + dy * dy < 25 * 25) clickedCity = ci;
+        });
+
+        if (clickedCity < 0) return;
+
+        let player = players[0];
+
+        // Click same city = stay and trade
+        if (clickedCity === player.city) {
+          phase = 'trade';
+          updatePrices();
+          return;
+        }
+
+        // Check adjacency
+        let neighbors = getNeighbors(player.city);
+        if (!neighbors.includes(clickedCity)) {
+          showMessage('Not adjacent! Choose a connected city.');
+          return;
+        }
+
+        // Bandit toll
+        if (currentEvent && currentEvent.special === 'bandit') {
+          player.gold = Math.max(0, player.gold - 5);
+          showMessage('Bandits! -5 gold toll');
+        }
+
+        // Animate move
+        animFrom = player.city;
+        animTo = clickedCity;
+        animating = true;
+        animProgress = 0;
+
+        return;
+      }
+
+      // TRADE PHASE
+      if (phase === 'trade') {
+        for (let btn of tradeButtons) {
+          if (cx >= btn.x && cx <= btn.x + btn.w && cy >= btn.y && cy <= btn.y + btn.h) {
+            if (!btn.enabled) return;
+
+            let player = players[0];
+
+            if (btn.action === 'buy') {
+              let price = getBuyPrice(player.city, btn.good);
+              if (price <= player.gold && getInventoryCount(player) < player.maxCapacity) {
+                player.gold -= price;
+                player.inventory[btn.good] = (player.inventory[btn.good] || 0) + 1;
+                supplyDemand[player.city][btn.good] = Math.max(0, (supplyDemand[player.city][btn.good] || 0) - 1);
+                updatePrices();
+                updateUI();
+              }
+            } else if (btn.action === 'sell') {
+              let price = getSellPrice(player.city, btn.good);
+              if ((player.inventory[btn.good] || 0) > 0) {
+                player.gold += price;
+                player.inventory[btn.good]--;
+                if (player.inventory[btn.good] <= 0) delete player.inventory[btn.good];
+                supplyDemand[player.city][btn.good] = (supplyDemand[player.city][btn.good] || 0) + 1;
+                updatePrices();
+                updateUI();
+              }
+            } else if (btn.action === 'cart') {
+              let cost = 50 * player.carts;
+              if (player.gold >= cost && player.carts < 4) {
+                player.gold -= cost;
+                player.carts++;
+                player.maxCapacity = 6 * player.carts;
+                showMessage('New cart! Capacity now ' + player.maxCapacity);
+                updateUI();
+              }
+            } else if (btn.action === 'done') {
+              endPlayerTurn();
+            }
+            return;
+          }
+        }
+      }
+    });
+
+    function showMessage(msg) {
+      message = msg;
+      messageTimer = 90;
+    }
+
+    function endPlayerTurn() {
+      phase = 'done';
+      currentPlayer = 1;
+      // Process AI turns with delays
+      setTimeout(processAITurns, 400);
+    }
+
+    function processAITurns() {
+      if (currentPlayer >= players.length) {
+        // All players done, advance turn
+        advanceTurn();
+        return;
+      }
+
+      let p = players[currentPlayer];
+      if (p.isAI) {
+        let prevCity = p.city;
+        aiTurn(p);
+        // Animate AI move
+        if (prevCity !== p.city) {
+          animFrom = prevCity;
+          animTo = p.city;
+          animating = true;
+          animProgress = 0;
+          // After animation, proceed to next player
+          let waitForAnim = setInterval(() => {
+            if (!animating) {
+              clearInterval(waitForAnim);
+              currentPlayer++;
+              updateUI();
+              setTimeout(processAITurns, 300);
+            }
+          }, 50);
+        } else {
+          currentPlayer++;
+          updateUI();
+          setTimeout(processAITurns, 300);
+        }
+      } else {
+        currentPlayer++;
+        setTimeout(processAITurns, 100);
+      }
+    }
+
+    function advanceTurn() {
+      turn++;
+      if (turn > MAX_TURNS) {
+        endGame();
+        return;
+      }
+
+      // Regenerate supply slightly
+      supplyDemand.forEach((sd, ci) => {
+        CITIES[ci].produces.forEach(g => {
+          sd[g] = Math.min(6, (sd[g] || 0) + 1);
+        });
+        // Demand cities slowly deplete
+        CITIES[ci].demands.forEach(g => {
+          sd[g] = Math.max(0, (sd[g] || 0) - 1);
+        });
+      });
+
+      rollEvent();
+      currentPlayer = 0;
+      phase = 'move';
+      updateUI();
+    }
+
+    function endGame() {
+      gameState = 'gameover';
+
+      // Calculate final scores
+      let scores = players.map(p => ({
+        name: p.name,
+        gold: p.gold,
+        inventoryVal: getInventoryValue(p),
+        total: p.gold + getInventoryValue(p)
+      }));
+      scores.sort((a, b) => b.total - a.total);
+
+      score = scores.find(s => s.name === 'You').total;
+      scoreEl.textContent = score;
+
+      let rank = scores.findIndex(s => s.name === 'You') + 1;
+
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = rank === 1 ? 'MASTER MERCHANT!' : (rank === 2 ? 'SKILLED TRADER' : 'APPRENTICE');
+      let txt = 'Final Scores:\n';
+      scores.forEach((s, i) => {
+        txt += (i + 1) + '. ' + s.name + ': ' + s.total + 'g (' + s.gold + ' gold + ' + s.inventoryVal + ' goods)\n';
+      });
+      txt += '\nClick to play again';
+      overlayText.innerHTML = txt.replace(/\n/g, '<br>');
+    }
+
+    // ========== GAME LOOP ==========
+    function gameLoop() {
+      if (gameState === 'playing') {
+        // Animation
+        if (animating) {
+          animProgress += 0.04;
+          if (animProgress >= 1) {
+            animProgress = 1;
+            animating = false;
+            // If this was player's move, go to trade phase
+            if (currentPlayer === 0 && phase === 'move') {
+              players[0].city = animTo;
+              phase = 'trade';
+              updatePrices();
+              updateUI();
+            }
+          }
+        }
+
+        if (messageTimer > 0) messageTimer--;
+
+        draw();
+        updateGameData();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ========== EXPOSE GAME DATA ==========
+    window.gameData = {};
+    function updateGameData() {
+      window.gameData = {
+        gameState,
+        score,
+        turn,
+        players: players.map(p => ({ ...p, inventory: { ...p.inventory } })),
+        currentPlayer,
+        phase
+      };
+    }
+
+    // ========== INIT ==========
+    function init() {
+      overlay.style.display = 'flex';
+      overlayTitle.textContent = 'MERCHANT ROUTES';
+      overlayText.innerHTML = 'Trade goods between cities<br>Build routes, corner markets<br><br>Click to Start';
+      gameLoop();
+    }
+
+    init();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

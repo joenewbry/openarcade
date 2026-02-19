@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pirate Conquest</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 16px;
+      width: 600px;
+    }
+    .back { color: #ec4; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(238, 204, 68, 0.4); }
+    h1 { color: #ec4; font-size: 1.8rem; text-shadow: 0 0 15px rgba(238, 204, 68, 0.4); }
+    .score-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 600px;
+      margin-bottom: 10px;
+      font-size: 1rem;
+    }
+    .score-bar span { color: #ec4; }
+    .turn-indicator { color: #aaa; font-size: 0.9rem; }
+    .turn-indicator.player-turn { color: #4af; }
+    .turn-indicator.ai-turn { color: #ec4; }
+    canvas {
+      border: 2px solid #ec4;
+      box-shadow: 0 0 20px rgba(238, 204, 68, 0.2);
+      display: block;
+      cursor: pointer;
+    }
+    .overlay {
+      position: absolute;
+      top: 0; left: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #ec4;
+      text-align: center;
+      pointer-events: none;
+      background: rgba(26, 26, 46, 0.88);
+    }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(238, 204, 68, 0.5); }
+    .overlay p { font-size: 1rem; color: #aaa; margin: 4px 0; }
+    .overlay .start-btn {
+      margin-top: 16px;
+      padding: 10px 30px;
+      background: #ec4;
+      color: #1a1a2e;
+      border: none;
+      font-family: 'Courier New', monospace;
+      font-size: 1.1rem;
+      font-weight: bold;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .overlay .start-btn:hover { background: #fd5; }
+    .info-panel {
+      width: 600px;
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      font-size: 0.75rem;
+    }
+    .info-panel .panel {
+      flex: 1;
+      background: #16213e;
+      border: 1px solid #333;
+      padding: 6px 8px;
+      border-radius: 4px;
+    }
+    .info-panel .panel h3 {
+      color: #ec4;
+      font-size: 0.8rem;
+      margin-bottom: 4px;
+    }
+    .info-panel .panel .row {
+      display: flex;
+      justify-content: space-between;
+      color: #bbb;
+      line-height: 1.5;
+    }
+    .tooltip {
+      position: absolute;
+      background: rgba(22, 33, 62, 0.95);
+      border: 1px solid #ec4;
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      color: #ddd;
+      pointer-events: none;
+      z-index: 10;
+      max-width: 200px;
+    }
+    .tooltip h4 { color: #ec4; margin-bottom: 4px; }
+    .tooltip .good { color: #6f8; }
+    .tooltip .bad { color: #f66; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="../" class="back">&larr; Back</a>
+    <h1>PIRATE CONQUEST</h1>
+  </div>
+  <div class="score-bar">
+    <div>Gold: <span id="score">0</span></div>
+    <div class="turn-indicator" id="turnIndicator">Turn 1/30</div>
+    <div>Fleet: <span id="fleetInfo">1 ship</span></div>
+  </div>
+  <div style="position: relative; display: inline-block;" id="gameContainer">
+    <canvas id="game" width="600" height="500"></canvas>
+    <div class="overlay" id="overlay" style="width:600px;height:500px;">
+      <h2 id="overlayTitle">PIRATE CONQUEST</h2>
+      <p id="overlayDesc">Sail, trade, and conquer the Caribbean!</p>
+      <p style="font-size:0.85rem;color:#888;margin-top:8px;" id="overlayInstr">Click ships to select. Click water to move.<br>Click ports to trade. Click enemies to attack.<br>Buy low, sell high. Capture ports. Sink rivals!<br>30 turns. Highest gold + port value wins.</p>
+      <button class="start-btn" id="startBtn" onclick="startGame()">SET SAIL</button>
+    </div>
+  </div>
+  <div class="info-panel" id="infoPanel">
+    <div class="panel" id="panelFleet"><h3>Your Fleet</h3><div id="fleetDetails">--</div></div>
+    <div class="panel" id="panelCargo"><h3>Cargo Hold</h3><div id="cargoDetails">--</div></div>
+    <div class="panel" id="panelActions"><h3>Actions</h3><div id="actionDetails">Click a port or enemy ship</div></div>
+  </div>
+  <div class="tooltip" id="tooltip" style="display:none;"></div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = 600, H = 500;
+
+    let gameState = 'start';
+    let score = 0;
+
+    // ===================== CONSTANTS =====================
+    const MAX_TURNS = 30;
+    const PLAYER_COLORS = ['#4af', '#f55', '#5d5', '#f8f'];
+    const PLAYER_NAMES = ['You', 'Blackbeard', 'Red Anne', 'El Diablo'];
+    const GOODS = ['rum', 'sugar', 'spices', 'gold'];
+    const GOOD_COLORS = { rum: '#c84', sugar: '#eee', spices: '#f80', gold: '#ec4' };
+    const GOOD_EMOJI = { rum: 'R', sugar: 'S', spices: 'P', gold: 'G' };
+    const SHIP_TYPES = {
+      sloop:      { name: 'Sloop',      cost: 80,  hp: 35, speed: 4, cannons: 2, range: 65, cargo: 20, icon: 'S' },
+      brigantine: { name: 'Brigantine', cost: 200, hp: 65, speed: 3, cannons: 5, range: 55, cargo: 40, icon: 'B' },
+      galleon:    { name: 'Galleon',    cost: 400, hp: 110, speed: 2, cannons: 9, range: 50, cargo: 80, icon: 'G' }
+    };
+
+    // ===================== MAP DATA =====================
+    const ISLANDS = [
+      { x: 80,  y: 75,  r: 42, color: '#2a5a2a' },
+      { x: 210, y: 55,  r: 35, color: '#2d5d28' },
+      { x: 380, y: 50,  r: 48, color: '#2a5a2a' },
+      { x: 530, y: 75,  r: 44, color: '#2d5d28' },
+      { x: 90,  y: 230, r: 52, color: '#2a5a2a' },
+      { x: 300, y: 200, r: 30, color: '#306030' },
+      { x: 490, y: 225, r: 48, color: '#2d5d28' },
+      { x: 60,  y: 390, r: 38, color: '#2a5a2a' },
+      { x: 220, y: 365, r: 44, color: '#2d5d28' },
+      { x: 400, y: 380, r: 42, color: '#2a5a2a' },
+      { x: 545, y: 405, r: 48, color: '#306030' },
+      { x: 310, y: 440, r: 28, color: '#2d5d28' },
+    ];
+
+    const PORT_DEFS = [
+      { name: 'Havana',      x: 80,  y: 72,  island: 0,  produces: 'rum',    home: 0 },
+      { name: 'Nassau',      x: 212, y: 52,  island: 1,  produces: 'sugar'          },
+      { name: 'Tortuga',     x: 378, y: 48,  island: 2,  produces: 'spices'         },
+      { name: 'Port Royal',  x: 532, y: 72,  island: 3,  produces: 'gold',   home: 1 },
+      { name: 'Cartagena',   x: 88,  y: 230, island: 4,  produces: 'gold'           },
+      { name: 'Barbados',    x: 302, y: 198, island: 5,  produces: 'sugar'          },
+      { name: 'Maracaibo',   x: 488, y: 225, island: 6,  produces: 'rum'            },
+      { name: 'Trinidad',    x: 58,  y: 390, island: 7,  produces: 'spices', home: 2 },
+      { name: 'Curacao',     x: 222, y: 362, island: 8,  produces: 'rum'            },
+      { name: 'Martinique',  x: 398, y: 378, island: 9,  produces: 'sugar'          },
+      { name: 'Santo Dom.',  x: 548, y: 402, island: 10, produces: 'gold',   home: 3 },
+      { name: 'St. Kitts',   x: 312, y: 438, island: 11, produces: 'spices'         },
+    ];
+
+    // ===================== GAME STATE =====================
+    let turn, players, ports, ships, selectedShip, combatLog, hoverPort, tradePort, buyMode;
+    let currentPlayer;
+    let islandSeeds;
+    let cannonEffects = [];
+    let floatingTexts = [];
+
+    function initIslandSeeds() {
+      islandSeeds = ISLANDS.map(() => {
+        const pts = [];
+        const n = 10 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          const r = 0.65 + Math.random() * 0.55;
+          pts.push({ a, r });
+        }
+        return pts;
+      });
+    }
+
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+    function initGame() {
+      turn = 1;
+      combatLog = [];
+      cannonEffects = [];
+      floatingTexts = [];
+      selectedShip = null;
+      hoverPort = null;
+      tradePort = -1;
+      buyMode = true;
+      currentPlayer = 0;
+
+      // Create ports
+      ports = PORT_DEFS.map((pd, i) => ({
+        name: pd.name,
+        x: pd.x, y: pd.y,
+        produces: pd.produces,
+        owner: pd.home !== undefined ? pd.home : -1,
+        defense: pd.home !== undefined ? 3 : 2,
+        prices: {},
+        supply: {},
+      }));
+
+      // Initialize port prices & supply
+      ports.forEach(p => {
+        GOODS.forEach(g => {
+          if (g === p.produces) {
+            p.prices[g] = 4 + Math.floor(Math.random() * 5);
+            p.supply[g] = 30 + Math.floor(Math.random() * 20);
+          } else {
+            p.prices[g] = 15 + Math.floor(Math.random() * 16);
+            p.supply[g] = Math.floor(Math.random() * 8);
+          }
+        });
+      });
+
+      // Create players
+      players = [];
+      for (let i = 0; i < 4; i++) {
+        players.push({
+          id: i,
+          name: PLAYER_NAMES[i],
+          color: PLAYER_COLORS[i],
+          gold: 120,
+          isHuman: i === 0,
+        });
+      }
+
+      // Create starting ships
+      ships = [];
+      for (let i = 0; i < 4; i++) {
+        const homePort = ports.find((_, idx) => PORT_DEFS[idx].home === i);
+        ships.push(createShip(i, 'sloop', homePort.x + 15, homePort.y + 15));
+      }
+
+      updateUI();
+    }
+
+    function createShip(owner, type, x, y) {
+      const t = SHIP_TYPES[type];
+      return {
+        id: Math.random().toString(36).substring(2, 8),
+        owner, type, x, y,
+        hp: t.hp,
+        maxHp: t.hp,
+        cannons: t.cannons,
+        speed: t.speed,
+        range: t.range,
+        maxCargo: t.cargo,
+        cargo: { rum: 0, sugar: 0, spices: 0, gold: 0 },
+        moved: false,
+        acted: false,
+        sunk: false,
+        angle: Math.random() * Math.PI * 2,
+      };
+    }
+
+    function totalCargo(ship) { return GOODS.reduce((s, g) => s + ship.cargo[g], 0); }
+    function cargoSpace(ship) { return ship.maxCargo - totalCargo(ship); }
+    function playerShips(pid) { return ships.filter(s => s.owner === pid && !s.sunk); }
+    function playerPorts(pid) { return ports.filter(p => p.owner === pid); }
+
+    function playerScore(pid) {
+      let g = players[pid].gold;
+      playerShips(pid).forEach(s => {
+        GOODS.forEach(gd => { g += s.cargo[gd] * 8; });
+        g += Math.floor(SHIP_TYPES[s.type].cost * 0.3);
+      });
+      g += playerPorts(pid).length * 50;
+      return g;
+    }
+
+    function addFloatingText(x, y, text, color) {
+      floatingTexts.push({ x, y, text, color, life: 60, startY: y });
+    }
+
+    function addCannonEffect(x1, y1, x2, y2) {
+      cannonEffects.push({ x1, y1, x2, y2, life: 15 });
+    }
+
+    // ===================== TURN MANAGEMENT =====================
+    function startPlayerTurn(pid) {
+      currentPlayer = pid;
+      selectedShip = null;
+      tradePort = -1;
+
+      playerShips(pid).forEach(s => {
+        s.moved = false;
+        s.acted = false;
+      });
+
+      // Port income & restock
+      playerPorts(pid).forEach(p => {
+        players[pid].gold += 5;
+        p.supply[p.produces] = Math.min(50, p.supply[p.produces] + 6);
+      });
+
+      // Fluctuate prices
+      if (pid === 0) {
+        ports.forEach(p => {
+          GOODS.forEach(g => {
+            const delta = Math.floor(Math.random() * 3) - 1;
+            p.prices[g] = Math.max(2, Math.min(35, p.prices[g] + delta));
+            if (g === p.produces && p.prices[g] > 12) p.prices[g] -= 2;
+          });
+        });
+      }
+
+      if (pid === 0) {
+        updateUI();
+        draw();
+      } else {
+        setTimeout(() => aiTurn(pid), 250);
+      }
+    }
+
+    function endPlayerTurn() {
+      tradePort = -1;
+      selectedShip = null;
+      ships = ships.filter(s => !s.sunk);
+
+      const nextPid = (currentPlayer + 1) % 4;
+      if (nextPid === 0) {
+        turn++;
+        if (turn > MAX_TURNS) {
+          endGame();
+          return;
+        }
+      }
+      startPlayerTurn(nextPid);
+    }
+
+    function endGame() {
+      gameState = 'over';
+      score = playerScore(0);
+
+      let best = 0, bestScore = 0;
+      for (let i = 0; i < 4; i++) {
+        const s = playerScore(i);
+        if (s > bestScore) { bestScore = s; best = i; }
+      }
+
+      const overlay = document.getElementById('overlay');
+      overlay.style.display = 'flex';
+      document.getElementById('overlayTitle').textContent = best === 0 ? 'VICTORY!' : 'DEFEATED';
+      document.getElementById('overlayDesc').innerHTML = `${PLAYER_NAMES[best]} wins with ${bestScore} doubloons!<br>Your score: ${score}`;
+
+      let ranking = players.map((_, i) => ({ i, s: playerScore(i) })).sort((a, b) => b.s - a.s);
+      let rankStr = ranking.map((r, idx) => `${idx + 1}. ${PLAYER_NAMES[r.i]}: ${r.s}g (${playerPorts(r.i).length} ports, ${playerShips(r.i).length} ships)`).join('<br>');
+      document.getElementById('overlayInstr').innerHTML = rankStr;
+      document.getElementById('startBtn').textContent = 'PLAY AGAIN';
+      document.getElementById('startBtn').style.display = 'block';
+
+      document.getElementById('score').textContent = score;
+      updateGameData();
+    }
+
+    // ===================== COMBAT =====================
+    function doCombat(attacker, defender) {
+      addCannonEffect(attacker.x, attacker.y, defender.x, defender.y);
+      const atkRoll = attacker.cannons * (3 + Math.floor(Math.random() * 4));
+      const defRoll = defender.cannons * (2 + Math.floor(Math.random() * 4));
+
+      // Range bonus: closer = more damage
+      const d = dist(attacker, defender);
+      const rangeMult = d < 30 ? 1.3 : (d < 50 ? 1.1 : 1.0);
+      const atkDmg = Math.floor(atkRoll * rangeMult);
+      const defDmg = Math.floor(defRoll * 0.9);
+
+      defender.hp -= atkDmg;
+      attacker.hp -= defDmg;
+
+      addFloatingText(defender.x, defender.y - 15, `-${atkDmg}`, '#f55');
+      addFloatingText(attacker.x, attacker.y - 15, `-${defDmg}`, '#fa0');
+
+      const logMsg = `${PLAYER_NAMES[attacker.owner]} ${SHIP_TYPES[attacker.type].icon} hit ${PLAYER_NAMES[defender.owner]} ${SHIP_TYPES[defender.type].icon} for ${atkDmg}`;
+      combatLog.unshift(logMsg);
+      if (combatLog.length > 6) combatLog.pop();
+
+      if (defender.hp <= 0) {
+        defender.sunk = true;
+        GOODS.forEach(g => {
+          const loot = Math.floor(defender.cargo[g] / 2);
+          const take = Math.min(loot, cargoSpace(attacker));
+          if (take > 0) attacker.cargo[g] += take;
+        });
+        players[attacker.owner].gold += 25;
+        addFloatingText(defender.x, defender.y, 'SUNK! +25g', '#ec4');
+        combatLog.unshift(`${PLAYER_NAMES[defender.owner]}'s ${SHIP_TYPES[defender.type].name} sunk!`);
+      }
+      if (attacker.hp <= 0) {
+        attacker.sunk = true;
+        combatLog.unshift(`${PLAYER_NAMES[attacker.owner]}'s ${SHIP_TYPES[attacker.type].name} sunk!`);
+      }
+      attacker.acted = true;
+    }
+
+    function capturePort(ship, portIdx) {
+      const port = ports[portIdx];
+      addCannonEffect(ship.x, ship.y, port.x, port.y);
+      const atkPower = ship.cannons * (3 + Math.floor(Math.random() * 3));
+      const defPower = port.defense * 5;
+      ship.hp -= Math.floor(port.defense * (2 + Math.random() * 3));
+
+      if (atkPower >= defPower) {
+        port.owner = ship.owner;
+        port.defense = 2;
+        players[ship.owner].gold += 20;
+        addFloatingText(port.x, port.y - 10, `${port.name} CAPTURED!`, '#ec4');
+        combatLog.unshift(`${PLAYER_NAMES[ship.owner]} captured ${port.name}!`);
+      } else {
+        port.defense = Math.max(1, port.defense - 1);
+        addFloatingText(port.x, port.y - 10, 'Repelled!', '#f55');
+        combatLog.unshift(`${port.name} repelled ${PLAYER_NAMES[ship.owner]}!`);
+      }
+      if (ship.hp <= 0) ship.sunk = true;
+      ship.acted = true;
+      if (combatLog.length > 6) combatLog.pop();
+    }
+
+    // ===================== TRADING =====================
+    function buyGood(ship, portIdx, good, qty) {
+      const port = ports[portIdx];
+      const price = port.prices[good];
+      const maxBuy = Math.min(qty, Math.floor(players[ship.owner].gold / price), port.supply[good], cargoSpace(ship));
+      if (maxBuy <= 0) return 0;
+      players[ship.owner].gold -= maxBuy * price;
+      ship.cargo[good] += maxBuy;
+      port.supply[good] -= maxBuy;
+      port.prices[good] = Math.min(35, port.prices[good] + Math.ceil(maxBuy / 4));
+      addFloatingText(ship.x, ship.y - 10, `+${maxBuy} ${good}`, GOOD_COLORS[good]);
+      return maxBuy;
+    }
+
+    function sellGood(ship, portIdx, good, qty) {
+      const port = ports[portIdx];
+      const price = port.prices[good];
+      const maxSell = Math.min(qty, ship.cargo[good]);
+      if (maxSell <= 0) return 0;
+      const revenue = maxSell * price;
+      players[ship.owner].gold += revenue;
+      ship.cargo[good] -= maxSell;
+      port.supply[good] += maxSell;
+      port.prices[good] = Math.max(2, port.prices[good] - Math.ceil(maxSell / 4));
+      addFloatingText(ship.x, ship.y - 10, `+${revenue}g`, '#ec4');
+      return maxSell;
+    }
+
+    // ===================== AI =====================
+    function aiTurn(pid) {
+      const myShips = playerShips(pid);
+
+      myShips.forEach(ship => {
+        if (ship.sunk) return;
+
+        // 1) Attack weak nearby enemies
+        const nearbyEnemies = ships.filter(s => s.owner !== pid && !s.sunk && dist(s, ship) < 130);
+        if (nearbyEnemies.length > 0 && ship.hp > ship.maxHp * 0.45) {
+          nearbyEnemies.sort((a, b) => a.hp - b.hp);
+          const target = nearbyEnemies[0];
+          if (target.hp < ship.hp * 1.3) {
+            moveShipToward(ship, target.x, target.y);
+            if (dist(ship, target) < ship.range) {
+              doCombat(ship, target);
+              return;
+            }
+          }
+        }
+
+        // 2) Sell cargo if carrying goods
+        if (totalCargo(ship) > ship.maxCargo * 0.3) {
+          let bestSell = -1, bestVal = 0;
+          GOODS.forEach(g => {
+            if (ship.cargo[g] > 0) {
+              ports.forEach((p, pi) => {
+                const val = p.prices[g] * ship.cargo[g] / (dist(p, ship) + 50);
+                if (val > bestVal) { bestVal = val; bestSell = pi; }
+              });
+            }
+          });
+          if (bestSell >= 0) {
+            const sp = ports[bestSell];
+            moveShipToward(ship, sp.x, sp.y);
+            if (dist(ship, sp) < 22) {
+              GOODS.forEach(g => { if (ship.cargo[g] > 0) sellGood(ship, bestSell, g, ship.cargo[g]); });
+              ship.acted = true;
+            }
+            return;
+          }
+        }
+
+        // 3) Find best buy opportunity (trade route)
+        let bestRoute = null, bestEff = 0;
+        ports.forEach((bp, bi) => {
+          GOODS.forEach(g => {
+            if (bp.supply[g] > 3 && bp.prices[g] < 13) {
+              ports.forEach((sp, si) => {
+                if (bi !== si && sp.prices[g] > bp.prices[g] + 4) {
+                  const profit = (sp.prices[g] - bp.prices[g]) * Math.min(bp.supply[g], cargoSpace(ship));
+                  const routeDist = dist(bp, ship) + dist(bp, sp);
+                  const eff = profit / (routeDist + 30);
+                  if (eff > bestEff) { bestEff = eff; bestRoute = { buyPort: bi, good: g }; }
+                }
+              });
+            }
+          });
+        });
+
+        if (bestRoute && cargoSpace(ship) > 5) {
+          const bp = ports[bestRoute.buyPort];
+          moveShipToward(ship, bp.x, bp.y);
+          if (dist(ship, bp) < 22) {
+            buyGood(ship, bestRoute.buyPort, bestRoute.good, cargoSpace(ship));
+            ship.acted = true;
+          }
+          return;
+        }
+
+        // 4) Capture neutral / weak enemy ports
+        const targets = ports.filter(p => (p.owner === -1 || (p.owner !== pid && p.defense <= 2)));
+        if (targets.length > 0 && ship.hp > ship.maxHp * 0.5) {
+          targets.sort((a, b) => dist(a, ship) - dist(b, ship));
+          const target = targets[0];
+          const ti = ports.indexOf(target);
+          moveShipToward(ship, target.x, target.y);
+          if (dist(ship, target) < 22) capturePort(ship, ti);
+          return;
+        }
+
+        // 5) Wander to nearest port
+        const closest = ports.reduce((b, p) => dist(p, ship) < dist(b, ship) ? p : b, ports[0]);
+        moveShipToward(ship, closest.x, closest.y);
+      });
+
+      // Buy ships if affordable
+      const myGold = players[pid].gold;
+      if (myShips.length < 4 && myGold >= SHIP_TYPES.sloop.cost) {
+        const homeIdx = PORT_DEFS.findIndex(pd => pd.home === pid);
+        if (homeIdx >= 0 && ports[homeIdx].owner === pid) {
+          const hp = ports[homeIdx];
+          const type = myGold >= SHIP_TYPES.galleon.cost && myShips.length >= 2 ? 'galleon' :
+                       myGold >= SHIP_TYPES.brigantine.cost ? 'brigantine' : 'sloop';
+          players[pid].gold -= SHIP_TYPES[type].cost;
+          ships.push(createShip(pid, type, hp.x + 15, hp.y + 15));
+        }
+      }
+
+      ships = ships.filter(s => !s.sunk);
+      setTimeout(() => { updateUI(); draw(); endPlayerTurn(); }, 200);
+    }
+
+    function moveShipToward(ship, tx, ty) {
+      const d = dist(ship, { x: tx, y: ty });
+      const speed = ship.speed * 22;
+      if (d <= speed) {
+        ship.x = tx; ship.y = ty;
+      } else {
+        const ratio = speed / d;
+        ship.x += (tx - ship.x) * ratio;
+        ship.y += (ty - ship.y) * ratio;
+      }
+      ship.x = Math.max(8, Math.min(W - 8, ship.x));
+      ship.y = Math.max(8, Math.min(H - 8, ship.y));
+      ship.angle = Math.atan2(ty - ship.y, tx - ship.x) + Math.PI / 2;
+      ship.moved = true;
+    }
+
+    // ===================== INPUT =====================
+    let mouseX = 0, mouseY = 0;
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = (e.clientX - rect.left) * (W / rect.width);
+      mouseY = (e.clientY - rect.top) * (H / rect.height);
+
+      const tooltip = document.getElementById('tooltip');
+      let found = false;
+      ports.forEach((p, i) => {
+        if (dist({ x: mouseX, y: mouseY }, p) < 20) {
+          found = true;
+          hoverPort = i;
+          let html = `<h4>${p.name}</h4>`;
+          html += `Owner: ${p.owner === -1 ? 'Neutral' : PLAYER_NAMES[p.owner]}<br>`;
+          html += `Produces: <span style="color:${GOOD_COLORS[p.produces]}">${p.produces}</span><br>`;
+          html += `Defense: ${'*'.repeat(p.defense)}<br><br>`;
+          html += `<b>Market Prices:</b><br>`;
+          GOODS.forEach(g => {
+            const price = p.prices[g];
+            const cls = price < 10 ? 'good' : (price > 20 ? 'bad' : '');
+            html += `<span class="${cls}">${g}: ${price}g (stock: ${p.supply[g]})</span><br>`;
+          });
+          tooltip.innerHTML = html;
+          tooltip.style.display = 'block';
+          tooltip.style.left = (e.clientX + 15) + 'px';
+          tooltip.style.top = (e.clientY - 10) + 'px';
+        }
+      });
+      if (!found) { hoverPort = null; tooltip.style.display = 'none'; }
+    });
+
+    canvas.addEventListener('click', (e) => {
+      if (gameState !== 'playing' || currentPlayer !== 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = (e.clientX - rect.left) * (W / rect.width);
+      const cy = (e.clientY - rect.top) * (H / rect.height);
+
+      // Check port click
+      let clickedPort = -1;
+      ports.forEach((p, i) => { if (dist({ x: cx, y: cy }, p) < 20) clickedPort = i; });
+
+      // Check ship click
+      let clickedShip = null;
+      ships.forEach(s => { if (!s.sunk && dist({ x: cx, y: cy }, s) < 16) clickedShip = s; });
+
+      // If trade panel open, handle it first
+      if (tradePort >= 0) {
+        handleTradeClick(cx, cy);
+        return;
+      }
+
+      // END TURN button (bottom-right of canvas)
+      if (cx > W - 100 && cy > H - 30) {
+        endPlayerTurn();
+        return;
+      }
+
+      // Select own ship
+      if (clickedShip && clickedShip.owner === 0) {
+        selectedShip = clickedShip;
+        tradePort = -1;
+        updateUI(); draw();
+        return;
+      }
+
+      // Attack enemy ship
+      if (clickedShip && clickedShip.owner !== 0 && selectedShip && !selectedShip.acted) {
+        moveShipToward(selectedShip, clickedShip.x, clickedShip.y);
+        if (dist(selectedShip, clickedShip) < selectedShip.range) {
+          doCombat(selectedShip, clickedShip);
+          ships = ships.filter(s => !s.sunk);
+          if (selectedShip.sunk) selectedShip = null;
+        }
+        updateUI(); draw();
+        return;
+      }
+
+      // Click port with selected ship
+      if (clickedPort >= 0 && selectedShip) {
+        const port = ports[clickedPort];
+        moveShipToward(selectedShip, port.x, port.y);
+
+        if (dist(selectedShip, port) < 25) {
+          if (port.owner === selectedShip.owner || port.owner === -1) {
+            // Open trade panel
+            tradePort = clickedPort;
+            buyMode = true;
+          } else {
+            // Attack enemy port
+            capturePort(selectedShip, clickedPort);
+            ships = ships.filter(s => !s.sunk);
+            if (selectedShip && selectedShip.sunk) selectedShip = null;
+          }
+        }
+        updateUI(); draw();
+        return;
+      }
+
+      // Move to water
+      if (selectedShip && !selectedShip.moved) {
+        moveShipToward(selectedShip, cx, cy);
+        updateUI(); draw();
+        return;
+      }
+    });
+
+    // ===================== TRADE PANEL =====================
+    function handleTradeClick(cx, cy) {
+      if (tradePort < 0 || !selectedShip) return;
+      const port = ports[tradePort];
+      const px = 100, py = 80;
+
+      // Close button
+      if (cx > px + 370 && cx < px + 398 && cy > py + 5 && cy < py + 28) {
+        tradePort = -1; updateUI(); draw(); return;
+      }
+
+      // Buy/Sell tabs
+      if (cy > py + 32 && cy < py + 52) {
+        if (cx > px + 10 && cx < px + 100) { buyMode = true; draw(); return; }
+        if (cx > px + 110 && cx < px + 200) { buyMode = false; draw(); return; }
+      }
+
+      // Good rows: +1, +5, Max
+      GOODS.forEach((g, gi) => {
+        const ry = py + 62 + gi * 42;
+        if (cy < ry || cy > ry + 32) return;
+        const amounts = [1, 5, 999];
+        for (let bi = 0; bi < 3; bi++) {
+          const bx = px + 210 + bi * 60;
+          if (cx > bx && cx < bx + 52) {
+            if (buyMode) buyGood(selectedShip, tradePort, g, amounts[bi]);
+            else sellGood(selectedShip, tradePort, g, amounts[bi]);
+            updateUI(); draw(); return;
+          }
+        }
+      });
+
+      // Capture button (neutral ports)
+      if (port.owner === -1 && cy > py + 235 && cy < py + 260 && cx > px + 10 && cx < px + 190) {
+        capturePort(selectedShip, tradePort);
+        ships = ships.filter(s => !s.sunk);
+        if (selectedShip && selectedShip.sunk) selectedShip = null;
+        tradePort = -1; updateUI(); draw(); return;
+      }
+
+      // Buy ship buttons (own ports)
+      if (port.owner === 0 && cy > py + 235 && cy < py + 260) {
+        const shipOpts = [
+          { type: 'sloop', x1: px + 10, x2: px + 110 },
+          { type: 'brigantine', x1: px + 118, x2: px + 258 },
+          { type: 'galleon', x1: px + 266, x2: px + 395 },
+        ];
+        shipOpts.forEach(opt => {
+          if (cx > opt.x1 && cx < opt.x2 && players[0].gold >= SHIP_TYPES[opt.type].cost) {
+            players[0].gold -= SHIP_TYPES[opt.type].cost;
+            ships.push(createShip(0, opt.type, port.x + 20, port.y + 20));
+            addFloatingText(port.x, port.y - 15, `New ${SHIP_TYPES[opt.type].name}!`, '#4af');
+            updateUI(); draw();
+          }
+        });
+        return;
+      }
+
+      // Done trading button
+      if (cy > py + 268 && cy < py + 293 && cx > px + 260 && cx < px + 398) {
+        tradePort = -1; updateUI(); draw(); return;
+      }
+    }
+
+    function drawTradePanel() {
+      if (tradePort < 0 || !selectedShip) return;
+      const port = ports[tradePort];
+      const px = 100, py = 80, pw = 400, ph = 300;
+
+      ctx.fillStyle = 'rgba(12, 16, 36, 0.96)';
+      ctx.fillRect(px, py, pw, ph);
+      ctx.strokeStyle = '#ec4';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(px, py, pw, ph);
+
+      // Title
+      ctx.fillStyle = '#ec4';
+      ctx.font = 'bold 14px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${port.name}`, px + 10, py + 20);
+      ctx.fillStyle = '#888';
+      ctx.font = '10px Courier New';
+      ctx.fillText(port.owner === -1 ? 'Neutral Port' : `${PLAYER_NAMES[port.owner]}'s Port`, px + 10 + ctx.measureText(port.name).width + 20, py + 20);
+
+      // Close X
+      ctx.fillStyle = '#a33';
+      ctx.fillRect(px + 370, py + 5, 28, 22);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('X', px + 384, py + 20);
+
+      // BUY / SELL tabs
+      ctx.fillStyle = buyMode ? '#ec4' : '#333';
+      ctx.fillRect(px + 10, py + 32, 90, 20);
+      ctx.fillStyle = buyMode ? '#1a1a2e' : '#aaa';
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('BUY', px + 55, py + 46);
+
+      ctx.fillStyle = !buyMode ? '#ec4' : '#333';
+      ctx.fillRect(px + 110, py + 32, 90, 20);
+      ctx.fillStyle = !buyMode ? '#1a1a2e' : '#aaa';
+      ctx.fillText('SELL', px + 155, py + 46);
+
+      // Stats line
+      ctx.fillStyle = '#777';
+      ctx.font = '10px Courier New';
+      ctx.textAlign = 'right';
+      ctx.fillText(`Cargo: ${totalCargo(selectedShip)}/${selectedShip.maxCargo}   Gold: ${players[0].gold}`, px + pw - 10, py + 46);
+
+      // Good rows
+      ctx.textAlign = 'left';
+      GOODS.forEach((g, gi) => {
+        const ry = py + 62 + gi * 42;
+
+        // Good name
+        ctx.fillStyle = GOOD_COLORS[g];
+        ctx.font = 'bold 12px Courier New';
+        ctx.fillText(g.toUpperCase(), px + 10, ry + 14);
+
+        // Price / stock / owned
+        ctx.fillStyle = '#999';
+        ctx.font = '10px Courier New';
+        ctx.fillText(`Price: ${port.prices[g]}g`, px + 10, ry + 27);
+        ctx.fillText(`Stock: ${port.supply[g]}`, px + 100, ry + 27);
+        ctx.fillStyle = '#6af';
+        ctx.fillText(`Own: ${selectedShip.cargo[g]}`, px + 100, ry + 14);
+
+        // Buttons
+        const labels = buyMode ? ['+1', '+5', 'All'] : ['-1', '-5', 'All'];
+        for (let bi = 0; bi < 3; bi++) {
+          const bx = px + 210 + bi * 60;
+          ctx.fillStyle = '#223';
+          ctx.fillRect(bx, ry, 52, 32);
+          ctx.strokeStyle = '#555';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(bx, ry, 52, 32);
+          ctx.fillStyle = '#ec4';
+          ctx.font = 'bold 10px Courier New';
+          ctx.textAlign = 'center';
+          ctx.fillText(labels[bi], bx + 26, ry + 20);
+        }
+        ctx.textAlign = 'left';
+      });
+
+      // Bottom buttons
+      const btnY = py + 237;
+      if (port.owner === -1) {
+        // Capture
+        ctx.fillStyle = '#622';
+        ctx.fillRect(px + 10, btnY, 180, 24);
+        ctx.strokeStyle = '#f55'; ctx.lineWidth = 1;
+        ctx.strokeRect(px + 10, btnY, 180, 24);
+        ctx.fillStyle = '#f88';
+        ctx.font = 'bold 10px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('CAPTURE PORT', px + 100, btnY + 16);
+      } else if (port.owner === 0) {
+        // Buy ships
+        const shipBtns = [
+          { type: 'sloop', x: px + 10, w: 100 },
+          { type: 'brigantine', x: px + 118, w: 140 },
+          { type: 'galleon', x: px + 266, w: 129 },
+        ];
+        shipBtns.forEach(sb => {
+          const st = SHIP_TYPES[sb.type];
+          const afford = players[0].gold >= st.cost;
+          ctx.fillStyle = afford ? '#1a3a1a' : '#222';
+          ctx.fillRect(sb.x, btnY, sb.w, 24);
+          ctx.strokeStyle = afford ? '#5a5' : '#444'; ctx.lineWidth = 1;
+          ctx.strokeRect(sb.x, btnY, sb.w, 24);
+          ctx.fillStyle = afford ? '#5d5' : '#555';
+          ctx.font = '9px Courier New';
+          ctx.textAlign = 'center';
+          ctx.fillText(`${st.icon} ${st.name} ${st.cost}g`, sb.x + sb.w / 2, btnY + 16);
+        });
+      }
+
+      // Done button
+      ctx.fillStyle = '#332';
+      ctx.fillRect(px + 260, py + 270, 138, 24);
+      ctx.strokeStyle = '#ec4'; ctx.lineWidth = 1;
+      ctx.strokeRect(px + 260, py + 270, 138, 24);
+      ctx.fillStyle = '#ec4';
+      ctx.font = 'bold 11px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('DONE', px + 329, py + 286);
+      ctx.textAlign = 'left';
+    }
+
+    // ===================== DRAWING =====================
+    function drawOcean() {
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, '#082840');
+      grad.addColorStop(0.5, '#0c3560');
+      grad.addColorStop(1, '#082840');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Animated wave lines
+      ctx.strokeStyle = 'rgba(60, 130, 200, 0.06)';
+      ctx.lineWidth = 1;
+      const t = Date.now() * 0.0008;
+      for (let y = 15; y < H; y += 25) {
+        ctx.beginPath();
+        for (let x = 0; x <= W; x += 4) {
+          const wy = y + Math.sin((x * 0.02) + t + y * 0.01) * 3;
+          x === 0 ? ctx.moveTo(x, wy) : ctx.lineTo(x, wy);
+        }
+        ctx.stroke();
+      }
+    }
+
+    function drawIslands() {
+      ISLANDS.forEach((isl, idx) => {
+        const seeds = islandSeeds[idx];
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        seeds.forEach((pt, i) => {
+          const r = isl.r * pt.r;
+          const x = isl.x + Math.cos(pt.a) * r + 3;
+          const y = isl.y + Math.sin(pt.a) * r + 3;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+        ctx.fill();
+
+        // Island
+        ctx.fillStyle = isl.color;
+        ctx.beginPath();
+        seeds.forEach((pt, i) => {
+          const r = isl.r * pt.r;
+          const x = isl.x + Math.cos(pt.a) * r;
+          const y = isl.y + Math.sin(pt.a) * r;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+        ctx.fill();
+
+        // Beach outline
+        ctx.strokeStyle = '#b8a060';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+    }
+
+    function drawPorts() {
+      ports.forEach((port, i) => {
+        const isHovered = hoverPort === i;
+        const sz = isHovered ? 13 : 10;
+
+        // Owner ring
+        ctx.beginPath();
+        ctx.arc(port.x, port.y, sz + 3, 0, Math.PI * 2);
+        ctx.fillStyle = port.owner === -1 ? 'rgba(100,100,100,0.5)' : PLAYER_COLORS[port.owner];
+        ctx.globalAlpha = 0.6;
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+
+        // Port building
+        ctx.beginPath();
+        ctx.arc(port.x, port.y, sz, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a1a30';
+        ctx.fill();
+        ctx.strokeStyle = isHovered ? '#fff' : '#ec4';
+        ctx.lineWidth = isHovered ? 2 : 1.5;
+        ctx.stroke();
+
+        // Anchor icon
+        ctx.fillStyle = '#ec4';
+        ctx.font = `bold ${isHovered ? 13 : 10}px Courier New`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('\u2693', port.x, port.y + 1);
+
+        // Name on hover
+        if (isHovered) {
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 10px Courier New';
+          ctx.fillText(port.name, port.x, port.y - sz - 8);
+        }
+
+        // Produced good indicator
+        ctx.fillStyle = GOOD_COLORS[port.produces];
+        ctx.font = '8px Courier New';
+        ctx.fillText(GOOD_EMOJI[port.produces], port.x + sz + 5, port.y);
+
+        ctx.textBaseline = 'alphabetic';
+      });
+    }
+
+    function drawShips() {
+      ships.forEach(ship => {
+        if (ship.sunk) return;
+        const isSelected = ship === selectedShip;
+        const sz = ship.type === 'galleon' ? 11 : (ship.type === 'brigantine' ? 9 : 7);
+
+        // Selection glow
+        if (isSelected) {
+          ctx.beginPath();
+          ctx.arc(ship.x, ship.y, sz + 10, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(238, 204, 68, 0.12)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(238, 204, 68, 0.5)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Movement range
+          if (!ship.moved) {
+            ctx.beginPath();
+            ctx.arc(ship.x, ship.y, ship.speed * 22, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(68, 170, 255, 0.2)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+
+          // Attack range
+          ctx.beginPath();
+          ctx.arc(ship.x, ship.y, ship.range, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 80, 80, 0.12)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // Ship body
+        ctx.save();
+        ctx.translate(ship.x, ship.y);
+        ctx.rotate(ship.angle || 0);
+
+        // Hull
+        ctx.fillStyle = PLAYER_COLORS[ship.owner];
+        ctx.beginPath();
+        ctx.moveTo(0, -sz);
+        ctx.lineTo(-sz * 0.65, sz * 0.5);
+        ctx.quadraticCurveTo(0, sz * 0.7, sz * 0.65, sz * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Mast
+        ctx.strokeStyle = '#ccc';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -sz + 2);
+        ctx.lineTo(0, sz * 0.2);
+        ctx.stroke();
+
+        // Sail
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+        ctx.beginPath();
+        ctx.moveTo(0, -sz + 3);
+        ctx.quadraticCurveTo(sz * 0.6, -sz * 0.2, 0, sz * 0.1);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+
+        // Ship type letter below
+        ctx.fillStyle = PLAYER_COLORS[ship.owner];
+        ctx.font = 'bold 8px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(SHIP_TYPES[ship.type].icon, ship.x, ship.y + sz + 10);
+
+        // HP bar
+        const hpW = sz * 2.2;
+        const hpH = 3;
+        const hpX = ship.x - hpW / 2;
+        const hpY = ship.y + sz + 13;
+        ctx.fillStyle = '#222';
+        ctx.fillRect(hpX, hpY, hpW, hpH);
+        const hpRatio = ship.hp / ship.maxHp;
+        ctx.fillStyle = hpRatio > 0.5 ? '#5d5' : (hpRatio > 0.25 ? '#ec4' : '#f44');
+        ctx.fillRect(hpX, hpY, hpW * hpRatio, hpH);
+      });
+    }
+
+    function drawEffects() {
+      // Cannon fire
+      cannonEffects = cannonEffects.filter(e => {
+        e.life--;
+        const progress = 1 - (e.life / 15);
+        ctx.strokeStyle = `rgba(255, ${200 - progress * 200}, 50, ${1 - progress})`;
+        ctx.lineWidth = 3 - progress * 2;
+        ctx.beginPath();
+        ctx.moveTo(e.x1, e.y1);
+        const mx = e.x1 + (e.x2 - e.x1) * progress;
+        const my = e.y1 + (e.y2 - e.y1) * progress;
+        ctx.lineTo(mx, my);
+        ctx.stroke();
+
+        // Smoke puff at impact
+        if (e.life < 5) {
+          ctx.beginPath();
+          ctx.arc(e.x2, e.y2, (15 - e.life) * 1.5, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(200, 200, 200, ${e.life / 15})`;
+          ctx.fill();
+        }
+        return e.life > 0;
+      });
+
+      // Floating text
+      floatingTexts = floatingTexts.filter(ft => {
+        ft.life--;
+        ft.y = ft.startY - (60 - ft.life) * 0.5;
+        ctx.fillStyle = ft.color;
+        ctx.globalAlpha = ft.life / 60;
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(ft.text, ft.x, ft.y);
+        ctx.globalAlpha = 1.0;
+        return ft.life > 0;
+      });
+    }
+
+    function drawCompass() {
+      const cx = W - 30, cy = 30, r = 18;
+      ctx.strokeStyle = 'rgba(238, 204, 68, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(238, 204, 68, 0.4)';
+      ctx.font = 'bold 8px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('N', cx, cy - r + 5);
+      ctx.fillText('S', cx, cy + r - 5);
+      ctx.fillText('E', cx + r - 5, cy);
+      ctx.fillText('W', cx - r + 5, cy);
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    function drawScoreboard() {
+      const bx = 8, by = H - 75, bw = 145, bh = 68;
+      ctx.fillStyle = 'rgba(12, 16, 36, 0.85)';
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = 'rgba(238, 204, 68, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx, by, bw, bh);
+
+      ctx.font = 'bold 9px Courier New';
+      ctx.textAlign = 'left';
+      for (let i = 0; i < 4; i++) {
+        const py = by + 13 + i * 14;
+        // Color dot
+        ctx.fillStyle = PLAYER_COLORS[i];
+        ctx.beginPath();
+        ctx.arc(bx + 9, py - 3, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = i === currentPlayer ? '#fff' : '#777';
+        const name = PLAYER_NAMES[i].substring(0, 11);
+        ctx.fillText(name, bx + 17, py);
+        ctx.textAlign = 'right';
+        ctx.fillText(`${playerScore(i)}`, bx + bw - 6, py);
+        ctx.textAlign = 'left';
+      }
+    }
+
+    function drawCombatLog() {
+      if (combatLog.length === 0) return;
+      const lx = W - 260, ly = H - 55, lw = 252, lh = 48;
+      ctx.fillStyle = 'rgba(12, 16, 36, 0.8)';
+      ctx.fillRect(lx, ly, lw, lh);
+      ctx.strokeStyle = 'rgba(238, 204, 68, 0.15)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(lx, ly, lw, lh);
+
+      ctx.font = '8px Courier New';
+      ctx.textAlign = 'left';
+      combatLog.slice(0, 3).forEach((log, i) => {
+        ctx.fillStyle = i === 0 ? '#ec4' : '#666';
+        const t = log.length > 40 ? log.substring(0, 40) + '..' : log;
+        ctx.fillText(t, lx + 4, ly + 12 + i * 13);
+      });
+    }
+
+    function drawTradeRouteHint() {
+      if (selectedShip && hoverPort !== null && tradePort < 0) {
+        const port = ports[hoverPort];
+        ctx.strokeStyle = 'rgba(238, 204, 68, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(selectedShip.x, selectedShip.y);
+        ctx.lineTo(port.x, port.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Distance indicator
+        const d = Math.round(dist(selectedShip, port));
+        const mx = (selectedShip.x + port.x) / 2;
+        const my = (selectedShip.y + port.y) / 2;
+        ctx.fillStyle = 'rgba(238, 204, 68, 0.5)';
+        ctx.font = '9px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${d}px`, mx, my - 5);
+      }
+    }
+
+    function drawHUD() {
+      // Turn / status
+      ctx.fillStyle = 'rgba(238, 204, 68, 0.35)';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Turn ${turn}/${MAX_TURNS}`, 10, 14);
+
+      if (currentPlayer === 0) {
+        ctx.fillStyle = '#4af';
+        ctx.fillText('Your turn', 10, 26);
+      } else {
+        ctx.fillStyle = PLAYER_COLORS[currentPlayer];
+        ctx.fillText(`${PLAYER_NAMES[currentPlayer]} acting...`, 10, 26);
+      }
+
+      // End Turn button (always visible during player turn)
+      if (currentPlayer === 0 && gameState === 'playing' && tradePort < 0) {
+        ctx.fillStyle = 'rgba(60, 40, 10, 0.85)';
+        ctx.fillRect(W - 100, H - 28, 95, 24);
+        ctx.strokeStyle = '#ec4';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(W - 100, H - 28, 95, 24);
+        ctx.fillStyle = '#ec4';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('END TURN', W - 52, H - 12);
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      drawOcean();
+      drawIslands();
+      drawTradeRouteHint();
+      drawPorts();
+      drawShips();
+      drawEffects();
+      drawCompass();
+      drawScoreboard();
+      drawCombatLog();
+      drawHUD();
+      drawTradePanel();
+    }
+
+    // ===================== UI UPDATES =====================
+    function updateUI() {
+      if (!players || !players[0]) return;
+      score = playerScore(0);
+      document.getElementById('score').textContent = players[0].gold;
+      document.getElementById('turnIndicator').textContent = `Turn ${turn}/${MAX_TURNS}`;
+
+      const myShips = playerShips(0);
+      document.getElementById('fleetInfo').textContent = `${myShips.length} ship${myShips.length !== 1 ? 's' : ''} | Score: ${score}`;
+
+      // Fleet panel
+      let fh = '';
+      myShips.forEach((s, i) => {
+        const t = SHIP_TYPES[s.type];
+        fh += `<div class="row"><span>${t.name}${s.moved ? ' [moved]' : ''}</span><span>HP ${s.hp}/${s.maxHp} | ${t.cannons} guns</span></div>`;
+      });
+      document.getElementById('fleetDetails').innerHTML = fh || '<div class="row">No ships!</div>';
+
+      // Cargo panel
+      if (selectedShip && selectedShip.owner === 0) {
+        let ch = '';
+        GOODS.forEach(g => {
+          if (selectedShip.cargo[g] > 0) {
+            ch += `<div class="row"><span style="color:${GOOD_COLORS[g]}">${g}</span><span>${selectedShip.cargo[g]}</span></div>`;
+          }
+        });
+        ch += `<div class="row"><span>Space</span><span>${cargoSpace(selectedShip)}/${selectedShip.maxCargo}</span></div>`;
+        document.getElementById('cargoDetails').innerHTML = ch;
+      } else {
+        document.getElementById('cargoDetails').innerHTML = '<div class="row">Select a ship</div>';
+      }
+
+      // Action panel
+      let ah = '';
+      if (currentPlayer !== 0) {
+        ah = '<div class="row">Waiting for AI...</div>';
+      } else if (selectedShip) {
+        if (!selectedShip.moved) ah += '<div class="row">Click water/port to move</div>';
+        if (!selectedShip.acted) ah += '<div class="row">Click enemy to attack</div>';
+        const nearPort = ports.findIndex(p => dist(p, selectedShip) < 25);
+        if (nearPort >= 0) ah += `<div class="row">Click ${ports[nearPort].name} to trade</div>`;
+        ah += '<div class="row" style="color:#ec4">END TURN button bottom-right</div>';
+      } else {
+        ah = '<div class="row">Click your ship (blue) to select</div>';
+        ah += '<div class="row" style="color:#ec4">END TURN button bottom-right</div>';
+      }
+      document.getElementById('actionDetails').innerHTML = ah;
+
+      updateGameData();
+    }
+
+    // ===================== START / RESTART =====================
+    function startGame() {
+      document.getElementById('overlay').style.display = 'none';
+      gameState = 'playing';
+      initIslandSeeds();
+      initGame();
+      startPlayerTurn(0);
+      draw();
+    }
+
+    function init() {
+      initIslandSeeds();
+      // Draw start screen background
+      drawOcean();
+      drawIslands();
+      drawPorts();
+      drawCompass();
+    }
+
+    // ===================== GAME DATA EXPORT =====================
+    window.gameData = {};
+    function updateGameData() {
+      window.gameData = {
+        gameState,
+        score,
+        turn,
+        currentPlayer,
+        players: players ? players.map(p => ({ ...p })) : [],
+        ports: ports ? ports.map(p => ({ ...p })) : [],
+        ships: ships ? ships.filter(s => !s.sunk).map(s => ({ ...s, cargo: { ...s.cargo } })) : [],
+      };
+    }
+
+    // Animation loop
+    function animLoop() {
+      if (gameState === 'playing') draw();
+      requestAnimationFrame(animLoop);
+    }
+
+    init();
+    animLoop();
+  </script>
+  <script src="../recorder.js?v=2"></script>
+</body>
+</html>

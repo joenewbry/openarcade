@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Top-Down Shooter Arena - OpenArcade</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a2e;
+  color: #eee;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+a { color: #f44; text-decoration: none; }
+a:hover { text-decoration: underline; }
+#back-link {
+  position: fixed; top: 12px; left: 16px;
+  font-size: 14px; z-index: 100;
+  color: #f44;
+  text-shadow: 0 0 6px #f44;
+}
+#score-bar {
+  width: 600px; max-width: 95vw;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px; margin-top: 48px; margin-bottom: 4px;
+  background: rgba(244,68,68,0.08);
+  border: 1px solid rgba(244,68,68,0.25);
+  border-radius: 6px;
+  font-size: 13px;
+  text-shadow: 0 0 6px rgba(244,68,68,0.4);
+}
+#score-bar .label { color: #888; }
+#score-bar .value { color: #f44; font-weight: bold; }
+#game-container {
+  position: relative;
+  width: 600px; height: 600px; max-width: 95vw;
+  margin-top: 4px;
+}
+canvas#game {
+  width: 100%; height: 100%;
+  border: 1px solid rgba(244,68,68,0.3);
+  border-radius: 4px;
+  display: block;
+  cursor: crosshair;
+}
+#overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(26,26,46,0.92);
+  border-radius: 4px; z-index: 10;
+  transition: opacity 0.3s;
+}
+#overlay.hidden { opacity: 0; pointer-events: none; }
+#overlay h1 {
+  font-size: 28px; color: #f44;
+  text-shadow: 0 0 18px #f44, 0 0 40px rgba(244,68,68,0.3);
+  margin-bottom: 10px;
+}
+#overlay h2 {
+  font-size: 18px; color: #f44;
+  text-shadow: 0 0 12px #f44;
+  margin-bottom: 8px;
+}
+#overlay p {
+  font-size: 12px; color: #aaa; margin: 3px 0;
+  text-align: center; max-width: 400px;
+}
+#overlay .final-scores {
+  margin: 12px 0; font-size: 13px; text-align: left;
+}
+#overlay .final-scores div {
+  margin: 4px 0; color: #ccc;
+}
+#overlay .final-scores .winner { color: #f44; font-weight: bold; }
+#overlay button {
+  margin-top: 16px; padding: 10px 32px;
+  background: transparent;
+  border: 2px solid #f44;
+  color: #f44; font-family: 'Courier New', monospace;
+  font-size: 15px; cursor: pointer;
+  border-radius: 4px;
+  text-shadow: 0 0 8px rgba(244,68,68,0.5);
+  box-shadow: 0 0 12px rgba(244,68,68,0.15);
+  transition: all 0.2s;
+}
+#overlay button:hover {
+  background: rgba(244,68,68,0.15);
+  box-shadow: 0 0 20px rgba(244,68,68,0.3);
+}
+#hud {
+  position: absolute; bottom: 8px; left: 8px; right: 8px;
+  display: flex; justify-content: space-between; align-items: flex-end;
+  pointer-events: none; font-size: 11px; color: #ccc;
+  text-shadow: 0 0 4px rgba(0,0,0,0.8);
+}
+#hud .weapon-info {
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(244,68,68,0.3);
+  border-radius: 4px; padding: 6px 10px;
+}
+#hud .timer {
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(244,68,68,0.3);
+  border-radius: 4px; padding: 6px 10px;
+  font-size: 14px; color: #f44;
+}
+#controls-hint {
+  width: 600px; max-width: 95vw;
+  padding: 6px 14px; margin-top: 4px;
+  font-size: 10px; color: #555;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+<a id="back-link" href="../">&#8592; OpenArcade</a>
+
+<div id="score-bar">
+  <span><span class="label">KILLS </span><span class="value" id="sb-kills">0</span></span>
+  <span><span class="label">DEATHS </span><span class="value" id="sb-deaths">0</span></span>
+  <span><span class="label">SCORE </span><span class="value" id="sb-score">0</span></span>
+  <span><span class="label">TIME </span><span class="value" id="sb-time">3:00</span></span>
+</div>
+
+<div id="game-container">
+  <canvas id="game" width="600" height="600"></canvas>
+  <div id="hud">
+    <div class="weapon-info" id="weapon-hud">PISTOL | &#x221e;</div>
+    <div class="timer" id="timer-hud">3:00</div>
+  </div>
+  <div id="overlay">
+    <h1>TOP-DOWN SHOOTER ARENA</h1>
+    <p>WASD = Move &bull; Mouse = Aim &bull; Click = Shoot</p>
+    <p>E = Pickup &bull; R = Reload</p>
+    <p style="margin-top:8px; color:#f44;">3-minute Deathmatch &bull; 4 Players</p>
+    <button id="start-btn">START MATCH</button>
+  </div>
+</div>
+
+<div id="controls-hint">
+  WASD move &bull; Mouse aim &bull; Click shoot &bull; E pickup &bull; R reload
+</div>
+
+<script type="module">
+  import { createGame } from './game.js';
+  createGame();
+</script>
+<script src="../rating.js?v=2"></script>
+</body>
+</html>
