@@ -47,17 +47,18 @@
       e.stopPropagation();
       return;
     }
-    // Block everything else from reaching the game
+    // Only block keys when user is actively typing in widget's textarea or email input.
+    // Otherwise let keys through so the game can restart, and auto-dismiss the widget.
+    var active = document.activeElement;
+    var isTyping = widget && widget.contains(active) &&
+                   (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT');
+    if (!isTyping) {
+      hideWidget();
+      return;
+    }
+    // Typing in widget — block events from reaching the game
     e.stopPropagation();
     e.stopImmediatePropagation();
-    // For the textarea we still want the key to work (typing), but for
-    // keys like Space/ArrowUp that games use, prevent default too unless
-    // the user is actively typing in the textarea or email input.
-    var tag = e.target && e.target.tagName;
-    var isInput = tag === 'TEXTAREA' || tag === 'INPUT';
-    if (!isInput) {
-      e.preventDefault();
-    }
   }
 
   ['keydown', 'keyup', 'keypress'].forEach(function (evt) {
