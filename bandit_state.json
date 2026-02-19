@@ -1,35 +1,35 @@
 {
   "version": 1,
-  "updated_at": "2026-02-17T00:00:00Z",
+  "updated_at": "2026-02-19T02:00:01.540382+00:00",
   "arms": [
     {
       "name": "default",
-      "alpha": 1,
-      "beta": 1,
+      "alpha": 6,
+      "beta": 21,
       "description": "Original HTML order"
     },
     {
       "name": "classics",
       "alpha": 1,
-      "beta": 1,
+      "beta": 7,
       "description": "Iconic arcade classics first (Pac-Man, Tetris, Galaga, etc.)"
     },
     {
       "name": "casual",
-      "alpha": 1,
-      "beta": 1,
+      "alpha": 4,
+      "beta": 16,
       "description": "Easy/casual/modern games first (Cookie Clicker, 2048, Snake, etc.)"
     },
     {
       "name": "action",
-      "alpha": 1,
-      "beta": 1,
+      "alpha": 7,
+      "beta": 12,
       "description": "High-action shooters first (Galaga, Robotron, 1942, etc.)"
     },
     {
       "name": "random",
-      "alpha": 1,
-      "beta": 1,
+      "alpha": 2,
+      "beta": 11,
       "description": "Shuffled every pageview (exploration arm)"
     }
   ],
@@ -52,5 +52,6 @@
       "beta": 1,
       "description": "Autoplay muted looping MP4 preview at top of each card"
     }
-  ]
+  ],
+  "total_pageviews": 77
 }
