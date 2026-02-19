@@ -5,6 +5,7 @@
  * Detects game-over state, shows a non-obtrusive 5-star rating bar.
  * If user rates, expands to optional text feedback.
  * Sends data to POST /api/events/rating on the ingest hub.
+ * Shows AI classification response and email collection for actionable feedback.
  * Does NOT block game restart — widget sits outside the overlay.
  */
 (function () {
@@ -12,6 +13,7 @@
 
   // ── Config ──────────────────────────────────────────────
   var RATING_URL = '/api/events/rating';
+  var EMAIL_URL = '/api/events/feedback-email';
   var SHOW_DELAY_MS = 800; // delay after game-over before showing widget
 
   // ── State ───────────────────────────────────────────────
@@ -20,6 +22,7 @@
   var sessionRated = false;
   var widget = null;
   var currentRating = 0;
+  var widgetVisible = false;
 
   function detectGameName() {
     var path = window.location.pathname;
@@ -30,6 +33,36 @@
     }
     return 'unknown';
   }
+
+  // ── Global keyboard blocker (capture phase) ────────────
+  // When the widget is visible, intercept ALL keyboard events at the
+  // document level during the capture phase so they never reach game listeners.
+  function blockGameKeys(e) {
+    if (!widgetVisible) return;
+    // Allow Escape to dismiss
+    if (e.key === 'Escape') {
+      hideWidget();
+      sessionRated = true;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    // Block everything else from reaching the game
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    // For the textarea we still want the key to work (typing), but for
+    // keys like Space/ArrowUp that games use, prevent default too unless
+    // the user is actively typing in the textarea or email input.
+    var tag = e.target && e.target.tagName;
+    var isInput = tag === 'TEXTAREA' || tag === 'INPUT';
+    if (!isInput) {
+      e.preventDefault();
+    }
+  }
+
+  ['keydown', 'keyup', 'keypress'].forEach(function (evt) {
+    document.addEventListener(evt, blockGameKeys, true); // capture phase
+  });
 
   // ── Build widget DOM ────────────────────────────────────
   function createWidget() {
@@ -45,8 +78,16 @@
         '<span class="ar-star" data-v="5">&#9733;</span>' +
       '</div>' +
       '<div class="ar-feedback" style="display:none;">' +
-        '<textarea class="ar-textarea" placeholder="Any feedback? (optional)" rows="2" maxlength="500"></textarea>' +
+        '<textarea class="ar-textarea" placeholder="Any suggestions to make the game better? Bugs? Anything else?" rows="3" maxlength="500"></textarea>' +
         '<button class="ar-submit">Send</button>' +
+      '</div>' +
+      '<div class="ar-ai-response" style="display:none;"></div>' +
+      '<div class="ar-email-prompt" style="display:none;">' +
+        '<p class="ar-email-text"></p>' +
+        '<div class="ar-email-row">' +
+          '<input type="email" class="ar-email-input" placeholder="your@email.com">' +
+          '<button class="ar-email-submit">Notify me</button>' +
+        '</div>' +
       '</div>' +
       '<div class="ar-thanks" style="display:none;">Thanks!</div>' +
       '<button class="ar-dismiss">&times;</button>';
@@ -58,7 +99,7 @@
         'position: fixed; bottom: 20px; right: 20px; z-index: 9999;' +
         'background: #16213e; border: 1px solid #0f3460; border-radius: 12px;' +
         'padding: 14px 18px; font-family: "Courier New", monospace;' +
-        'box-shadow: 0 4px 24px rgba(0,0,0,0.5); max-width: 260px;' +
+        'box-shadow: 0 4px 24px rgba(0,0,0,0.5); max-width: 300px;' +
         'opacity: 0; transform: translateY(20px);' +
         'transition: opacity 0.3s, transform 0.3s;' +
       '}' +
@@ -77,6 +118,7 @@
         'width: 100%; background: #0d1a33; border: 1px solid #0f3460;' +
         'border-radius: 6px; color: #e0e0e0; padding: 8px; font-size: 0.8rem;' +
         'font-family: "Courier New", monospace; resize: none; outline: none;' +
+        'box-sizing: border-box;' +
       '}' +
       '.ar-textarea:focus { border-color: #0ff; }' +
       '.ar-submit {' +
@@ -86,22 +128,51 @@
         'cursor: pointer; transition: background 0.2s;' +
       '}' +
       '.ar-submit:hover { background: rgba(0,255,255,0.2); }' +
+      '.ar-ai-response {' +
+        'margin-top: 10px; padding: 10px; background: #0d1a33;' +
+        'border: 1px solid #0f3460; border-radius: 6px;' +
+        'font-size: 0.78rem; color: #ccc; line-height: 1.4;' +
+      '}' +
+      '.ar-ai-response .ar-ai-tag {' +
+        'display: inline-block; font-size: 0.65rem; padding: 2px 6px;' +
+        'border-radius: 3px; margin-bottom: 6px; font-weight: bold;' +
+        'letter-spacing: 0.5px;' +
+      '}' +
+      '.ar-ai-tag-feature { background: rgba(0,255,255,0.15); color: #0ff; border: 1px solid rgba(0,255,255,0.3); }' +
+      '.ar-ai-tag-bug { background: rgba(255,80,80,0.15); color: #f55; border: 1px solid rgba(255,80,80,0.3); }' +
+      '.ar-ai-tag-feedback { background: rgba(136,136,255,0.15); color: #88f; border: 1px solid rgba(136,136,255,0.3); }' +
+      '.ar-email-prompt { margin-top: 10px; }' +
+      '.ar-email-text { color: #0f8; font-size: 0.78rem; margin: 0 0 8px 0; line-height: 1.4; }' +
+      '.ar-email-row { display: flex; gap: 6px; }' +
+      '.ar-email-input {' +
+        'flex: 1; background: #0d1a33; border: 1px solid #0f3460;' +
+        'border-radius: 6px; color: #e0e0e0; padding: 6px 8px; font-size: 0.75rem;' +
+        'font-family: "Courier New", monospace; outline: none;' +
+      '}' +
+      '.ar-email-input:focus { border-color: #0f8; }' +
+      '.ar-email-submit {' +
+        'padding: 6px 12px; background: rgba(0,255,136,0.1);' +
+        'border: 1px solid #0f8; border-radius: 6px; color: #0f8;' +
+        'font-family: "Courier New", monospace; font-size: 0.75rem;' +
+        'cursor: pointer; white-space: nowrap;' +
+      '}' +
+      '.ar-email-submit:hover { background: rgba(0,255,136,0.2); }' +
       '.ar-thanks { color: #0f8; font-size: 0.9rem; margin-top: 8px; }' +
       '.ar-dismiss {' +
         'position: absolute; top: 6px; right: 8px; background: none;' +
         'border: none; color: #555; font-size: 1.1rem; cursor: pointer;' +
         'line-height: 1; padding: 2px 4px;' +
       '}' +
-      '.ar-dismiss:hover { color: #aaa; }';
+      '.ar-dismiss:hover { color: #aaa; }' +
+      '.ar-spinner {' +
+        'display: inline-block; width: 12px; height: 12px;' +
+        'border: 2px solid rgba(0,255,255,0.3); border-top-color: #0ff;' +
+        'border-radius: 50%; animation: ar-spin 0.6s linear infinite;' +
+        'vertical-align: middle; margin-right: 6px;' +
+      '}' +
+      '@keyframes ar-spin { to { transform: rotate(360deg); } }';
     document.head.appendChild(style);
     document.body.appendChild(container);
-
-    // Block ALL keyboard events from reaching the game while widget is visible
-    ['keydown', 'keyup', 'keypress'].forEach(function (evt) {
-      container.addEventListener(evt, function (e) {
-        e.stopPropagation();
-      });
-    });
 
     // Wire up stars
     var stars = container.querySelectorAll('.ar-star');
@@ -122,20 +193,60 @@
         });
         // Show feedback area
         container.querySelector('.ar-feedback').style.display = 'block';
-        sendRating(currentRating, '');
+        sendRatingBeacon(currentRating, '');
+        // Focus the textarea so the user can start typing immediately
+        setTimeout(function () {
+          container.querySelector('.ar-textarea').focus();
+        }, 50);
       });
     });
 
-    // Wire up submit feedback
+    // Wire up submit feedback — uses fetch to get AI classification response
     container.querySelector('.ar-submit').addEventListener('click', function () {
-      var feedback = container.querySelector('.ar-textarea').value.trim();
-      if (feedback) {
-        sendRating(currentRating, feedback);
+      var textarea = container.querySelector('.ar-textarea');
+      var feedback = textarea.value.trim();
+      if (!feedback) {
+        // No text — just close with thanks
+        container.querySelector('.ar-feedback').style.display = 'none';
+        container.querySelector('.ar-thanks').style.display = 'block';
+        sessionRated = true;
+        setTimeout(function () { hideWidget(); }, 1500);
+        return;
       }
-      container.querySelector('.ar-feedback').style.display = 'none';
+      // Show spinner while waiting for AI classification
+      var submitBtn = container.querySelector('.ar-submit');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="ar-spinner"></span>Analyzing...';
+
+      sendRatingWithResponse(currentRating, feedback, function (data) {
+        container.querySelector('.ar-feedback').style.display = 'none';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Send';
+
+        if (data && data.classification && data.classification !== 'invalid') {
+          showAIResponse(container, data);
+        } else {
+          container.querySelector('.ar-thanks').style.display = 'block';
+          sessionRated = true;
+          setTimeout(function () { hideWidget(); }, 2000);
+        }
+      });
+    });
+
+    // Wire up email submit
+    container.querySelector('.ar-email-submit').addEventListener('click', function () {
+      var emailInput = container.querySelector('.ar-email-input');
+      var email = emailInput.value.trim();
+      if (!email || email.indexOf('@') === -1) {
+        emailInput.style.borderColor = '#f55';
+        return;
+      }
+      sendEmail(email);
+      container.querySelector('.ar-email-prompt').style.display = 'none';
       container.querySelector('.ar-thanks').style.display = 'block';
+      container.querySelector('.ar-thanks').textContent = "We'll email you when it's live!";
       sessionRated = true;
-      setTimeout(function () { hideWidget(); }, 1500);
+      setTimeout(function () { hideWidget(); }, 2500);
     });
 
     // Wire up dismiss
@@ -147,15 +258,50 @@
     return container;
   }
 
+  function showAIResponse(container, data) {
+    var aiDiv = container.querySelector('.ar-ai-response');
+    var cls = data.classification;
+    var tagClass = cls === 'feature_suggestion' ? 'ar-ai-tag-feature'
+      : cls === 'bug_report' ? 'ar-ai-tag-bug'
+      : 'ar-ai-tag-feedback';
+    var tagLabel = cls === 'feature_suggestion' ? 'FEATURE IDEA'
+      : cls === 'bug_report' ? 'BUG REPORT'
+      : 'FEEDBACK';
+
+    aiDiv.innerHTML =
+      '<span class="ar-ai-tag ' + tagClass + '">' + tagLabel + '</span>' +
+      '<div>' + (data.message || 'Thanks for the feedback!') + '</div>';
+    aiDiv.style.display = 'block';
+
+    // For actionable feedback (feature/bug), show email collection
+    if (cls === 'feature_suggestion' || cls === 'bug_report') {
+      var emailPrompt = container.querySelector('.ar-email-prompt');
+      var emailText = container.querySelector('.ar-email-text');
+      emailText.textContent = "We're using AI to build this — should be ready in ~15 min. Want to be notified?";
+      emailPrompt.style.display = 'block';
+      setTimeout(function () {
+        container.querySelector('.ar-email-input').focus();
+      }, 100);
+    } else {
+      // General feedback — auto-dismiss after a bit
+      sessionRated = true;
+      setTimeout(function () { hideWidget(); }, 4000);
+    }
+  }
+
   function showWidget() {
     if (sessionRated) return;
     if (!widget) widget = createWidget();
     widget.classList.remove('ar-hidden');
+    widgetVisible = true;
     // Reset state
     currentRating = 0;
     widget.querySelectorAll('.ar-star').forEach(function (s) { s.classList.remove('ar-active'); });
     widget.querySelector('.ar-feedback').style.display = 'none';
+    widget.querySelector('.ar-ai-response').style.display = 'none';
+    widget.querySelector('.ar-email-prompt').style.display = 'none';
     widget.querySelector('.ar-thanks').style.display = 'none';
+    widget.querySelector('.ar-thanks').textContent = 'Thanks!';
     // Trigger animation
     requestAnimationFrame(function () {
       widget.classList.add('ar-visible');
@@ -164,11 +310,13 @@
 
   function hideWidget() {
     if (!widget) return;
+    widgetVisible = false;
     widget.classList.remove('ar-visible');
     setTimeout(function () { widget.classList.add('ar-hidden'); }, 300);
   }
 
-  function sendRating(rating, feedback) {
+  // Fire-and-forget rating (for initial star click, no text feedback)
+  function sendRatingBeacon(rating, feedback) {
     var payload = {
       event: 'game_rating',
       game: gameName,
@@ -181,6 +329,41 @@
     };
     try {
       navigator.sendBeacon(RATING_URL, JSON.stringify(payload));
+    } catch (e) { /* silent */ }
+  }
+
+  // Send rating with feedback text — use fetch to get AI classification response
+  function sendRatingWithResponse(rating, feedback, callback) {
+    var payload = {
+      event: 'game_rating',
+      game: gameName,
+      rating: rating,
+      feedback: feedback,
+      visitor_id: visitorId,
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+      user_agent: navigator.userAgent
+    };
+    fetch(RATING_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) { callback(data); })
+    .catch(function () { callback(null); });
+  }
+
+  // Save email for notification
+  function sendEmail(email) {
+    var payload = {
+      game: gameName,
+      email: email,
+      visitor_id: visitorId,
+      timestamp: new Date().toISOString()
+    };
+    try {
+      navigator.sendBeacon(EMAIL_URL, JSON.stringify(payload));
     } catch (e) { /* silent */ }
   }
 

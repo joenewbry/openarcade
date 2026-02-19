@@ -268,6 +268,25 @@
     }, { passive: true });
   }
 
+  // ── Heartbeat (tracks online presence) ───────────────────────────────
+  var HEARTBEAT_URL = '/api/events/heartbeat';
+  var HEARTBEAT_INTERVAL_MS = 30000; // 30s
+
+  function startHeartbeat() {
+    sendHeartbeat(); // send immediately
+    setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+  }
+
+  function sendHeartbeat() {
+    try {
+      navigator.sendBeacon(HEARTBEAT_URL, JSON.stringify({
+        game: gameName,
+        visitor_id: collectorId,
+        timestamp: new Date().toISOString()
+      }));
+    } catch (e) { /* silent */ }
+  }
+
   // ── Page unload handler ───────────────────────────────────────────────
   function setupUnloadHandler() {
     document.addEventListener('visibilitychange', function () {
@@ -318,6 +337,7 @@
     setupInputListeners();
     setupUnloadHandler();
     showTrainingBadge();
+    startHeartbeat();
     watchGameState();
   }
 
