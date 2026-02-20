@@ -28,6 +28,7 @@ const state = {
     'concept-art':   false,
     'ready':         false,
   },
+  techTree: {},             // node → value mapping (e.g. { genre: 'platformer' })
   conceptArtPrompt: null,
   conceptArtImages: [],     // array of URLs
   selectedArt: null,        // chosen art URL
@@ -35,6 +36,57 @@ const state = {
   currentIframeSrc: null,   // URL of game iframe
   patchPending: false,
 };
+
+// ── Tech Tree Definition ─────────────────────────────────────
+const TECH_TREE_TIERS = [
+  {
+    name: 'Foundation',
+    nodes: [
+      { id: 'genre', label: 'Genre', chatPrompt: "Let's decide on the game genre" },
+      { id: 'theme', label: 'Theme', chatPrompt: "What theme or setting should the game have?" },
+    ],
+    weight: 15, // % per node
+  },
+  {
+    name: 'Mechanics',
+    nodes: [
+      { id: 'controls', label: 'Controls', chatPrompt: "What controls should the player use?" },
+      { id: 'core-loop', label: 'Core Loop', chatPrompt: "What's the core gameplay loop?" },
+      { id: 'win-condition', label: 'Win Condition', chatPrompt: "How does the player win or progress?" },
+      { id: 'progression', label: 'Progression', chatPrompt: "What kind of progression system should we use?" },
+    ],
+    weight: 10,
+  },
+  {
+    name: 'Tech Stack',
+    auto: true,
+    nodes: [
+      { id: 'rendering', label: 'Rendering' },
+      { id: 'physics', label: 'Physics' },
+      { id: 'audio-engine', label: 'Audio' },
+      { id: 'multiplayer-engine', label: 'Multiplayer' },
+    ],
+    weight: 0, // auto-resolved, no progress contribution
+  },
+  {
+    name: 'Polish',
+    nodes: [
+      { id: 'visual-style', label: 'Visual Style', chatPrompt: "What visual style are you going for?" },
+      { id: 'level-design', label: 'Level Design', chatPrompt: "How should the levels be structured?" },
+      { id: 'ai-npc', label: 'AI/NPC', chatPrompt: "Should the game have AI-controlled characters or NPCs?" },
+      { id: 'economy', label: 'Economy', chatPrompt: "Should the game have an economy or currency system?" },
+    ],
+    weight: 5,
+  },
+  {
+    name: 'Finalize',
+    nodes: [
+      { id: 'concept-art', label: 'Concept Art' },
+      { id: 'ready', label: 'Ready to Generate', locked: true },
+    ],
+    weight: 5,
+  },
+];
 
 // ── DOM refs ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -46,7 +98,17 @@ const dom = {
   generateBtn:     $('gbGenerateBtn'),
   phaseDots:       document.querySelectorAll('.gb-phase-dot'),
 
-  emptyRight:      $('gbEmptyRight'),
+  designPanel:     $('gbDesignPanel'),
+  techTree:        $('gbTechTree'),
+  tabTree:         $('gbTabTree'),
+  tabGameMd:       $('gbTabGameMd'),
+  tabContentTree:  $('gbTabContentTree'),
+  tabContentGameMd:$('gbTabContentGameMd'),
+  gameMdPreview:   $('gbGameMdPreview'),
+  toastContainer:  $('gbToastContainer'),
+  globalProgressFill:  $('gbGlobalProgressFill'),
+  globalProgressLabel: $('gbGlobalProgressLabel'),
+
   artPanel:        $('gbArtPanel'),
   artGrid:         $('gbArtGrid'),
   progressPanel:   $('gbProgressPanel'),
@@ -100,6 +162,9 @@ function init() {
   }
 
   updateChecklist({});
+  renderTechTree();
+  initDesignTabs();
+  updateGlobalProgress();
   setPhase('DESIGN');
 }
 
@@ -115,7 +180,7 @@ function setPhase(phase) {
   });
 
   // Show/hide right panels
-  dom.emptyRight.style.display    = phase === 'DESIGN' ? 'flex' : 'none';
+  dom.designPanel.style.display   = phase === 'DESIGN' ? 'flex' : 'none';
   dom.artPanel.classList.toggle('visible',      phase === 'VISUALIZE');
   dom.progressPanel.classList.toggle('visible', phase === 'GENERATING');
   dom.gamePanel.classList.toggle('visible',     phase === 'PLAYING');
@@ -165,16 +230,22 @@ async function sendMessage() {
       if (response.metadata.designUpdates) {
         applyDesignUpdates(response.metadata.designUpdates);
       }
+      if (response.metadata.techTreeUpdates) {
+        applyTechTreeUpdates(response.metadata.techTreeUpdates);
+      }
       if (response.metadata.conceptArtPrompt) {
         state.conceptArtPrompt = response.metadata.conceptArtPrompt;
         updateChecklist({ 'concept-art': true });
+        resolveTechTreeNode('concept-art', 'ready');
         showConceptArtButton();
       }
       if (response.metadata.readyToGenerate) {
         updateChecklist({ 'ready': true });
+        resolveTechTreeNode('ready', 'yes');
         dom.generateBtn.classList.add('visible');
         dom.generateBtn.textContent = 'Generate Game →';
       }
+      updateGameMdPreview();
     }
 
   } catch (e) {
@@ -415,6 +486,18 @@ const STEP_DESCRIPTIONS = {
 async function startGeneration() {
   dom.generateBtn.disabled = true;
   dom.generateBtn.textContent = 'Building…';
+
+  // Save complete game.md from tech tree state before generating
+  try {
+    await fetch(`${API_BASE}/api/save-game-md`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: state.gameId, content: buildGameMdFromTree() }),
+    });
+  } catch (e) {
+    console.warn('Save game.md failed (non-fatal):', e.message);
+  }
+
   setPhase('GENERATING');
   state.generationStartTime = Date.now();
   state.completedSteps = [];
@@ -483,6 +566,9 @@ async function startGeneration() {
 function setProgress(pct, stepLabel) {
   dom.progressBar.style.width = pct + '%';
   dom.progressPct.textContent = pct + '%';
+
+  // Also update global progress bar during generation
+  setGlobalProgress(pct);
 
   const friendlyLabel = STEP_DESCRIPTIONS[stepLabel?.replace(/\s+/g, '-')] || stepLabel || '';
   dom.progressStep.textContent = friendlyLabel;
@@ -625,6 +711,299 @@ function addPatchBadge(type, label) {
   badge.className = `gb-patch-badge ${type}`;
   badge.textContent = label;
   lastMsg.querySelector('.gb-bubble')?.appendChild(badge);
+}
+
+// ── Tech Tree ─────────────────────────────────────────────────
+function renderTechTree() {
+  const container = dom.techTree;
+  if (!container) return;
+  container.innerHTML = '';
+
+  TECH_TREE_TIERS.forEach((tier, tierIdx) => {
+    // Add connector between tiers
+    if (tierIdx > 0) {
+      const connector = document.createElement('div');
+      connector.className = 'gb-tree-connector';
+      container.appendChild(connector);
+    }
+
+    const tierEl = document.createElement('div');
+    tierEl.className = 'gb-tree-tier';
+
+    const label = document.createElement('div');
+    label.className = 'gb-tree-tier-label';
+    label.textContent = `${tierIdx + 1}. ${tier.name}${tier.auto ? ' (auto)' : ''}`;
+    tierEl.appendChild(label);
+
+    const nodesRow = document.createElement('div');
+    nodesRow.className = 'gb-tree-tier-nodes';
+
+    tier.nodes.forEach(node => {
+      const nodeEl = document.createElement('div');
+      nodeEl.className = 'gb-tree-node';
+      nodeEl.setAttribute('data-node-id', node.id);
+
+      if (node.locked) nodeEl.classList.add('locked');
+      if (tier.auto) nodeEl.style.cursor = 'default';
+
+      const nodeLabel = document.createElement('div');
+      nodeLabel.className = 'gb-tree-node-label';
+      nodeLabel.textContent = node.label;
+
+      const nodeValue = document.createElement('div');
+      nodeValue.className = 'gb-tree-node-value';
+      nodeValue.textContent = state.techTree[node.id] || '';
+
+      nodeEl.appendChild(nodeLabel);
+      nodeEl.appendChild(nodeValue);
+
+      // Click handler for unresolved nodes
+      if (node.chatPrompt && !tier.auto) {
+        nodeEl.addEventListener('click', () => onTreeNodeClick(node));
+      }
+
+      nodesRow.appendChild(nodeEl);
+    });
+
+    tierEl.appendChild(nodesRow);
+    container.appendChild(tierEl);
+  });
+}
+
+function onTreeNodeClick(node) {
+  if (state.techTree[node.id]) return; // already resolved
+  if (dom.sendBtn.disabled) return; // chat busy
+
+  // Mark as pending
+  const nodeEl = dom.techTree.querySelector(`[data-node-id="${node.id}"]`);
+  if (nodeEl) nodeEl.classList.add('pending');
+
+  // Send the prompt as a chat message
+  dom.input.value = node.chatPrompt;
+  sendMessage();
+}
+
+function applyTechTreeUpdates(updates) {
+  let delay = 0;
+  for (const u of updates) {
+    if (u.node && u.value) {
+      setTimeout(() => {
+        resolveTechTreeNode(u.node, u.value);
+      }, delay);
+      delay += 200; // stagger animations
+    }
+  }
+  // Auto-resolve tech stack after a short delay
+  setTimeout(() => autoResolveTechStack(), delay + 300);
+}
+
+function resolveTechTreeNode(nodeId, value) {
+  state.techTree[nodeId] = value;
+
+  const nodeEl = dom.techTree.querySelector(`[data-node-id="${nodeId}"]`);
+  if (nodeEl) {
+    nodeEl.classList.remove('pending', 'locked');
+    nodeEl.classList.add('resolved');
+    const valueEl = nodeEl.querySelector('.gb-tree-node-value');
+    if (valueEl) valueEl.textContent = value;
+  }
+
+  // Unlock "ready" node when tiers 1, 2, 4 have enough
+  checkReadyUnlock();
+
+  // Show toast
+  const label = findNodeLabel(nodeId);
+  if (label) showToast(`${label}: ${value}`);
+
+  updateGlobalProgress();
+}
+
+function autoResolveTechStack() {
+  // Infer tech stack from resolved design nodes (mirrors ontology.js logic)
+  const tree = state.techTree;
+
+  // Rendering
+  if (!tree['rendering']) {
+    if (tree['genre'] && /fps|3d/i.test(tree['genre'])) {
+      autoResolveNode('rendering', 'Three.js');
+    } else if (tree['genre'] || tree['theme']) {
+      autoResolveNode('rendering', 'Canvas 2D');
+    }
+  }
+
+  // Physics
+  if (!tree['physics']) {
+    if (tree['genre'] && /platformer|pinball|physics/i.test(tree['genre'])) {
+      autoResolveNode('physics', 'Matter.js');
+    } else if (tree['core-loop'] && /build|solve/i.test(tree['core-loop'])) {
+      autoResolveNode('physics', 'none');
+    } else if (tree['genre']) {
+      autoResolveNode('physics', 'none');
+    }
+  }
+
+  // Audio
+  if (!tree['audio-engine']) {
+    if (tree['genre'] && /rhythm|music/i.test(tree['genre'])) {
+      autoResolveNode('audio-engine', 'Tone.js');
+    } else if (tree['genre']) {
+      autoResolveNode('audio-engine', 'Web Audio API');
+    }
+  }
+
+  // Multiplayer
+  if (!tree['multiplayer-engine']) {
+    if (tree['core-loop'] || tree['genre']) {
+      autoResolveNode('multiplayer-engine', 'none');
+    }
+  }
+}
+
+function autoResolveNode(nodeId, value) {
+  state.techTree[nodeId] = value;
+  const nodeEl = dom.techTree.querySelector(`[data-node-id="${nodeId}"]`);
+  if (nodeEl) {
+    nodeEl.classList.add('auto-resolved');
+    const valueEl = nodeEl.querySelector('.gb-tree-node-value');
+    if (valueEl) valueEl.textContent = value;
+  }
+}
+
+function findNodeLabel(nodeId) {
+  for (const tier of TECH_TREE_TIERS) {
+    const node = tier.nodes.find(n => n.id === nodeId);
+    if (node) return node.label;
+  }
+  return null;
+}
+
+function checkReadyUnlock() {
+  // Unlock "ready" if tiers 1-2 are mostly filled
+  const tier1Filled = ['genre', 'theme'].filter(id => state.techTree[id]).length;
+  const tier2Filled = ['controls', 'core-loop', 'win-condition', 'progression'].filter(id => state.techTree[id]).length;
+
+  if (tier1Filled >= 1 && tier2Filled >= 2) {
+    const readyNode = dom.techTree.querySelector('[data-node-id="ready"]');
+    if (readyNode && readyNode.classList.contains('locked')) {
+      readyNode.classList.remove('locked');
+    }
+  }
+}
+
+// ── Global Progress Bar ───────────────────────────────────────
+function updateGlobalProgress() {
+  let pct = 0;
+  const tree = state.techTree;
+
+  // Tier 1 (15% each, 2 nodes = 30%)
+  if (tree['genre']) pct += 15;
+  if (tree['theme']) pct += 15;
+
+  // Tier 2 (10% each, 4 nodes = 40%)
+  if (tree['controls']) pct += 10;
+  if (tree['core-loop']) pct += 10;
+  if (tree['win-condition']) pct += 10;
+  if (tree['progression']) pct += 10;
+
+  // Tier 4 (5% each, 4 nodes = 20%)
+  if (tree['visual-style']) pct += 5;
+  if (tree['level-design']) pct += 5;
+  if (tree['ai-npc']) pct += 5;
+  if (tree['economy']) pct += 5;
+
+  // Concept art: 5%
+  if (tree['concept-art']) pct += 5;
+
+  // Ready: 5%
+  if (tree['ready']) pct += 5;
+
+  setGlobalProgress(pct);
+}
+
+function setGlobalProgress(pct) {
+  if (dom.globalProgressFill) {
+    dom.globalProgressFill.style.width = pct + '%';
+  }
+  if (dom.globalProgressLabel) {
+    dom.globalProgressLabel.textContent = pct + '%';
+  }
+}
+
+// ── Design Tabs ───────────────────────────────────────────────
+function initDesignTabs() {
+  dom.tabTree?.addEventListener('click', () => switchDesignTab('tree'));
+  dom.tabGameMd?.addEventListener('click', () => switchDesignTab('gamemd'));
+}
+
+function switchDesignTab(tab) {
+  const isTree = tab === 'tree';
+  dom.tabTree?.classList.toggle('active', isTree);
+  dom.tabGameMd?.classList.toggle('active', !isTree);
+  if (dom.tabContentTree) dom.tabContentTree.style.display = isTree ? '' : 'none';
+  if (dom.tabContentGameMd) dom.tabContentGameMd.style.display = isTree ? 'none' : '';
+  if (!isTree) updateGameMdPreview();
+}
+
+// ── game.md Preview ───────────────────────────────────────────
+function updateGameMdPreview() {
+  if (!dom.gameMdPreview) return;
+  dom.gameMdPreview.textContent = buildGameMdFromTree();
+}
+
+function buildGameMdFromTree() {
+  const tree = state.techTree;
+  let md = `# Game: ${state.gameId}\n`;
+  md += `**Status**: designing\n\n`;
+
+  if (tree['genre'] || tree['theme']) {
+    md += `## Core Concept\n`;
+    if (tree['genre']) md += `- Genre: ${tree['genre']}\n`;
+    if (tree['theme']) md += `- Theme: ${tree['theme']}\n`;
+    md += `\n`;
+  }
+
+  if (tree['controls'] || tree['core-loop'] || tree['win-condition'] || tree['progression']) {
+    md += `## Mechanics\n`;
+    if (tree['controls']) md += `- Controls: ${tree['controls']}\n`;
+    if (tree['core-loop']) md += `- Core Loop: ${tree['core-loop']}\n`;
+    if (tree['win-condition']) md += `- Win Condition: ${tree['win-condition']}\n`;
+    if (tree['progression']) md += `- Progression: ${tree['progression']}\n`;
+    md += `\n`;
+  }
+
+  if (tree['rendering'] || tree['physics'] || tree['audio-engine'] || tree['multiplayer-engine']) {
+    md += `## Tech Stack\n`;
+    if (tree['rendering']) md += `- Rendering: ${tree['rendering']}\n`;
+    if (tree['physics']) md += `- Physics: ${tree['physics']}\n`;
+    if (tree['audio-engine']) md += `- Audio: ${tree['audio-engine']}\n`;
+    if (tree['multiplayer-engine']) md += `- Multiplayer: ${tree['multiplayer-engine']}\n`;
+    md += `\n`;
+  }
+
+  if (tree['visual-style'] || tree['level-design'] || tree['ai-npc'] || tree['economy']) {
+    md += `## Polish\n`;
+    if (tree['visual-style']) md += `- Visual Style: ${tree['visual-style']}\n`;
+    if (tree['level-design']) md += `- Level Design: ${tree['level-design']}\n`;
+    if (tree['ai-npc']) md += `- AI/NPC: ${tree['ai-npc']}\n`;
+    if (tree['economy']) md += `- Economy: ${tree['economy']}\n`;
+    md += `\n`;
+  }
+
+  md += `## Changelog\n`;
+  return md;
+}
+
+// ── Toast Notifications ───────────────────────────────────────
+function showToast(message) {
+  const container = dom.toastContainer;
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'gb-toast';
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  }, 2200);
 }
 
 // ── Checklist ─────────────────────────────────────────────────

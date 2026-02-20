@@ -24,6 +24,17 @@
   <a href="/library-ontology/" class="gb-lib-link" target="_blank">Tech Stack ↗</a>
 </header>
 
+<!-- ── Global Progress Bar ────────────────────────────────── -->
+<div class="gb-global-progress">
+  <div class="gb-global-progress-fill" id="gbGlobalProgressFill"></div>
+  <div class="gb-global-progress-ticks">
+    <div class="gb-tick" style="left:25%"></div>
+    <div class="gb-tick" style="left:50%"></div>
+    <div class="gb-tick" style="left:75%"></div>
+  </div>
+  <div class="gb-global-progress-label" id="gbGlobalProgressLabel">0%</div>
+</div>
+
 <!-- ── Main ───────────────────────────────────────────────── -->
 <main class="gb-main">
 
@@ -63,11 +74,20 @@
   <!-- ── Right panel ───────────────────────────────────────── -->
   <section class="gb-right">
 
-    <!-- Empty state (DESIGN phase) -->
-    <div class="gb-empty-right" id="gbEmptyRight">
-      <div class="gb-empty-icon">🎮</div>
-      <div>Describe your game in the chat</div>
-      <div style="color:var(--border);font-size:0.65rem">Concept art and preview will appear here</div>
+    <!-- Tech Tree + game.md panel (DESIGN phase) -->
+    <div class="gb-design-panel" id="gbDesignPanel">
+      <div class="gb-design-tabs">
+        <button class="gb-design-tab active" data-tab="tree" id="gbTabTree">Tech Tree</button>
+        <button class="gb-design-tab" data-tab="gamemd" id="gbTabGameMd">game.md</button>
+      </div>
+      <div class="gb-design-tab-content" id="gbTabContentTree">
+        <div class="gb-tech-tree" id="gbTechTree">
+          <!-- Rendered by builder.js -->
+        </div>
+      </div>
+      <div class="gb-design-tab-content" id="gbTabContentGameMd" style="display:none">
+        <pre class="gb-gamemd-preview" id="gbGameMdPreview">Design decisions will appear here as you chat...</pre>
+      </div>
     </div>
 
     <!-- Concept art panel (VISUALIZE phase) -->
@@ -115,6 +135,9 @@
   </section>
 
 </main>
+
+<!-- ── Toast notifications ────────────────────────────────── -->
+<div class="gb-toast-container" id="gbToastContainer"></div>
 
 <script src="builder.js"></script>
 </body>

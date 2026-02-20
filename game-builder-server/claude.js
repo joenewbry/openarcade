@@ -36,9 +36,14 @@ BEHAVIOR RULES:
 8. When extracting design decisions, output a JSON block at the END of your response (hidden from user) in this format:
    <!-- DESIGN_UPDATE: {"section": "visual", "field": "background", "value": "#0a0a1a"} -->
    Use one per meaningful extracted decision.
-9. For the concept art prompt, output at end:
+9. IMPORTANT: Also output tech tree node updates when design decisions map to specific nodes:
+   <!-- TECH_TREE: {"node": "genre", "value": "platformer"} -->
+   Valid node names: genre, theme, controls, core-loop, win-condition, progression,
+   visual-style, level-design, ai-npc, economy, concept-art.
+   Use one per resolved tech tree node. These drive the visual tech tree in the UI.
+10. For the concept art prompt, output at end:
    <!-- CONCEPT_ART_PROMPT: [full Grok prompt here] -->
-10. When design is complete and user approves generation, output at end:
+11. When design is complete and user approves generation, output at end:
    <!-- READY_TO_GENERATE: true -->
 
 Remember: you're building excitement and helping someone create their dream game. Be a great collaborator.`;
@@ -106,21 +111,30 @@ async function complete(systemPrompt, userPrompt, maxTokens = 512) {
 async function streamGenerationStep(system, userPrompt, res, stepName, pct) {
   res.write(`event: progress\ndata: ${JSON.stringify({ step: stepName, pct })}\n\n`);
 
-  const stream = await client.messages.stream({
-    model: 'claude-opus-4-5',
-    max_tokens: 4096,
-    system,
-    messages: [{ role: 'user', content: userPrompt }],
-  });
+  // Start heartbeat to prevent proxy/Cloudflare timeout on idle SSE connection
+  const heartbeat = setInterval(() => {
+    res.write(`: heartbeat\n\n`);
+  }, 15000);
 
-  let fullText = '';
-  for await (const chunk of stream) {
-    if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
-      fullText += chunk.delta.text;
+  try {
+    const stream = await client.messages.stream({
+      model: 'claude-sonnet-4-5-20250514',
+      max_tokens: 4096,
+      system,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+
+    let fullText = '';
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
+        fullText += chunk.delta.text;
+      }
     }
-  }
 
-  return fullText;
+    return fullText;
+  } finally {
+    clearInterval(heartbeat);
+  }
 }
 
 function extractMetadata(text) {
@@ -134,6 +148,15 @@ function extractMetadata(text) {
     try { designUpdates.push(JSON.parse(match[1])); } catch {}
   }
   if (designUpdates.length) meta.designUpdates = designUpdates;
+
+  // Extract tech tree updates
+  const techTreeUpdates = [];
+  const ttRegex = /<!--\s*TECH_TREE:\s*(\{[\s\S]*?\})\s*-->/g;
+  let ttMatch;
+  while ((ttMatch = ttRegex.exec(text)) !== null) {
+    try { techTreeUpdates.push(JSON.parse(ttMatch[1])); } catch {}
+  }
+  if (techTreeUpdates.length) meta.techTreeUpdates = techTreeUpdates;
 
   // Extract concept art prompt
   const capMatch = /<!--\s*CONCEPT_ART_PROMPT:\s*([\s\S]*?)\s*-->/.exec(text);
