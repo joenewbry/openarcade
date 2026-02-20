@@ -1,1 +1,4 @@
 scripts/node_modules/
+game-builder-server/.env
+game-builder-server/node_modules/
+game-builder-server/package-lock.json
