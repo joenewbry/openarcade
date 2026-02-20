@@ -8,7 +8,7 @@ const path = require('path');
 
 const http = require('http');
 const { streamChat } = require('./claude');
-const { generateConceptArt } = require('./grok');
+const { generateConceptArt, generateQuickPreview } = require('./grok');
 const { generateGame } = require('./generator');
 const { applyPatch } = require('./patcher');
 const { initMatchmaker } = require('./matchmaker');
@@ -110,6 +110,36 @@ app.post('/api/imagine', async (req, res) => {
   }
 });
 
+// ── POST /api/imagine-preview — quick early preview image ──
+app.post('/api/imagine-preview', async (req, res) => {
+  const { gameId } = req.body;
+  if (!gameId) return res.status(400).json({ error: 'gameId required' });
+
+  const gameDir = path.join(REPO_PATH, gameId);
+  const gameMdPath = path.join(gameDir, 'game.md');
+
+  try {
+    // Build a prompt from the current game.md spec
+    let spec = '';
+    if (fs.existsSync(gameMdPath)) {
+      spec = fs.readFileSync(gameMdPath, 'utf8');
+    }
+    if (!spec || spec.length < 50) {
+      return res.status(400).json({ error: 'Not enough design info yet' });
+    }
+
+    // Extract key details for a concise image prompt
+    const lines = spec.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2)).join(', ');
+    const prompt = lines.slice(0, 500); // limit prompt length
+
+    const imagePath = await generateQuickPreview(prompt, gameDir);
+    res.json({ image: imagePath });
+  } catch (e) {
+    console.error('Preview error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── POST /api/generate — SSE game code generation ─────────
 app.post('/api/generate', async (req, res) => {
   const { gameId } = req.body;
@@ -182,7 +212,6 @@ app.get('/api/genre/:slug', (req, res) => {
   const filePath = path.join(GAME_TYPES_PATH, `${slug}.md`);
 
   if (!fs.existsSync(filePath)) {
-    // Genre gap detected — return template
     const templatePath = path.join(GAME_TYPES_PATH, '_template.md');
     const template = fs.existsSync(templatePath) ? fs.readFileSync(templatePath, 'utf8') : '';
     return res.json({ exists: false, genre: slug, content: template, gap: true });
@@ -236,7 +265,6 @@ app.post('/api/genre-image', async (req, res) => {
 
   try {
     const imagePaths = await generateConceptArt(prompt, imagesDir, 1);
-    // Rename to genre-reference.png
     if (imagePaths.length > 0) {
       const srcPath = path.join(REPO_PATH, imagePaths[0]);
       const destPath = path.join(imagesDir, `${slug}-reference.png`);
@@ -266,7 +294,6 @@ app.patch('/api/genre/:slug/section', (req, res) => {
   if (fileContent.includes(placeholder)) {
     fileContent = fileContent.replace(placeholder, sectionContent);
   } else {
-    // Append to end of the relevant section header
     const sectionHeader = `## ${section.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`;
     if (fileContent.includes(sectionHeader)) {
       fileContent = fileContent.replace(sectionHeader, `${sectionHeader}\n\n${sectionContent}`);
@@ -274,6 +301,45 @@ app.patch('/api/genre/:slug/section', (req, res) => {
   }
 
   fs.writeFileSync(filePath, fileContent, 'utf8');
+  res.json({ ok: true });
+});
+
+// ── GET /api/session/:gameId — load existing session ──────
+app.get('/api/session/:gameId', (req, res) => {
+  const { gameId } = req.params;
+  const gameDir = path.join(REPO_PATH, gameId);
+  const statePath = path.join(gameDir, 'session-state.json');
+
+  if (!fs.existsSync(statePath)) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  try {
+    const data = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: 'Could not read session state', detail: e.message });
+  }
+});
+
+// ── POST /api/save-session-state — persist session state ──
+app.post('/api/save-session-state', (req, res) => {
+  const { gameId, messages, checklist, checklistRelevance, phase } = req.body;
+  if (!gameId) return res.status(400).json({ error: 'gameId required' });
+
+  const gameDir = path.join(REPO_PATH, gameId);
+  fs.mkdirSync(gameDir, { recursive: true });
+
+  const statePath = path.join(gameDir, 'session-state.json');
+  const data = {
+    gameId,
+    messages: messages || [],
+    checklist: checklist || {},
+    checklistRelevance: checklistRelevance || {},
+    phase: phase || 'DESIGN',
+    updatedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(statePath, JSON.stringify(data, null, 2), 'utf8');
   res.json({ ok: true });
 });
 

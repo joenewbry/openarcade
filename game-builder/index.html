@@ -46,7 +46,10 @@
 
     <!-- Design checklist -->
     <div class="gb-checklist">
-      <div class="gb-checklist-title">Design Checklist</div>
+      <div class="gb-checklist-title">Game Ontology</div>
+      <div class="gb-design-progress">
+        <div class="gb-design-progress-fill" id="gbDesignProgress"></div>
+      </div>
       <div class="gb-checks" id="gbChecks">
         <!-- Rendered by builder.js -->
       </div>
@@ -77,7 +80,7 @@
   <!-- ── Right panel ───────────────────────────────────────── -->
   <section class="gb-right">
 
-    <!-- Tech Tree + game.md panel (DESIGN phase) -->
+    <!-- Tech Tree + game.md panel (EXPLORE/LOAD/DESIGN phases) -->
     <div class="gb-design-panel" id="gbDesignPanel">
       <div class="gb-design-tabs">
         <button class="gb-design-tab active" data-tab="tree" id="gbTabTree">Tech Tree</button>
@@ -107,6 +110,22 @@
       </div>
     </div>
 
+    <!-- Live spec + early preview (DESIGN phase) -->
+    <div class="gb-design-right" id="gbDesignRight" style="display:none">
+      <div class="gb-spec-panel" id="gbSpecPanel">
+        <div class="gb-spec-title">GAME SPEC</div>
+        <div class="gb-spec-content" id="gbSpecContent">
+          <div class="gb-spec-empty">Your game spec will appear here as you describe your idea...</div>
+        </div>
+      </div>
+      <div class="gb-early-preview" id="gbEarlyPreview">
+        <div class="gb-spec-title">EARLY PREVIEW</div>
+        <div class="gb-preview-content" id="gbPreviewContent">
+          <div class="gb-preview-placeholder">Preview generates after a few design details are set</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Concept art panel (VISUALIZE phase) -->
     <div class="gb-art-panel" id="gbArtPanel">
       <div style="font-size:0.65rem;letter-spacing:2px;color:var(--muted);text-transform:uppercase">Concept Art</div>
@@ -132,6 +151,16 @@
 
       <div class="gb-stack-info" id="gbStackInfo">
         <div>Resolving tech stack…</div>
+      </div>
+
+      <div class="gb-console" id="gbConsole">
+        <div class="gb-console-chrome">
+          <span class="gb-dot red"></span>
+          <span class="gb-dot yellow"></span>
+          <span class="gb-dot green"></span>
+          <span class="gb-console-title">build.log</span>
+        </div>
+        <div class="gb-console-body" id="gbConsoleBody"></div>
       </div>
     </div>
 

@@ -48,7 +48,7 @@
     },
     {
       "name": "video",
-      "alpha": 1,
+      "alpha": 20,
       "beta": 1,
       "description": "Autoplay muted looping MP4 preview at top of each card"
     }

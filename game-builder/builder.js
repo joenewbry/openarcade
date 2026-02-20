@@ -39,6 +39,22 @@ const state = {
   forkSeed: null,           // pre-filled from ?fork= and ?seed=
   currentIframeSrc: null,   // URL of game iframe
   patchPending: false,
+  // Items that start hidden — only shown when the AI mentions them
+  checklistRelevance: {
+    'core-concept':  true,
+    'mechanics':     true,
+    'progression':   true,
+    'tech-needs':    true,
+    'visual-design': true,
+    'level-design':  true,
+    'onboarding':    true,
+    'audio':         true,
+    'multiplayer':   false,
+    'ai-npc':        false,
+    'economy':       false,
+    'concept-art':   true,
+    'ready':         true,
+  },
 };
 
 // ── Tech Tree Definition ─────────────────────────────────────
@@ -122,7 +138,9 @@ const dom = {
   toastContainer:  $('gbToastContainer'),
   globalProgressFill:  $('gbGlobalProgressFill'),
   globalProgressLabel: $('gbGlobalProgressLabel'),
-
+  designRight:     $('gbDesignRight'),
+  specContent:     $('gbSpecContent'),
+  previewContent:  $('gbPreviewContent'),
   artPanel:        $('gbArtPanel'),
   artGrid:         $('gbArtGrid'),
   progressPanel:   $('gbProgressPanel'),
@@ -132,6 +150,7 @@ const dom = {
   stepLog:         $('gbStepLog'),
   eta:             $('gbEta'),
   stackInfo:       $('gbStackInfo'),
+  consoleBody:     $('gbConsoleBody'),
   gamePanel:       $('gbGamePanel'),
   gameTitle:       $('gbGameTitle'),
   gameMeta:        $('gbGameMeta'),
@@ -139,14 +158,12 @@ const dom = {
 };
 
 // ── Init ─────────────────────────────────────────────────────
-function init() {
-  // Parse query params for fork mode
+async function init() {
+  // Parse query params
   const params = new URLSearchParams(window.location.search);
   const forkGame = params.get('fork');
   const seedText = params.get('seed');
-
-  // Assign a game ID
-  state.gameId = forkGame || generateGameId();
+  const existingId = params.get('id');
 
   // Wire up input
   dom.input.addEventListener('keydown', e => {
@@ -163,6 +180,17 @@ function init() {
     dom.input.style.height = '42px';
     dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
   });
+
+  // Try to load existing session
+  if (existingId) {
+    state.gameId = existingId;
+    const loaded = await loadExistingSession(existingId);
+    if (loaded) return; // session restored
+  }
+
+  // New session
+  state.gameId = forkGame || generateGameId();
+  pushGameIdToUrl();
 
   // Init game on server
   initGameOnServer(state.gameId, forkGame ? `Fork of ${forkGame}` : 'New Game');
@@ -183,6 +211,70 @@ function init() {
   setPhase('EXPLORE');
 }
 
+function pushGameIdToUrl() {
+  const url = new URL(window.location);
+  url.searchParams.set('id', state.gameId);
+  window.history.replaceState({}, '', url);
+}
+
+async function loadExistingSession(gameId) {
+  try {
+    const res = await fetch(`${API_BASE}/api/session/${gameId}`);
+    if (!res.ok) return false;
+    const data = await res.json();
+
+    // Restore chat messages
+    if (data.messages?.length) {
+      for (const msg of data.messages) {
+        addMessage(msg.role === 'user' ? 'user' : 'ai', msg.content);
+        state.messages.push(msg);
+      }
+    } else {
+      addMessage('ai', 'Welcome back! Resuming your game design session.');
+    }
+
+    // Restore checklist
+    if (data.checklist) {
+      Object.assign(state.checklist, data.checklist);
+    }
+    if (data.checklistRelevance) {
+      Object.assign(state.checklistRelevance, data.checklistRelevance);
+    }
+
+    // Restore phase
+    const phase = data.phase || 'DESIGN';
+    updateChecklist({});
+    setPhase(phase);
+    pushGameIdToUrl();
+
+    // Refresh spec panel
+    refreshSpecPanel();
+
+    return true;
+  } catch (e) {
+    console.warn('Could not load session:', e);
+    return false;
+  }
+}
+
+async function saveSessionState() {
+  try {
+    await fetch(`${API_BASE}/api/save-session-state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        gameId: state.gameId,
+        messages: state.messages,
+        checklist: state.checklist,
+        checklistRelevance: state.checklistRelevance,
+        phase: state.phase,
+      }),
+    });
+  } catch (e) {
+    console.warn('Save session state failed:', e);
+  }
+}
+
 // ── Phase management ──────────────────────────────────────────
 function setPhase(phase) {
   state.phase = phase;
@@ -196,7 +288,8 @@ function setPhase(phase) {
 
   // Show/hide right panels
   const isDesignPhase = phase === 'EXPLORE' || phase === 'LOAD' || phase === 'DESIGN';
-  dom.designPanel.style.display   = isDesignPhase ? 'flex' : 'none';
+  if (dom.designPanel) dom.designPanel.style.display = isDesignPhase ? 'flex' : 'none';
+  if (dom.designRight) dom.designRight.style.display = phase === 'DESIGN' ? 'flex' : 'none';
   dom.artPanel.classList.toggle('visible',      phase === 'VISUALIZE');
   dom.progressPanel.classList.toggle('visible', phase === 'GENERATING');
   dom.gamePanel.classList.toggle('visible',     phase === 'PLAYING');
@@ -254,6 +347,9 @@ async function sendMessage() {
     if (response.metadata) {
       if (response.metadata.designUpdates) {
         applyDesignUpdates(response.metadata.designUpdates);
+        // Refresh spec panel and maybe generate early preview
+        refreshSpecPanel();
+        maybeGenerateEarlyPreview();
       }
       if (response.metadata.techTreeUpdates) {
         applyTechTreeUpdates(response.metadata.techTreeUpdates);
@@ -283,6 +379,9 @@ async function sendMessage() {
 
     // Update genre affinity scores from chat text for narrowing circle
     updateGenreAffinityFromText(text);
+
+    // Persist session state after each turn
+    saveSessionState();
 
   } catch (e) {
     removeTypingIndicator(typingEl);
@@ -339,6 +438,11 @@ async function streamChatRequest(messages, gameId, onToken) {
     }
   }
 
+  // Finalize the streaming bubble — detect options, remove streaming class
+  if (currentBubble) {
+    finalizeStreamingBubble(currentBubble);
+  }
+
   return { fullText, metadata };
 }
 
@@ -358,6 +462,57 @@ function createStreamingBubble() {
 function updateStreamingBubble(bubble, text) {
   bubble.innerHTML = renderMarkdown(text);
   scrollToBottom();
+}
+
+function finalizeStreamingBubble(bubble) {
+  bubble.classList.remove('gb-streaming');
+  renderOptionsFromBubble(bubble);
+}
+
+/**
+ * Scan a bubble for option patterns like "- Something?" or "- **Something**"
+ * and replace them with clickable buttons.
+ */
+function renderOptionsFromBubble(bubble) {
+  const html = bubble.innerHTML;
+  // Match lines that look like options: "- Text?" or "- **Text**" or "- Text"
+  const optionRegex = /(?:^|<br>)\s*[-•]\s*(?:<strong>)?(.+?)(?:<\/strong>)?(?:\?)?(?=<br>|$)/g;
+  const matches = [];
+  let m;
+  while ((m = optionRegex.exec(html)) !== null) {
+    matches.push({ full: m[0], text: m[1].replace(/<\/?[^>]+>/g, '').replace(/\?$/, '').trim() });
+  }
+
+  // Only convert if we found 2-5 option-like lines (avoids false positives)
+  if (matches.length < 2 || matches.length > 6) return;
+
+  // Build replacement: remove the matched lines, append buttons
+  let cleaned = html;
+  for (const match of matches) {
+    cleaned = cleaned.replace(match.full, '');
+  }
+  // Remove trailing <br> tags
+  cleaned = cleaned.replace(/(<br>\s*)+$/, '');
+
+  const buttons = matches.map(opt =>
+    `<button class="gb-option-btn" data-option="${escHtml(opt.text)}">${escHtml(opt.text)}</button>`
+  ).join('');
+
+  bubble.innerHTML = cleaned +
+    `<div class="gb-options-row">${buttons}` +
+    `<button class="gb-option-btn gb-option-other">Something else...</button></div>`;
+
+  // Wire click handlers
+  bubble.querySelectorAll('.gb-option-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('gb-option-other')) {
+        dom.input.focus();
+        return;
+      }
+      dom.input.value = btn.dataset.option;
+      sendMessage();
+    });
+  });
 }
 
 function addMessage(role, content) {
@@ -539,6 +694,11 @@ async function startGeneration() {
   state.completedSteps = [];
   dom.stepLog.innerHTML = '';
   dom.eta.textContent = '';
+  dom.consoleBody.innerHTML = '';
+  consoleLineQueue = [];
+  if (consoleTimer) { clearTimeout(consoleTimer); consoleTimer = null; }
+  addConsoleLine('> OpenArcade Game Builder v2.0', 'system');
+  addConsoleLine('> Starting build pipeline...', 'system');
   setProgress(0, 'Starting…');
 
   try {
@@ -573,6 +733,10 @@ async function startGeneration() {
 
           if (msg.step !== undefined && msg.pct !== undefined) {
             setProgress(msg.pct, msg.step.replace(/-/g, ' '));
+            queueConsoleMessages(msg.step);
+          }
+          if (msg.type === 'gen_text' && msg.text) {
+            addConsoleCodeSnippet(msg.text);
           }
           if (msg.url) {
             gameReady(msg.url);
@@ -666,6 +830,62 @@ function updateStackDisplay(stack) {
     <div>Multiplayer: <span>${stack.multiplayer || 'none'}</span></div>
     <div>Audio: <span>${stack.audio || '—'}</span></div>
   `;
+}
+
+// ── Build console ──────────────────────────────────────────
+const CONSOLE_MESSAGES = {
+  'html-structure':        ['> Scaffolding HTML document...', '> Injecting viewport meta and charset...', '> Linking stylesheet and canvas element...'],
+  'game-state':            ['> Initializing game state machine...', '> Defining constants and config...', '> Setting up entity pools...'],
+  'entities':              ['> Spawning entity factories...', '> Building collision masks...'],
+  'game-loop':             ['> Bootstrapping physics engine...', '> Calibrating delta-time loop...', '> Registering update callbacks...'],
+  'rendering':             ['> Initializing 2D rendering context...', '> Building sprite pipeline...', '> Compiling draw calls...'],
+  'input':                 ['> Mapping keyboard bindings...', '> Registering touch handlers...'],
+  'ui-overlays':           ['> Rendering HUD layer...', '> Building score display...', '> Creating menu screens...'],
+  'audio':                 ['> Synthesizing sound effects...', '> Building audio context...'],
+  'recorder-integration':  ['> Integrating OpenArcade recorder...', '> Wiring event capture hooks...'],
+  'assembling':            ['> Assembling final bundle...', '> Minifying output...', '> Writing index.html...', '> Build complete.'],
+};
+
+let consoleLineQueue = [];
+let consoleTimer = null;
+
+function addConsoleLine(text, type = 'info') {
+  const line = document.createElement('div');
+  line.className = `gb-console-line ${type}`;
+  line.textContent = text;
+  dom.consoleBody.appendChild(line);
+  dom.consoleBody.scrollTop = dom.consoleBody.scrollHeight;
+}
+
+function queueConsoleMessages(stepKey) {
+  const normalized = stepKey.replace(/\s+/g, '-');
+  const messages = CONSOLE_MESSAGES[normalized] || [`> Processing ${stepKey}...`];
+  messages.forEach((msg, i) => {
+    consoleLineQueue.push({ text: msg, delay: i * 400 });
+  });
+  drainConsoleQueue();
+}
+
+function drainConsoleQueue() {
+  if (consoleTimer || !consoleLineQueue.length) return;
+  const next = consoleLineQueue.shift();
+  consoleTimer = setTimeout(() => {
+    addConsoleLine(next.text);
+    consoleTimer = null;
+    drainConsoleQueue();
+  }, next.delay || 100);
+}
+
+function addConsoleCodeSnippet(text) {
+  const line = document.createElement('div');
+  line.className = 'gb-console-line code';
+  line.textContent = text.slice(0, 120);
+  dom.consoleBody.appendChild(line);
+  // Keep scrolled to bottom, but limit total lines
+  if (dom.consoleBody.children.length > 200) {
+    dom.consoleBody.removeChild(dom.consoleBody.firstChild);
+  }
+  dom.consoleBody.scrollTop = dom.consoleBody.scrollHeight;
 }
 
 function gameReady(url) {
@@ -1069,16 +1289,28 @@ function applyDesignUpdates(updates) {
     const s = u.section?.toLowerCase().replace(/\s+/g, '-');
     if (s && state.checklist.hasOwnProperty(s)) {
       state.checklist[s] = true;
+      state.checklistRelevance[s] = true; // make visible
     }
-    // Auto-infer section progress
-    if (s?.includes('core') || s?.includes('concept')) state.checklist['core-concept'] = true;
-    if (s?.includes('mechanic') || s?.includes('control')) state.checklist['mechanics'] = true;
-    if (s?.includes('progress') || s?.includes('difficult') || s?.includes('curve')) state.checklist['progression'] = true;
-    if (s?.includes('visual') || s?.includes('color') || s?.includes('style')) state.checklist['visual-design'] = true;
-    if (s?.includes('level') || s?.includes('world')) state.checklist['level-design'] = true;
-    if (s?.includes('onboard') || s?.includes('tutorial')) state.checklist['onboarding'] = true;
-    if (s?.includes('audio') || s?.includes('sound')) state.checklist['audio'] = true;
-    if (s?.includes('econom') || s?.includes('currenc') || s?.includes('shop')) state.checklist['economy'] = true;
+    // Auto-infer section progress + reveal conditional items
+    if (s?.includes('core') || s?.includes('concept')) { state.checklist['core-concept'] = true; }
+    if (s?.includes('mechanic') || s?.includes('control')) { state.checklist['mechanics'] = true; }
+    if (s?.includes('progress') || s?.includes('difficult') || s?.includes('curve')) { state.checklist['progression'] = true; }
+    if (s?.includes('visual') || s?.includes('color') || s?.includes('style')) { state.checklist['visual-design'] = true; }
+    if (s?.includes('level') || s?.includes('world')) { state.checklist['level-design'] = true; }
+    if (s?.includes('onboard') || s?.includes('tutorial')) { state.checklist['onboarding'] = true; }
+    if (s?.includes('audio') || s?.includes('sound')) { state.checklist['audio'] = true; }
+    if (s?.includes('multi') || s?.includes('coop') || s?.includes('pvp')) {
+      state.checklist['multiplayer'] = true;
+      state.checklistRelevance['multiplayer'] = true;
+    }
+    if (s?.includes('ai') || s?.includes('npc') || s?.includes('enemy') || s?.includes('bot')) {
+      state.checklist['ai-npc'] = true;
+      state.checklistRelevance['ai-npc'] = true;
+    }
+    if (s?.includes('econom') || s?.includes('currenc') || s?.includes('shop') || s?.includes('upgrade')) {
+      state.checklist['economy'] = true;
+      state.checklistRelevance['economy'] = true;
+    }
   }
   updateChecklist({});
 }
@@ -1087,10 +1319,65 @@ function updateChecklist(overrides) {
   Object.assign(state.checklist, overrides);
   const container = document.getElementById('gbChecks');
   if (!container) return;
-  container.innerHTML = Object.entries(state.checklist).map(([key, done]) => {
-    const cls = done ? 'done' : '';
+
+  // Only show relevant items
+  const relevant = Object.entries(state.checklist).filter(([key]) => state.checklistRelevance[key]);
+  container.innerHTML = relevant.map(([key, done]) => {
+    const cls = done ? 'done' : 'needs-info';
     return `<div class="gb-check ${cls}"><div class="gb-check-dot"></div>${CHECK_LABELS[key]}</div>`;
   }).join('');
+
+  // Update design progress bar — only count relevant items
+  const doneCount = relevant.filter(([, d]) => d).length;
+  const pct = relevant.length ? Math.round((doneCount / relevant.length) * 100) : 0;
+  const bar = document.getElementById('gbDesignProgress');
+  if (bar) bar.style.width = pct + '%';
+}
+
+// ── Live spec panel + early preview ───────────────────────
+async function refreshSpecPanel() {
+  try {
+    const res = await fetch(`${API_BASE}/../${state.gameId}/game.md`);
+    if (!res.ok) return;
+    const md = await res.text();
+    // Simple markdown rendering for the spec
+    const html = md
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+      .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+      .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^- (.+)$/gm, '<div class="gb-spec-item">$1</div>')
+      .replace(/\n/g, '<br>');
+    dom.specContent.innerHTML = html;
+  } catch {}
+}
+
+async function maybeGenerateEarlyPreview() {
+  // Only generate if we have enough info (core-concept + visual-design)
+  if (!state.checklist['core-concept'] || !state.checklist['visual-design']) return;
+  // Throttle: at least 2 chat turns since last preview
+  const turnCount = state.messages.filter(m => m.role === 'user').length;
+  if (state.lastPreviewTurn && turnCount - state.lastPreviewTurn < 2) return;
+
+  state.lastPreviewTurn = turnCount;
+  dom.previewContent.innerHTML = '<div class="gb-preview-loading">Generating preview...</div>';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/imagine-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: state.gameId }),
+    });
+    if (!res.ok) throw new Error(`Preview API ${res.status}`);
+    const data = await res.json();
+    if (data.image) {
+      dom.previewContent.innerHTML = `<img class="gb-preview-img" src="${data.image}" alt="Early preview">`;
+    }
+  } catch (e) {
+    dom.previewContent.innerHTML = '<div class="gb-preview-placeholder">Preview will appear soon...</div>';
+    console.warn('Early preview error:', e);
+  }
 }
 
 // ── Toolbar actions ───────────────────────────────────────────

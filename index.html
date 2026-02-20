@@ -1140,7 +1140,7 @@
             var visualResult = sampleBestArm(visualArms);
             chosenVisualArm = visualResult.name;
           } else {
-            chosenVisualArm = 'text';
+            chosenVisualArm = 'video';
           }
           applyVisualTreatment(chosenVisualArm);
 
@@ -1155,9 +1155,9 @@
         })
         .catch(function () {
           chosenArm = 'default';
-          chosenVisualArm = 'text';
+          chosenVisualArm = 'video';
           cardOrder = defaultOrder;
-          sendEvent({ event: 'pageview', arm: 'default', visual_arm: 'text', card_order_top12: cardOrder.slice(0, 12), is_mobile: window.innerWidth < 768 });
+          sendEvent({ event: 'pageview', arm: 'default', visual_arm: 'video', card_order_top12: cardOrder.slice(0, 12), is_mobile: window.innerWidth < 768 });
         });
 
       /* ── Track card clicks ── */

@@ -73,4 +73,47 @@ function buildVariantPrompt(basePrompt, index) {
   return variants[index] || basePrompt;
 }
 
-module.exports = { generateConceptArt };
+/**
+ * Generate a single quick preview image from the current game.md spec.
+ * @param {string} prompt - image generation prompt built from design state
+ * @param {string} outputDir - directory to save the image
+ * @returns {Promise<string>} saved file path (relative to OPENARCADE_REPO_PATH)
+ */
+async function generateQuickPreview(prompt, outputDir) {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error('XAI_API_KEY not set');
+
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const response = await fetch(GROK_API_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'grok-2-image-1212',
+      prompt: `Game screenshot mockup: ${prompt}. Digital pixel art style, UI elements visible, vibrant colors.`,
+      n: 1,
+      response_format: 'b64_json',
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Grok API error ${response.status}: ${errText}`);
+  }
+
+  const data = await response.json();
+  const b64 = data.data?.[0]?.b64_json;
+  if (!b64) throw new Error('No image data in Grok response');
+
+  const filename = `early-preview-${Date.now()}.png`;
+  const filepath = path.join(outputDir, filename);
+  fs.writeFileSync(filepath, Buffer.from(b64, 'base64'));
+
+  const repoPath = process.env.OPENARCADE_REPO_PATH || '/ssd/openarcade';
+  return '/' + filepath.replace(repoPath, '').replace(/^\//, '');
+}
+
+module.exports = { generateConceptArt, generateQuickPreview };

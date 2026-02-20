@@ -19,8 +19,25 @@ try {
   console.warn('Warning: could not load game-design-guide.md:', e.message);
 }
 
+// Load genre ontologies at startup (from ontologies/ directory)
+const GENRE_ONTOLOGIES = {};
+try {
+  const ontDir = path.join(__dirname, 'ontologies');
+  if (fs.existsSync(ontDir)) {
+    for (const file of fs.readdirSync(ontDir)) {
+      if (file.endsWith('.md')) {
+        const genre = file.replace('.md', '');
+        GENRE_ONTOLOGIES[genre] = fs.readFileSync(path.join(ontDir, file), 'utf8');
+      }
+    }
+    console.log(`Loaded ${Object.keys(GENRE_ONTOLOGIES).length} genre ontologies`);
+  }
+} catch (e) {
+  console.warn('Warning: could not load genre ontologies:', e.message);
+}
+
 /**
- * Load genre-specific knowledge base if available.
+ * Load genre-specific knowledge base if available (from game-types/ directory).
  * @param {string} genre - genre slug (e.g. 'platformer')
  * @returns {{ content: string, isGap: boolean }}
  */
@@ -85,9 +102,15 @@ async function streamChat(messages, gameId, res, opts = {}) {
     if (guide.content && !guide.isGap) {
       systemPrompt += `\n\n---\n\nGENRE KNOWLEDGE BASE (${genre}):\nUse this deep genre-specific knowledge to inform your design guidance.\n\n${guide.content}`;
     } else if (guide.isGap) {
-      systemPrompt += `\n\n---\n\nGENRE GAP DETECTED: A knowledge base file does not yet exist for "${genre}". As you design the game, also help build the genre knowledge base. When you have insights about this genre's core mechanics, design patterns, or tech requirements, output them as:\n<!-- GENRE_SECTION: {"section": "core-mechanics", "content": "..."} -->\nValid sections: identity, core-mechanics, design-patterns, tech-stack, level-design, visual-reference, audio-design, multiplayer, generation-checklist, design-to-code`;
-      // Send gap notification to client
-      res.write(`data: ${JSON.stringify({ type: 'metadata', genreGapDetected: true, genre: guide.slug })}\n\n`);
+      // Try ontologies/ fallback for genres not in game-types/
+      const ontologySlug = genre.toLowerCase().replace(/\s+/g, '-');
+      if (GENRE_ONTOLOGIES[ontologySlug]) {
+        systemPrompt += `\n\n---\n\nGENRE-SPECIFIC DESIGN GUIDE (${genre}):\n${GENRE_ONTOLOGIES[ontologySlug]}`;
+      } else {
+        systemPrompt += `\n\n---\n\nGENRE GAP DETECTED: A knowledge base file does not yet exist for "${genre}". As you design the game, also help build the genre knowledge base. When you have insights about this genre's core mechanics, design patterns, or tech requirements, output them as:\n<!-- GENRE_SECTION: {"section": "core-mechanics", "content": "..."} -->\nValid sections: identity, core-mechanics, design-patterns, tech-stack, level-design, visual-reference, audio-design, multiplayer, generation-checklist, design-to-code`;
+        // Send gap notification to client
+        res.write(`data: ${JSON.stringify({ type: 'metadata', genreGapDetected: true, genre: guide.slug })}\n\n`);
+      }
     }
   }
 
@@ -161,9 +184,19 @@ async function streamGenerationStep(system, userPrompt, res, stepName, pct) {
     });
 
     let fullText = '';
+    let charsSinceEmit = 0;
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
         fullText += chunk.delta.text;
+        charsSinceEmit += chunk.delta.text.length;
+        // Emit code snippets every ~200 chars so the console can show streaming code
+        if (charsSinceEmit >= 200) {
+          const snippet = fullText.slice(-80).trim();
+          if (snippet) {
+            res.write(`data: ${JSON.stringify({ type: 'gen_text', text: snippet })}\n\n`);
+          }
+          charsSinceEmit = 0;
+        }
       }
     }
 
