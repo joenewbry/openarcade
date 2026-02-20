@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "generated_at": "2026-02-19T00:00:00Z",
+  "games": [
+    {
+      "id": "tetris",
+      "title": "Tetris",
+      "category": "classic",
+      "url": "/tetris/v2.html",
+      "description": "Stack falling tetrominoes and clear lines. Speed increases as you score.",
+      "controls": "Arrow keys to move/rotate, Space to hard drop",
+      "source": "static"
+    },
+    {
+      "id": "space-invaders",
+      "title": "Space Invaders",
+      "category": "classic",
+      "url": "/space-invaders/v2.html",
+      "description": "Defend Earth from descending alien waves.",
+      "controls": "Left/Right to move, Space to fire",
+      "source": "static"
+    },
+    {
+      "id": "flappy",
+      "title": "Flappy Bird",
+      "category": "casual",
+      "url": "/flappy/v2.html",
+      "description": "Tap to flap through narrow pipe gaps.",
+      "controls": "Space or Up arrow to flap",
+      "source": "static"
+    },
+    {
+      "id": "snake",
+      "title": "Snake",
+      "category": "casual",
+      "url": "/snake/v2.html",
+      "description": "Guide the snake to eat food and grow longer.",
+      "controls": "Arrow keys to change direction",
+      "source": "static"
+    },
+    {
+      "id": "breakout",
+      "title": "Breakout",
+      "category": "classic",
+      "url": "/breakout/v2.html",
+      "description": "Smash rows of colorful bricks with a bouncing ball.",
+      "controls": "Left/Right to move paddle",
+      "source": "static"
+    },
+    {
+      "id": "pong",
+      "title": "Pong",
+      "category": "classic",
+      "url": "/pong/v2.html",
+      "description": "The original arcade classic. Rally the ball past the CPU opponent.",
+      "controls": "Up/Down to move paddle",
+      "source": "static"
+    },
+    {
+      "id": "asteroids",
+      "title": "Asteroids",
+      "category": "classic",
+      "url": "/asteroids/v2.html",
+      "description": "Blast rocks in zero gravity. Watch your momentum.",
+      "controls": "Arrow keys to thrust/rotate, Space to fire",
+      "source": "static"
+    },
+    {
+      "id": "pac-man",
+      "title": "Pac-Man",
+      "category": "classic",
+      "url": "/pac-man/index.html",
+      "description": "Eat all the dots, avoid the ghosts.",
+      "controls": "Arrow keys to move",
+      "source": "static"
+    }
+  ]
+}

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Library Ontology — OpenArcade Tech Stack</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a14; --surface: #12121f; --border: #1e1e3a;
+      --accent: #0ff; --accent2: #8b5cf6; --text: #e0e0f0; --muted: #5a5a7a;
+      --success: #0f8; --warn: #fa0;
+      --font: "Courier New", Courier, monospace;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+    header {
+      padding: 16px 32px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 16px;
+      background: var(--surface);
+    }
+    .logo { color: var(--accent); font-size: 0.9rem; letter-spacing: 2px; text-decoration: none; font-weight: bold; }
+    .page-title { font-size: 0.8rem; color: var(--muted); }
+    .back-link { margin-left: auto; font-size: 0.72rem; color: var(--muted); text-decoration: none; border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; transition: color 0.2s, border-color 0.2s; }
+    .back-link:hover { color: var(--accent); border-color: var(--accent); }
+
+    .hero {
+      padding: 40px 32px 20px;
+      text-align: center;
+    }
+    .hero h1 { font-size: 1.4rem; color: var(--accent); letter-spacing: 3px; margin-bottom: 8px; }
+    .hero p { font-size: 0.78rem; color: var(--muted); max-width: 600px; margin: 0 auto; line-height: 1.6; }
+
+    /* Game type selector */
+    .game-types {
+      padding: 24px 32px 0;
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    }
+    .type-btn {
+      padding: 6px 14px; border-radius: 20px; font-family: var(--font); font-size: 0.72rem;
+      cursor: pointer; border: 1px solid var(--border); background: none; color: var(--muted);
+      transition: all 0.2s;
+    }
+    .type-btn:hover, .type-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,255,255,0.05); }
+
+    /* Stack visualization */
+    .stack-vis {
+      padding: 24px 32px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .stack-layer {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+      transition: border-color 0.3s;
+    }
+    .stack-layer.active { border-color: var(--accent); }
+    .layer-label { font-size: 0.6rem; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+    .layer-value { font-size: 0.78rem; color: var(--text); }
+    .layer-value.none { color: var(--border); }
+    .layer-value.active { color: var(--accent); }
+
+    /* Library cards */
+    .section-title {
+      font-size: 0.65rem; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted); padding: 24px 32px 12px; border-top: 1px solid var(--border);
+    }
+
+    .lib-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+      padding: 0 32px 40px;
+    }
+
+    .lib-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      transition: border-color 0.2s, box-shadow 0.2s, opacity 0.3s;
+      cursor: default;
+    }
+    .lib-card:hover { border-color: rgba(0,255,255,0.3); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+    .lib-card.dimmed { opacity: 0.35; }
+    .lib-card.highlighted { border-color: var(--accent); box-shadow: 0 0 16px rgba(0,255,255,0.15); opacity: 1; }
+
+    .lib-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+    .lib-name { font-size: 0.88rem; color: var(--text); font-weight: bold; }
+    .lib-version { font-size: 0.65rem; color: var(--muted); }
+    .lib-tag {
+      margin-left: auto; font-size: 0.6rem; padding: 2px 7px; border-radius: 10px;
+      border: 1px solid; letter-spacing: 0.5px;
+    }
+    .tag-rendering  { color: #0ff; border-color: rgba(0,255,255,0.3); background: rgba(0,255,255,0.06); }
+    .tag-physics    { color: #f0a; border-color: rgba(255,0,170,0.3); background: rgba(255,0,170,0.06); }
+    .tag-multiplayer{ color: #fa0; border-color: rgba(250,160,0,0.3); background: rgba(250,160,0,0.06); }
+    .tag-audio      { color: #0f8; border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.06); }
+
+    .lib-desc { font-size: 0.72rem; color: var(--muted); line-height: 1.5; margin-bottom: 10px; }
+
+    .lib-when {
+      font-size: 0.68rem; color: var(--text); line-height: 1.4;
+      padding: 8px; background: rgba(0,0,0,0.3); border-radius: 5px;
+      border-left: 2px solid var(--border); margin-bottom: 10px;
+    }
+
+    .lib-meta {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    }
+    .lib-reliability {
+      display: flex; align-items: center; gap: 4px; font-size: 0.65rem; color: var(--muted);
+    }
+    .reliability-bar {
+      width: 50px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden;
+    }
+    .reliability-fill { height: 100%; background: var(--success); border-radius: 2px; }
+    .lib-cdn-link {
+      font-size: 0.6rem; color: var(--muted); text-decoration: none;
+      border: 1px solid var(--border); padding: 2px 6px; border-radius: 3px;
+      transition: color 0.2s, border-color 0.2s; margin-left: auto;
+    }
+    .lib-cdn-link:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* Vanilla note */
+    .vanilla-note {
+      margin: 0 32px 20px;
+      padding: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .vanilla-note strong { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="logo">ARCADE</a>
+  <span class="page-title">/ Library Ontology</span>
+  <a href="/game-builder/" class="back-link">← Build a Game</a>
+</header>
+
+<div class="hero">
+  <h1>TECH STACK EXPLORER</h1>
+  <p>Every game on OpenArcade is built with a curated set of open-source libraries selected automatically based on what the game needs. Click a game type to see which stack gets chosen.</p>
+</div>
+
+<div class="game-types" id="gameTypes"></div>
+
+<div class="stack-vis" id="stackVis"></div>
+
+<div class="vanilla-note">
+  <strong>Default stack: vanilla Canvas 2D + Web Audio API.</strong> No external libraries are loaded unless the game specifically needs physics simulation, 3D rendering, multiplayer networking, or audio file management. The simpler the stack, the faster the game loads and the less that can go wrong. Every CDN lib includes a 2-second timeout fallback — if it fails to load, the game shows a clear error rather than silently breaking.
+</div>
+
+<div class="section-title">OPEN SOURCE LIBRARIES</div>
+<div class="lib-grid" id="libGrid"></div>
+
+<script>
+const GAME_TYPES = [
+  { id: 'arcade',      label: '2D Arcade',      rendering: 'Canvas 2D', physics: 'none',        multi: 'none',      audio: 'Web Audio' },
+  { id: 'platformer',  label: 'Platformer',      rendering: 'Canvas 2D', physics: 'Matter.js',   multi: 'none',      audio: 'Howler.js' },
+  { id: 'physics',     label: 'Physics Sandbox', rendering: 'Canvas 2D', physics: 'Planck.js',   multi: 'none',      audio: 'Web Audio' },
+  { id: 'fps',         label: '3D / FPS',        rendering: 'Three.js',  physics: 'built-in',    multi: 'none',      audio: 'Howler.js' },
+  { id: 'online',      label: 'Online Multiplayer', rendering: 'Canvas 2D', physics: 'varies',   multi: 'Colyseus',  audio: 'Web Audio' },
+  { id: 'p2p',         label: 'P2P Co-op',       rendering: 'Canvas 2D', physics: 'none',        multi: 'PeerJS',    audio: 'Web Audio' },
+  { id: 'strategy',    label: 'Turn-based',      rendering: 'Canvas 2D', physics: 'none',        multi: 'Socket.io', audio: 'Web Audio' },
+  { id: 'card',        label: 'Card / Board',    rendering: 'HTML/CSS',  physics: 'none',        multi: 'none',      audio: 'Web Audio' },
+  { id: 'music',       label: 'Music / Rhythm',  rendering: 'Canvas 2D', physics: 'none',        multi: 'none',      audio: 'Tone.js'   },
+];
+
+const LIBS = [
+  {
+    id: 'three',
+    name: 'Three.js',
+    version: 'r134',
+    tag: 'rendering',
+    description: '3D WebGL rendering library. Handles scenes, cameras, lights, geometries, and materials at a high level over raw WebGL.',
+    whenToUse: 'Any game requiring 3D graphics, first-person perspective, or WebGL-based rendering.',
+    reliability: 98,
+    cdn: 'https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js',
+    usedFor: ['fps', '3d'],
+    docs: 'https://threejs.org/docs/',
+  },
+  {
+    id: 'matter',
+    name: 'Matter.js',
+    version: '0.19.0',
+    tag: 'physics',
+    description: '2D rigid body physics engine. Provides bodies, constraints, composites, and a built-in renderer (though we use Canvas 2D instead).',
+    whenToUse: 'Platformers, pinball, billiards, any game needing gravity, real collision shapes, or physical joints.',
+    reliability: 95,
+    cdn: 'https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js',
+    usedFor: ['platformer', 'physics'],
+    docs: 'https://brm.io/matter-js/docs/',
+  },
+  {
+    id: 'planck',
+    name: 'Planck.js',
+    version: '0.3.6',
+    tag: 'physics',
+    description: 'Box2D port for JavaScript. More featureful than Matter.js — supports soft bodies, complex joint types, and continuous collision detection.',
+    whenToUse: 'Physics sandboxes, games with soft body simulation, or when Matter.js falls short.',
+    reliability: 88,
+    cdn: 'https://cdn.jsdelivr.net/npm/planck-js@0.3.6/dist/planck-with-testbed.min.js',
+    usedFor: ['physics'],
+    docs: 'https://piqnt.com/planck.js/',
+  },
+  {
+    id: 'socketio',
+    name: 'Socket.io Client',
+    version: '4.6.2',
+    tag: 'multiplayer',
+    description: 'WebSocket client with fallback to polling. Connects to a Socket.io server for real-time bidirectional communication.',
+    whenToUse: 'Turn-based online games, leaderboards, chat, any server-coordinated multiplayer.',
+    reliability: 97,
+    cdn: 'https://cdn.socket.io/4.6.2/socket.io.min.js',
+    usedFor: ['strategy', 'online'],
+    docs: 'https://socket.io/docs/v4/',
+  },
+  {
+    id: 'colyseus',
+    name: 'Colyseus.js',
+    version: '0.15.12',
+    tag: 'multiplayer',
+    description: 'Client for the Colyseus authoritative game server. Provides rooms, state sync, and matchmaking out of the box.',
+    whenToUse: 'Real-time competitive or cooperative online games where server authority prevents cheating.',
+    reliability: 90,
+    cdn: 'https://cdn.jsdelivr.net/npm/colyseus.js@0.15.12/dist/colyseus.js',
+    usedFor: ['online'],
+    docs: 'https://docs.colyseus.io/',
+  },
+  {
+    id: 'peerjs',
+    name: 'PeerJS',
+    version: '1.4.7',
+    tag: 'multiplayer',
+    description: 'WebRTC peer-to-peer connections simplified. Players connect directly without a game server (only a signaling server).',
+    whenToUse: 'Local co-op, 2-player games, scenarios where latency must be minimal and a server is not available.',
+    reliability: 85,
+    cdn: 'https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js',
+    usedFor: ['p2p'],
+    docs: 'https://peerjs.com/docs/',
+  },
+  {
+    id: 'howler',
+    name: 'Howler.js',
+    version: '2.2.4',
+    tag: 'audio',
+    description: 'Web audio manager for loading and playing sound files (MP3, OGG, WAV). Handles cross-browser audio quirks and provides 3D spatial audio.',
+    whenToUse: 'When using pre-recorded audio files. Overkill for simple procedural SFX (use Web Audio API directly instead).',
+    reliability: 96,
+    cdn: 'https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js',
+    usedFor: ['platformer', 'fps'],
+    docs: 'https://howlerjs.com/',
+  },
+  {
+    id: 'tone',
+    name: 'Tone.js',
+    version: '14.7.77',
+    tag: 'audio',
+    description: 'Web Audio framework for music synthesis, scheduling, and effects. Makes it easy to build synthesizers, sequencers, and generative music.',
+    whenToUse: 'Music games, rhythm games, games with procedurally generated soundtracks or interactive audio.',
+    reliability: 92,
+    cdn: 'https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js',
+    usedFor: ['music'],
+    docs: 'https://tonejs.github.io/',
+  },
+];
+
+const TAG_LABELS = { rendering: 'RENDERING', physics: 'PHYSICS', multiplayer: 'MULTIPLAYER', audio: 'AUDIO' };
+
+let activeType = null;
+
+function renderGameTypes() {
+  const container = document.getElementById('gameTypes');
+  container.innerHTML = GAME_TYPES.map(t =>
+    `<button class="type-btn" data-id="${t.id}">${t.label}</button>`
+  ).join('');
+  container.querySelectorAll('.type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      if (activeType === id) {
+        activeType = null;
+        container.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+      } else {
+        activeType = id;
+        container.querySelectorAll('.type-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-id') === id));
+      }
+      updateStackVis();
+      updateLibHighlights();
+    });
+  });
+}
+
+function updateStackVis() {
+  const type = GAME_TYPES.find(t => t.id === activeType);
+  const vis = document.getElementById('stackVis');
+  if (!type) {
+    vis.innerHTML = `
+      <div class="stack-layer"><div class="layer-label">Rendering</div><div class="layer-value none">select a game type</div></div>
+      <div class="stack-layer"><div class="layer-label">Physics</div><div class="layer-value none">—</div></div>
+      <div class="stack-layer"><div class="layer-label">Multiplayer</div><div class="layer-value none">—</div></div>
+      <div class="stack-layer"><div class="layer-label">Audio</div><div class="layer-value none">—</div></div>
+    `;
+    return;
+  }
+  function layerClass(v) { return v === 'none' ? 'none' : 'active'; }
+  vis.innerHTML = `
+    <div class="stack-layer ${type.rendering !== 'none' ? 'active' : ''}">
+      <div class="layer-label">Rendering</div>
+      <div class="layer-value ${layerClass(type.rendering)}">${type.rendering}</div>
+    </div>
+    <div class="stack-layer ${type.physics !== 'none' ? 'active' : ''}">
+      <div class="layer-label">Physics</div>
+      <div class="layer-value ${layerClass(type.physics)}">${type.physics}</div>
+    </div>
+    <div class="stack-layer ${type.multi !== 'none' ? 'active' : ''}">
+      <div class="layer-label">Multiplayer</div>
+      <div class="layer-value ${layerClass(type.multi)}">${type.multi}</div>
+    </div>
+    <div class="stack-layer ${type.audio !== 'none' ? 'active' : ''}">
+      <div class="layer-label">Audio</div>
+      <div class="layer-value ${layerClass(type.audio)}">${type.audio}</div>
+    </div>
+  `;
+}
+
+function renderLibCards() {
+  const grid = document.getElementById('libGrid');
+  grid.innerHTML = LIBS.map(lib => `
+    <div class="lib-card" data-id="${lib.id}" data-used="${lib.usedFor.join(',')}">
+      <div class="lib-header">
+        <span class="lib-name">${lib.name}</span>
+        <span class="lib-version">v${lib.version}</span>
+        <span class="lib-tag tag-${lib.tag}">${TAG_LABELS[lib.tag]}</span>
+      </div>
+      <div class="lib-desc">${lib.description}</div>
+      <div class="lib-when">Use when: ${lib.whenToUse}</div>
+      <div class="lib-meta">
+        <div class="lib-reliability">
+          <div class="reliability-bar"><div class="reliability-fill" style="width:${lib.reliability}%"></div></div>
+          ${lib.reliability}%
+        </div>
+        <a class="lib-cdn-link" href="${lib.docs}" target="_blank" rel="noopener">docs ↗</a>
+        <a class="lib-cdn-link" href="${lib.cdn}" target="_blank" rel="noopener">CDN ↗</a>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateLibHighlights() {
+  const cards = document.querySelectorAll('.lib-card');
+  if (!activeType) {
+    cards.forEach(c => { c.classList.remove('dimmed', 'highlighted'); });
+    return;
+  }
+  cards.forEach(card => {
+    const usedFor = card.getAttribute('data-used').split(',');
+    const isUsed = usedFor.includes(activeType);
+    card.classList.toggle('highlighted', isUsed);
+    card.classList.toggle('dimmed', !isUsed);
+  });
+}
+
+renderGameTypes();
+updateStackVis();
+renderLibCards();
+</script>
+</body>
+</html>

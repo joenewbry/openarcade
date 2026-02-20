@@ -158,6 +158,14 @@
         'cursor: pointer; white-space: nowrap;' +
       '}' +
       '.ar-email-submit:hover { background: rgba(0,255,136,0.2); }' +
+      '.ar-fork-row { margin-top: 10px; }' +
+      '.ar-fork-btn {' +
+        'display: block; text-align: center; padding: 7px 12px;' +
+        'background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.4);' +
+        'border-radius: 6px; color: #a78bfa; font-family: "Courier New", monospace;' +
+        'font-size: 0.75rem; text-decoration: none; transition: background 0.2s;' +
+      '}' +
+      '.ar-fork-btn:hover { background: rgba(139,92,246,0.22); }' +
       '.ar-thanks { color: #0f8; font-size: 0.9rem; margin-top: 8px; }' +
       '.ar-dismiss {' +
         'position: absolute; top: 6px; right: 8px; background: none;' +
@@ -271,7 +279,8 @@
 
     aiDiv.innerHTML =
       '<span class="ar-ai-tag ' + tagClass + '">' + tagLabel + '</span>' +
-      '<div>' + (data.message || 'Thanks for the feedback!') + '</div>';
+      '<div>' + (data.message || 'Thanks for the feedback!') + '</div>' +
+      '<div class="ar-fork-row"><a class="ar-fork-btn" href="/game-builder/?fork=' + encodeURIComponent(gameName) + '&seed=' + encodeURIComponent(data.feedback || '') + '">\uD83C\uDFAE Fork &amp; Modify This Game \u2192</a></div>';
     aiDiv.style.display = 'block';
 
     // For actionable feedback (feature/bug), show email collection

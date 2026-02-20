@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Builder — OpenArcade</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='12' fill='%238b5cf6'/><text x='50' y='70' font-size='55' font-family='Arial,sans-serif' font-weight='bold' fill='white' text-anchor='middle'>G</text></svg>">
+  <link rel="stylesheet" href="builder.css">
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────── -->
+<header class="gb-header">
+  <a href="/" class="gb-logo">ARCADE</a>
+  <span class="gb-breadcrumb">/ Game Builder</span>
+
+  <div class="gb-phase-indicator" title="Design → Visualize → Generating → Playing">
+    <div class="gb-phase-dot active" title="Design"></div>
+    <div class="gb-phase-dot" title="Visualize"></div>
+    <div class="gb-phase-dot" title="Generating"></div>
+    <div class="gb-phase-dot" title="Playing"></div>
+  </div>
+
+  <a href="/library-ontology/" class="gb-lib-link" target="_blank">Tech Stack ↗</a>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────── -->
+<main class="gb-main">
+
+  <!-- ── Chat sidebar ──────────────────────────────────────── -->
+  <aside class="gb-chat">
+
+    <!-- Design checklist -->
+    <div class="gb-checklist">
+      <div class="gb-checklist-title">Design Checklist</div>
+      <div class="gb-checks" id="gbChecks">
+        <!-- Rendered by builder.js -->
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="gb-messages" id="gbMessages"></div>
+
+    <!-- Generate button (shown when ready) -->
+    <button class="gb-generate-btn" id="gbGenerateBtn"></button>
+
+    <!-- Input -->
+    <div class="gb-input-row" id="gbInputRow">
+      <textarea
+        class="gb-input"
+        id="gbInput"
+        placeholder="Describe your game idea…"
+        rows="1"
+        maxlength="2000"
+        autocomplete="off"
+        spellcheck="false"
+      ></textarea>
+      <button class="gb-send" id="gbSend">Send ▶</button>
+    </div>
+
+  </aside>
+
+  <!-- ── Right panel ───────────────────────────────────────── -->
+  <section class="gb-right">
+
+    <!-- Empty state (DESIGN phase) -->
+    <div class="gb-empty-right" id="gbEmptyRight">
+      <div class="gb-empty-icon">🎮</div>
+      <div>Describe your game in the chat</div>
+      <div style="color:var(--border);font-size:0.65rem">Concept art and preview will appear here</div>
+    </div>
+
+    <!-- Concept art panel (VISUALIZE phase) -->
+    <div class="gb-art-panel" id="gbArtPanel">
+      <div style="font-size:0.65rem;letter-spacing:2px;color:var(--muted);text-transform:uppercase">Concept Art</div>
+      <div class="gb-art-grid" id="gbArtGrid"></div>
+      <div style="font-size:0.7rem;color:var(--muted)">Click an image to select it</div>
+    </div>
+
+    <!-- Generation progress panel (GENERATING phase) -->
+    <div class="gb-progress-panel" id="gbProgressPanel">
+      <div class="gb-progress-title">Building Your Game</div>
+
+      <div id="gbProgressPct" class="gb-progress-pct">0%</div>
+
+      <div class="gb-progress-bar-wrap">
+        <div class="gb-progress-bar" id="gbProgressBar"></div>
+      </div>
+
+      <div id="gbProgressStep" class="gb-progress-step">Initializing…</div>
+
+      <div class="gb-stack-info" id="gbStackInfo">
+        <div>Resolving tech stack…</div>
+      </div>
+    </div>
+
+    <!-- Game panel (PLAYING phase) -->
+    <div class="gb-game-panel" id="gbGamePanel">
+      <div class="gb-game-toolbar">
+        <span class="gb-game-title" id="gbGameTitle">—</span>
+        <span class="gb-game-meta" id="gbGameMeta"></span>
+        <div class="gb-toolbar-actions">
+          <button class="gb-toolbar-btn" id="gbViewGameMd">game.md</button>
+          <button class="gb-toolbar-btn" id="gbViewChatLog">chat log</button>
+          <button class="gb-toolbar-btn" id="gbShareLink">share</button>
+        </div>
+      </div>
+      <iframe class="gb-game-iframe" id="gbGameIframe" sandbox="allow-scripts allow-same-origin" title="Game Preview"></iframe>
+    </div>
+
+  </section>
+
+</main>
+
+<script src="builder.js"></script>
+</body>
+</html>

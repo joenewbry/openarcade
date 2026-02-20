@@ -62,7 +62,9 @@
         <button class="filter-btn" data-category="racing">Racing</button>
         <button class="filter-btn" data-category="multiplayer">Multiplayer</button>
         <button class="filter-btn" data-category="remix">Remix</button>
+        <button class="filter-btn" data-category="user-created">User Created</button>
       </div>
+      <a href="/game-builder/" class="filter-btn" style="text-decoration:none;background:rgba(139,92,246,0.12);border-color:rgba(139,92,246,0.4);color:#a78bfa">+ Build a Game</a>
     </div>
 
     <div class="games-grid">
@@ -1334,6 +1336,46 @@
           applyFilter();
         });
       });
+
+      /* ── User Created games from games-manifest.json ── */
+      fetch('/games-manifest.json?t=' + Math.floor(Date.now() / 60000))
+        .then(function (r) { return r.json(); })
+        .then(function (manifest) {
+          var generated = (manifest.games || []).filter(function (g) { return g.source === 'generated'; });
+          if (!generated.length) return;
+
+          generated.forEach(function (game) {
+            // Register in category map
+            if (!gameCats[game.id]) gameCats[game.id] = [];
+            gameCats[game.id].push('user-created');
+
+            // Build card element
+            var card = document.createElement('a');
+            card.href = game.url;
+            card.className = 'game-card card-generated';
+            card.setAttribute('data-game', game.id);
+
+            var previewHtml = game.preview
+              ? '<img src="' + game.preview + '" alt="" style="width:100%;height:90px;object-fit:cover;border-radius:6px;margin-bottom:8px;opacity:0.85">'
+              : '';
+
+            card.innerHTML =
+              '<div class="card-header">' +
+                '<h2>' + escStr(game.title) + '</h2>' +
+                '<span class="plays-badge" style="background:rgba(139,92,246,0.15);color:#a78bfa;border-color:rgba(139,92,246,0.3);font-size:0.6rem;padding:2px 6px;border-radius:3px;border:1px solid">user created</span>' +
+              '</div>' +
+              previewHtml +
+              '<p class="description">' + escStr(game.description || '') + '</p>' +
+              (game.controls ? '<p class="controls"><span>Controls:</span> ' + escStr(game.controls) + '</p>' : '');
+            grid.appendChild(card);
+          });
+          applyFilter();
+        })
+        .catch(function () { /* manifest optional */ });
+
+      function escStr(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
 
     })();
   </script>
