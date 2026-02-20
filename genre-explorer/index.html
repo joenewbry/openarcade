@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Types — OpenArcade</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='12' fill='%238b5cf6'/><text x='50' y='70' font-size='55' font-family='Arial,sans-serif' font-weight='bold' fill='white' text-anchor='middle'>G</text></svg>">
+  <style>
+    /* ── Reset & Base ───────────────────────────────────────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg:      #0a0a14;
+      --bg2:     #12121f;
+      --surface: #1a1a2e;
+      --border:  #2a2a3e;
+      --text:    #e0e0f0;
+      --dim:     #6a6a8a;
+      --cyan:    #0ff;
+      --purple:  #8b5cf6;
+      --pink:    #f472b6;
+      --green:   #34d399;
+      --red:     #f87171;
+      --font:    "Courier New", "Lucida Console", monospace;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    .ge-header {
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 20px;
+      background: rgba(10, 10, 20, 0.92);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+
+    .ge-logo {
+      font-size: 18px; font-weight: bold; letter-spacing: 3px;
+      color: var(--cyan);
+      text-decoration: none;
+      text-shadow: 0 0 10px rgba(0, 255, 255, 0.4);
+      transition: text-shadow 0.3s;
+    }
+    .ge-logo:hover { text-shadow: 0 0 18px rgba(0, 255, 255, 0.8); }
+
+    .ge-breadcrumb {
+      color: var(--dim); font-size: 14px;
+    }
+
+    .ge-back-link {
+      margin-left: auto;
+      font-size: 13px; color: var(--purple);
+      text-decoration: none; letter-spacing: 0.5px;
+      border: 1px solid var(--purple);
+      padding: 4px 12px; border-radius: 4px;
+      transition: background 0.2s, color 0.2s;
+    }
+    .ge-back-link:hover {
+      background: var(--purple); color: #fff;
+    }
+
+    /* ── Search ──────────────────────────────────────────────── */
+    .ge-search-wrap {
+      position: fixed; top: 54px; left: 50%; transform: translateX(-50%);
+      z-index: 90; width: 400px; max-width: calc(100% - 40px);
+    }
+
+    .ge-search {
+      width: 100%;
+      padding: 10px 16px 10px 38px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text); font-family: var(--font); font-size: 14px;
+      outline: none;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .ge-search::placeholder { color: var(--dim); }
+    .ge-search:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 16px rgba(0, 255, 255, 0.15);
+    }
+
+    .ge-search-icon {
+      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+      color: var(--dim); font-size: 14px; pointer-events: none;
+    }
+
+    /* ── Canvas ──────────────────────────────────────────────── */
+    canvas {
+      display: block;
+      position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+
+    /* ── Tooltip ─────────────────────────────────────────────── */
+    .ge-tooltip {
+      position: fixed; z-index: 200;
+      pointer-events: none; opacity: 0;
+      background: rgba(10, 10, 20, 0.95);
+      border: 1px solid var(--cyan);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 12px; line-height: 1.6;
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.15);
+      transition: opacity 0.2s;
+      max-width: 220px;
+    }
+    .ge-tooltip.visible { opacity: 1; }
+    .ge-tooltip .tt-name {
+      font-size: 14px; font-weight: bold; color: var(--cyan);
+      margin-bottom: 4px;
+    }
+    .ge-tooltip .tt-complexity { color: var(--dim); }
+    .ge-tooltip .tt-keywords { color: var(--purple); font-size: 11px; margin-top: 4px; }
+    .ge-tooltip .tt-hint { color: var(--dim); font-size: 10px; margin-top: 6px; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ───────────────────────────────────────────────── -->
+<header class="ge-header">
+  <a href="/" class="ge-logo">ARCADE</a>
+  <span class="ge-breadcrumb">/ Game Types</span>
+  <a href="/game-builder/" class="ge-back-link">Game Builder &rarr;</a>
+</header>
+
+<!-- ── Search ───────────────────────────────────────────────── -->
+<div class="ge-search-wrap">
+  <span class="ge-search-icon">&#x1F50D;</span>
+  <input class="ge-search" id="searchInput" type="text"
+         placeholder="Describe your game idea to find a genre..."
+         autocomplete="off" spellcheck="false">
+</div>
+
+<!-- ── Tooltip ──────────────────────────────────────────────── -->
+<div class="ge-tooltip" id="tooltip">
+  <div class="tt-name" id="ttName"></div>
+  <div class="tt-complexity" id="ttComplexity"></div>
+  <div class="tt-keywords" id="ttKeywords"></div>
+  <div class="tt-hint">Click to build this genre</div>
+</div>
+
+<!-- ── Canvas ───────────────────────────────────────────────── -->
+<canvas id="canvas"></canvas>
+
+<script>
+// ── Genre Data ──────────────────────────────────────────────
+const GENRE_KEYWORDS = {
+  'platformer':      ['jump', 'platform', 'gravity', 'side-scroll', 'mario', 'run'],
+  'arcade-shooter':  ['shoot', 'bullet', 'space', 'waves', 'invaders', 'shmup'],
+  'puzzle':          ['match', 'tile', 'grid', 'solve', 'logic', 'tetris'],
+  'roguelike':       ['dungeon', 'permadeath', 'procedural', 'roguelike', 'loot'],
+  'tower-defense':   ['tower', 'defend', 'waves', 'path', 'strategy'],
+  'rhythm-music':    ['rhythm', 'music', 'beat', 'dance', 'song'],
+  'strategy-rts':    ['strategy', 'rts', 'base', 'army', 'resource'],
+  'racing':          ['race', 'car', 'speed', 'driving', 'kart'],
+  'card-board':      ['card', 'deck', 'board', 'hand', 'draw'],
+  'fighting':        ['fight', 'combo', 'punch', 'arena', 'versus'],
+  'sandbox':         ['build', 'create', 'open world', 'mine', 'craft'],
+  'fps-3d':          ['fps', 'first person', '3d', 'gun', 'aim'],
+  'idle-clicker':    ['idle', 'click', 'upgrade', 'automate', 'prestige'],
+  'visual-novel':    ['story', 'dialogue', 'choice', 'narrative', 'novel'],
+};
+
+const GENRE_META = {
+  'platformer':      { complexity: 'medium',    label: 'Platformer' },
+  'arcade-shooter':  { complexity: 'medium',    label: 'Arcade Shooter' },
+  'puzzle':          { complexity: 'low',       label: 'Puzzle' },
+  'roguelike':       { complexity: 'high',      label: 'Roguelike' },
+  'tower-defense':   { complexity: 'high',      label: 'Tower Defense' },
+  'rhythm-music':    { complexity: 'medium',    label: 'Rhythm / Music' },
+  'strategy-rts':    { complexity: 'very-high', label: 'Strategy RTS' },
+  'racing':          { complexity: 'medium',    label: 'Racing' },
+  'card-board':      { complexity: 'low',       label: 'Card / Board' },
+  'fighting':        { complexity: 'high',      label: 'Fighting' },
+  'sandbox':         { complexity: 'very-high', label: 'Sandbox' },
+  'fps-3d':          { complexity: 'very-high', label: 'FPS / 3D' },
+  'idle-clicker':    { complexity: 'low',       label: 'Idle Clicker' },
+  'visual-novel':    { complexity: 'low',       label: 'Visual Novel' },
+};
+
+const COMPLEXITY_COLORS = {
+  'low':       '#34d399',
+  'medium':    '#0ff',
+  'high':      '#8b5cf6',
+  'very-high': '#f87171',
+};
+
+const COMPLEXITY_LABELS = {
+  'low':       'Low',
+  'medium':    'Medium',
+  'high':      'High',
+  'very-high': 'Very High',
+};
+
+// ── Canvas Setup ────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx = W / 2;
+  cy = H / 2 + 30;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Particles ───────────────────────────────────────────────
+const particles = [];
+const PARTICLE_COUNT = 80;
+
+function initParticles() {
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    particles.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      r: Math.random() * 1.5 + 0.5,
+      alpha: Math.random() * 0.3 + 0.05,
+      hue: Math.random() > 0.5 ? 180 : 270,
+    });
+  }
+}
+initParticles();
+
+function updateParticles() {
+  for (const p of particles) {
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.x < 0) p.x = W;
+    if (p.x > W) p.x = 0;
+    if (p.y < 0) p.y = H;
+    if (p.y > H) p.y = 0;
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${p.alpha})`;
+    ctx.fill();
+  }
+  // Draw faint connections
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      const dx = particles[i].x - particles[j].x;
+      const dy = particles[i].y - particles[j].y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 100) {
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x, particles[i].y);
+        ctx.lineTo(particles[j].x, particles[j].y);
+        ctx.strokeStyle = `rgba(0, 255, 255, ${0.04 * (1 - dist / 100)})`;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+// ── Bubble Nodes ────────────────────────────────────────────
+const slugs = Object.keys(GENRE_KEYWORDS);
+const nodes = [];
+const BASE_RADIUS = Math.min(W, H) * 0.045;
+
+function initNodes() {
+  nodes.length = 0;
+  const baseR = Math.min(W, H) * 0.045;
+  const orbitRadius = Math.min(W, H) * 0.3;
+  const count = slugs.length;
+
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
+    const slug = slugs[i];
+    const meta = GENRE_META[slug];
+    const color = COMPLEXITY_COLORS[meta.complexity];
+
+    nodes.push({
+      slug,
+      label: meta.label,
+      complexity: meta.complexity,
+      color,
+      // target positions (radial)
+      tx: cx + Math.cos(angle) * orbitRadius,
+      ty: cy + Math.sin(angle) * orbitRadius,
+      // current animated positions
+      x: cx + Math.cos(angle) * orbitRadius * 0.1,
+      y: cy + Math.sin(angle) * orbitRadius * 0.1,
+      // radius
+      baseR: baseR,
+      targetR: baseR,
+      r: baseR * 0.2,
+      // state
+      score: 0,
+      alpha: 1,
+      targetAlpha: 1,
+      glowIntensity: 0,
+      targetGlow: 0,
+      hovered: false,
+      angle,
+      entryProgress: 0,
+    });
+  }
+}
+initNodes();
+
+// ── Keyword Scoring ─────────────────────────────────────────
+let searchQuery = '';
+
+function computeScores(query) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    for (const n of nodes) {
+      n.score = 0;
+      n.targetR = n.baseR;
+      n.targetAlpha = 1;
+      n.targetGlow = 0;
+    }
+    return;
+  }
+
+  let maxScore = 0;
+  for (const n of nodes) {
+    const keywords = GENRE_KEYWORDS[n.slug];
+    let score = 0;
+    for (const w of words) {
+      for (const kw of keywords) {
+        if (kw.includes(w) || w.includes(kw)) {
+          score += 1;
+        }
+      }
+      // also match slug and label
+      if (n.slug.includes(w) || n.label.toLowerCase().includes(w)) {
+        score += 0.5;
+      }
+    }
+    n.score = score;
+    if (score > maxScore) maxScore = score;
+  }
+
+  for (const n of nodes) {
+    if (maxScore > 0 && n.score > 0) {
+      const t = n.score / maxScore;
+      n.targetR = n.baseR * (1 + t * 0.6);
+      n.targetAlpha = 0.6 + t * 0.4;
+      n.targetGlow = t;
+    } else if (maxScore > 0) {
+      n.targetR = n.baseR * 0.6;
+      n.targetAlpha = 0.2;
+      n.targetGlow = 0;
+    } else {
+      n.targetR = n.baseR;
+      n.targetAlpha = 1;
+      n.targetGlow = 0;
+    }
+  }
+}
+
+// Search input
+const searchInput = document.getElementById('searchInput');
+searchInput.addEventListener('input', () => {
+  searchQuery = searchInput.value;
+  computeScores(searchQuery);
+});
+
+// postMessage API for parent frames
+window.addEventListener('message', (e) => {
+  if (e.data && typeof e.data.query === 'string') {
+    searchInput.value = e.data.query;
+    searchQuery = e.data.query;
+    computeScores(searchQuery);
+  }
+});
+
+// ── Mouse Interaction ───────────────────────────────────────
+let mouseX = -9999, mouseY = -9999;
+let hoveredNode = null;
+const tooltip = document.getElementById('tooltip');
+const ttName = document.getElementById('ttName');
+const ttComplexity = document.getElementById('ttComplexity');
+const ttKeywords = document.getElementById('ttKeywords');
+
+canvas.addEventListener('mousemove', (e) => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
+
+canvas.addEventListener('mouseleave', () => {
+  mouseX = -9999;
+  mouseY = -9999;
+});
+
+canvas.addEventListener('click', () => {
+  if (hoveredNode) {
+    window.location.href = '/game-builder/?genre=' + hoveredNode.slug;
+  }
+});
+
+// Cursor style
+function updateCursor() {
+  canvas.style.cursor = hoveredNode ? 'pointer' : 'default';
+}
+
+// ── Animation Loop ──────────────────────────────────────────
+let lastTime = 0;
+const LERP = 0.08;
+const ENTRY_DURATION = 1200; // ms for initial fly-in
+let startTime = performance.now();
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = now - lastTime;
+  lastTime = now;
+  const elapsed = now - startTime;
+
+  // ── Clear ──
+  ctx.clearRect(0, 0, W, H);
+
+  // ── Background gradient ──
+  const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.7);
+  bgGrad.addColorStop(0, '#10102a');
+  bgGrad.addColorStop(1, '#0a0a14');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Particles ──
+  updateParticles();
+  drawParticles();
+
+  // ── Center ring decoration ──
+  const orbitRadius = Math.min(W, H) * 0.3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, orbitRadius, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(0, 255, 255, 0.06)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Outer ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, orbitRadius + 40, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(139, 92, 246, 0.04)';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  // Rotating dashed ring
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(now * 0.0001);
+  ctx.beginPath();
+  ctx.arc(0, 0, orbitRadius - 20, 0, Math.PI * 2);
+  ctx.setLineDash([4, 12]);
+  ctx.strokeStyle = 'rgba(0, 255, 255, 0.05)';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Center label
+  ctx.fillStyle = 'rgba(0, 255, 255, 0.12)';
+  ctx.font = 'bold 12px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('GENRE MAP', cx, cy - 8);
+  ctx.fillStyle = 'rgba(139, 92, 246, 0.10)';
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillText(slugs.length + ' TYPES', cx, cy + 8);
+
+  // ── Update & Draw Nodes ──
+  hoveredNode = null;
+
+  // Recalculate base radius on the fly for responsiveness
+  const currentBaseR = Math.min(W, H) * 0.045;
+  const currentOrbit = Math.min(W, H) * 0.3;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    n.baseR = currentBaseR;
+
+    // Recompute target position based on current size
+    n.tx = cx + Math.cos(n.angle) * currentOrbit;
+    n.ty = cy + Math.sin(n.angle) * currentOrbit;
+
+    // If score-based targetR wasn't set, use base
+    if (searchQuery === '') {
+      n.targetR = n.baseR;
+    }
+
+    // Entry animation
+    const entryT = Math.min(1, (elapsed - i * 60) / ENTRY_DURATION);
+    const entryEase = entryT > 0 ? easeOutCubic(entryT) : 0;
+
+    // Lerp position
+    n.x = lerp(n.x, n.tx, LERP * entryEase);
+    n.y = lerp(n.y, n.ty, LERP * entryEase);
+
+    // Lerp radius
+    n.r = lerp(n.r, n.targetR * entryEase, LERP);
+
+    // Lerp alpha
+    n.alpha = lerp(n.alpha, n.targetAlpha, LERP);
+
+    // Lerp glow
+    n.glowIntensity = lerp(n.glowIntensity, n.targetGlow, LERP);
+
+    // Hit test
+    const dx = mouseX - n.x;
+    const dy = mouseY - n.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    n.hovered = dist < n.r + 6;
+
+    if (n.hovered) hoveredNode = n;
+  }
+
+  // Draw connection lines from center to each bubble
+  for (const n of nodes) {
+    if (n.alpha < 0.15) continue;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(n.x, n.y);
+    ctx.strokeStyle = `rgba(${hexToRgb(n.color)}, ${0.06 * n.alpha})`;
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+
+  // Draw bubbles
+  for (const n of nodes) {
+    if (n.r < 2) continue;
+    const hoverScale = n.hovered ? 1.15 : 1;
+    const drawR = n.r * hoverScale;
+    const alpha = n.alpha;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Outer glow
+    const glowAmount = n.hovered ? 0.5 : n.glowIntensity * 0.35;
+    if (glowAmount > 0.01) {
+      const glow = ctx.createRadialGradient(n.x, n.y, drawR * 0.5, n.x, n.y, drawR * 2.2);
+      glow.addColorStop(0, `rgba(${hexToRgb(n.color)}, ${glowAmount * 0.4})`);
+      glow.addColorStop(1, `rgba(${hexToRgb(n.color)}, 0)`);
+      ctx.fillStyle = glow;
+      ctx.fillRect(n.x - drawR * 2.5, n.y - drawR * 2.5, drawR * 5, drawR * 5);
+    }
+
+    // Bubble fill
+    const grad = ctx.createRadialGradient(n.x - drawR * 0.25, n.y - drawR * 0.25, 0, n.x, n.y, drawR);
+    grad.addColorStop(0, `rgba(${hexToRgb(n.color)}, 0.15)`);
+    grad.addColorStop(0.7, `rgba(${hexToRgb(n.color)}, 0.06)`);
+    grad.addColorStop(1, `rgba(${hexToRgb(n.color)}, 0.02)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, drawR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bubble border
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, drawR, 0, Math.PI * 2);
+    ctx.strokeStyle = n.color;
+    ctx.lineWidth = n.hovered ? 2.5 : 1.5;
+    ctx.stroke();
+
+    // Pulse ring on hover
+    if (n.hovered) {
+      const pulse = 1 + Math.sin(now * 0.005) * 0.08;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, drawR * pulse + 6, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${hexToRgb(n.color)}, 0.25)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Label
+    const fontSize = Math.max(9, Math.min(13, drawR * 0.35));
+    ctx.font = `bold ${fontSize}px "Courier New", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = n.hovered ? '#fff' : n.color;
+    ctx.shadowColor = n.color;
+    ctx.shadowBlur = n.hovered ? 10 : 4;
+
+    // Word wrap label
+    const words = n.label.split(/[\s\/]+/);
+    if (words.length > 1 && drawR > 25) {
+      ctx.fillText(words[0], n.x, n.y - fontSize * 0.45);
+      ctx.fillText(words.slice(1).join(' '), n.x, n.y + fontSize * 0.55);
+    } else {
+      ctx.fillText(n.label, n.x, n.y);
+    }
+    ctx.shadowBlur = 0;
+
+    // Complexity label below bubble
+    const compFontSize = Math.max(7, fontSize * 0.65);
+    ctx.font = `${compFontSize}px "Courier New", monospace`;
+    ctx.fillStyle = `rgba(${hexToRgb(n.color)}, ${0.5 * alpha})`;
+    ctx.fillText(COMPLEXITY_LABELS[n.complexity], n.x, n.y + drawR + compFontSize + 4);
+
+    ctx.restore();
+  }
+
+  // ── Tooltip ──
+  if (hoveredNode) {
+    const n = hoveredNode;
+    ttName.textContent = n.label;
+    ttName.style.color = n.color;
+    ttComplexity.textContent = 'Complexity: ' + COMPLEXITY_LABELS[n.complexity];
+    ttComplexity.style.color = n.color;
+    ttKeywords.textContent = GENRE_KEYWORDS[n.slug].join(', ');
+    tooltip.style.borderColor = n.color;
+    tooltip.classList.add('visible');
+
+    let tx = mouseX + 16;
+    let ty = mouseY + 16;
+    if (tx + 220 > W) tx = mouseX - 230;
+    if (ty + 120 > H) ty = mouseY - 130;
+    tooltip.style.left = tx + 'px';
+    tooltip.style.top = ty + 'px';
+  } else {
+    tooltip.classList.remove('visible');
+  }
+
+  updateCursor();
+}
+
+// ── Helpers ─────────────────────────────────────────────────
+function hexToRgb(hex) {
+  const c = hex.replace('#', '');
+  if (c === '0ff') return '0, 255, 255';
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  return `${r}, ${g}, ${b}`;
+}
+
+// ── Resize handler ──────────────────────────────────────────
+window.addEventListener('resize', () => {
+  resize();
+  // Recompute positions immediately
+  const currentOrbit = Math.min(W, H) * 0.3;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    n.tx = cx + Math.cos(n.angle) * currentOrbit;
+    n.ty = cy + Math.sin(n.angle) * currentOrbit;
+  }
+});
+
+// ── Start ───────────────────────────────────────────────────
+requestAnimationFrame(animate);
+
+// ── Keyboard shortcut: focus search on / ────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement !== searchInput) {
+    e.preventDefault();
+    searchInput.focus();
+  }
+  if (e.key === 'Escape') {
+    searchInput.blur();
+    searchInput.value = '';
+    searchQuery = '';
+    computeScores('');
+  }
+});
+</script>
+
+</body>
+</html>

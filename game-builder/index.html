@@ -14,13 +14,16 @@
   <a href="/" class="gb-logo">ARCADE</a>
   <span class="gb-breadcrumb">/ Game Builder</span>
 
-  <div class="gb-phase-indicator" title="Design → Visualize → Generating → Playing">
-    <div class="gb-phase-dot active" title="Design"></div>
+  <div class="gb-phase-indicator" title="Explore → Load → Design → Visualize → Generating → Playing">
+    <div class="gb-phase-dot active" title="Explore"></div>
+    <div class="gb-phase-dot" title="Load"></div>
+    <div class="gb-phase-dot" title="Design"></div>
     <div class="gb-phase-dot" title="Visualize"></div>
     <div class="gb-phase-dot" title="Generating"></div>
     <div class="gb-phase-dot" title="Playing"></div>
   </div>
 
+  <a href="/genre-explorer/" class="gb-lib-link" target="_blank">Game Types ↗</a>
   <a href="/library-ontology/" class="gb-lib-link" target="_blank">Tech Stack ↗</a>
 </header>
 
@@ -78,11 +81,25 @@
     <div class="gb-design-panel" id="gbDesignPanel">
       <div class="gb-design-tabs">
         <button class="gb-design-tab active" data-tab="tree" id="gbTabTree">Tech Tree</button>
+        <button class="gb-design-tab" data-tab="genre" id="gbTabGenre">Genre Guide</button>
         <button class="gb-design-tab" data-tab="gamemd" id="gbTabGameMd">game.md</button>
       </div>
       <div class="gb-design-tab-content" id="gbTabContentTree">
         <div class="gb-tech-tree" id="gbTechTree">
           <!-- Rendered by builder.js -->
+        </div>
+      </div>
+      <div class="gb-design-tab-content" id="gbTabContentGenre" style="display:none">
+        <div class="gb-genre-guide" id="gbGenreGuide">
+          <canvas id="gbGenreExplorerCanvas" width="600" height="400"></canvas>
+          <div class="gb-genre-guide-content" id="gbGenreGuideContent" style="display:none"></div>
+          <div class="gb-genre-guide-edit" id="gbGenreGuideEdit" style="display:none">
+            <textarea class="gb-genre-edit-area" id="gbGenreEditArea"></textarea>
+            <button class="btn btn-primary" id="gbGenreSaveBtn">Save</button>
+          </div>
+          <div class="gb-genre-guide-toolbar" id="gbGenreGuideToolbar" style="display:none">
+            <button class="btn btn-ghost btn-sm" id="gbGenreEditToggle">Edit</button>
+          </div>
         </div>
       </div>
       <div class="gb-design-tab-content" id="gbTabContentGameMd" style="display:none">

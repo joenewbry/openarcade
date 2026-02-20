@@ -6,6 +6,8 @@ const path = require('path');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+const GAME_TYPES_PATH = path.join(__dirname, '..', 'game-types');
+
 // Load the game design guide once at startup
 let DESIGN_GUIDE = '';
 try {
@@ -15,6 +17,23 @@ try {
   );
 } catch (e) {
   console.warn('Warning: could not load game-design-guide.md:', e.message);
+}
+
+/**
+ * Load genre-specific knowledge base if available.
+ * @param {string} genre - genre slug (e.g. 'platformer')
+ * @returns {{ content: string, isGap: boolean }}
+ */
+function loadGenreGuide(genre) {
+  if (!genre) return { content: '', isGap: false };
+  const slug = genre.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const filePath = path.join(GAME_TYPES_PATH, `${slug}.md`);
+  if (fs.existsSync(filePath)) {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const status = /\*\*Status\*\*:\s*(\w+)/.exec(content)?.[1] || 'unknown';
+    return { content, isGap: status === 'stub' || status === 'building', slug };
+  }
+  return { content: '', isGap: true, slug };
 }
 
 const CHAT_SYSTEM_PROMPT = `You are the OpenArcade Game Builder AI — a friendly, enthusiastic game design collaborator.
@@ -53,12 +72,29 @@ Remember: you're building excitement and helping someone create their dream game
  * @param {Array} messages - array of {role, content} objects
  * @param {string} gameId - for logging
  * @param {object} res - Express response (SSE)
+ * @param {object} [opts] - optional overrides
+ * @param {string} [opts.detectedGenre] - genre slug if already known
  */
-async function streamChat(messages, gameId, res) {
+async function streamChat(messages, gameId, res, opts = {}) {
+  // Build dynamic system prompt with genre-specific knowledge
+  let systemPrompt = CHAT_SYSTEM_PROMPT;
+  const genre = opts.detectedGenre || detectGenreFromMessages(messages);
+
+  if (genre) {
+    const guide = loadGenreGuide(genre);
+    if (guide.content && !guide.isGap) {
+      systemPrompt += `\n\n---\n\nGENRE KNOWLEDGE BASE (${genre}):\nUse this deep genre-specific knowledge to inform your design guidance.\n\n${guide.content}`;
+    } else if (guide.isGap) {
+      systemPrompt += `\n\n---\n\nGENRE GAP DETECTED: A knowledge base file does not yet exist for "${genre}". As you design the game, also help build the genre knowledge base. When you have insights about this genre's core mechanics, design patterns, or tech requirements, output them as:\n<!-- GENRE_SECTION: {"section": "core-mechanics", "content": "..."} -->\nValid sections: identity, core-mechanics, design-patterns, tech-stack, level-design, visual-reference, audio-design, multiplayer, generation-checklist, design-to-code`;
+      // Send gap notification to client
+      res.write(`data: ${JSON.stringify({ type: 'metadata', genreGapDetected: true, genre: guide.slug })}\n\n`);
+    }
+  }
+
   const stream = await client.messages.stream({
     model: 'claude-opus-4-5',
     max_tokens: 1024,
-    system: CHAT_SYSTEM_PROMPT,
+    system: systemPrompt,
     messages,
   });
 
@@ -137,6 +173,43 @@ async function streamGenerationStep(system, userPrompt, res, stepName, pct) {
   }
 }
 
+/**
+ * Try to detect genre from conversation messages (simple keyword matching).
+ */
+function detectGenreFromMessages(messages) {
+  const GENRE_KEYWORDS = {
+    'platformer': ['platformer', 'platform game', 'jump and run', 'side-scroll', 'metroidvania'],
+    'arcade-shooter': ['shooter', 'shmup', 'bullet hell', 'space invaders', 'shoot em up', 'twin-stick'],
+    'puzzle': ['puzzle', 'match-3', 'tetris', 'sokoban', 'logic game', 'tile matching'],
+    'roguelike': ['roguelike', 'roguelite', 'permadeath', 'dungeon crawler', 'procedural dungeon'],
+    'tower-defense': ['tower defense', 'tower defence', 'td game', 'defend the base'],
+    'rhythm-music': ['rhythm', 'music game', 'beat', 'guitar hero', 'dance'],
+    'strategy-rts': ['strategy', 'rts', 'real-time strategy', 'base building', '4x'],
+    'racing': ['racing', 'race game', 'driving', 'kart'],
+    'card-board': ['card game', 'board game', 'deck builder', 'solitaire', 'poker'],
+    'fighting': ['fighting game', 'fighter', 'brawler', 'beat em up'],
+    'sandbox': ['sandbox', 'minecraft', 'building game', 'creative mode'],
+    'fps-3d': ['fps', 'first person', 'first-person shooter', '3d shooter'],
+    'idle-clicker': ['idle', 'clicker', 'incremental', 'cookie clicker'],
+    'visual-novel': ['visual novel', 'dating sim', 'interactive fiction', 'narrative game'],
+  };
+
+  // Search through the last few messages
+  const recentText = messages.slice(-6).map(m => m.content).join(' ').toLowerCase();
+  let bestMatch = null;
+  let bestScore = 0;
+
+  for (const [genre, keywords] of Object.entries(GENRE_KEYWORDS)) {
+    const score = keywords.filter(kw => recentText.includes(kw)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = genre;
+    }
+  }
+
+  return bestMatch;
+}
+
 function extractMetadata(text) {
   const meta = {};
 
@@ -165,7 +238,16 @@ function extractMetadata(text) {
   // Extract ready to generate flag
   if (/<!--\s*READY_TO_GENERATE:\s*true\s*-->/.test(text)) meta.readyToGenerate = true;
 
+  // Extract genre section contributions (for self-building ontology)
+  const genreSections = [];
+  const gsRegex = /<!--\s*GENRE_SECTION:\s*(\{[\s\S]*?\})\s*-->/g;
+  let gsMatch;
+  while ((gsMatch = gsRegex.exec(text)) !== null) {
+    try { genreSections.push(JSON.parse(gsMatch[1])); } catch {}
+  }
+  if (genreSections.length) meta.genreSections = genreSections;
+
   return meta;
 }
 
-module.exports = { streamChat, complete, streamGenerationStep };
+module.exports = { streamChat, complete, streamGenerationStep, loadGenreGuide, detectGenreFromMessages };

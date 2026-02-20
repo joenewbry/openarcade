@@ -6,15 +6,19 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
+const http = require('http');
 const { streamChat } = require('./claude');
 const { generateConceptArt } = require('./grok');
 const { generateGame } = require('./generator');
 const { applyPatch } = require('./patcher');
+const { initMatchmaker } = require('./matchmaker');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 8092;
 const REPO_PATH = process.env.OPENARCADE_REPO_PATH || '/ssd/openarcade';
 const MANIFEST_PATH = path.join(REPO_PATH, 'games-manifest.json');
+const GAME_TYPES_PATH = path.join(REPO_PATH, 'game-types');
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
@@ -67,6 +71,17 @@ app.post('/api/chat', async (req, res) => {
     // If concept art prompt ready, note it in game.md
     if (metadata.conceptArtPrompt) {
       saveConceptArtPrompt(gameId, metadata.conceptArtPrompt);
+    }
+
+    // If genre sections contributed (self-building ontology), save them
+    if (metadata.genreSections?.length) {
+      const { detectGenreFromMessages: detectGenre } = require('./claude');
+      const genre = metadata.techTreeUpdates?.find(u => u.node === 'genre')?.value
+        || detectGenre(messages);
+      if (genre) {
+        const slug = genre.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        saveGenreSections(slug, metadata.genreSections);
+      }
     }
 
   } catch (e) {
@@ -161,6 +176,107 @@ app.post('/api/save-game-md', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── GET /api/genre/:slug — read a genre knowledge base file ──
+app.get('/api/genre/:slug', (req, res) => {
+  const slug = req.params.slug.replace(/[^a-z0-9-]/g, '');
+  const filePath = path.join(GAME_TYPES_PATH, `${slug}.md`);
+
+  if (!fs.existsSync(filePath)) {
+    // Genre gap detected — return template
+    const templatePath = path.join(GAME_TYPES_PATH, '_template.md');
+    const template = fs.existsSync(templatePath) ? fs.readFileSync(templatePath, 'utf8') : '';
+    return res.json({ exists: false, genre: slug, content: template, gap: true });
+  }
+
+  const content = fs.readFileSync(filePath, 'utf8');
+  const status = /\*\*Status\*\*:\s*(\w+)/.exec(content)?.[1] || 'unknown';
+  res.json({ exists: true, genre: slug, content, status });
+});
+
+// ── PUT /api/genre/:slug — save/update a genre knowledge base file ──
+app.put('/api/genre/:slug', (req, res) => {
+  const slug = req.params.slug.replace(/[^a-z0-9-]/g, '');
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: 'content required' });
+
+  fs.mkdirSync(GAME_TYPES_PATH, { recursive: true });
+  fs.writeFileSync(path.join(GAME_TYPES_PATH, `${slug}.md`), content, 'utf8');
+  res.json({ ok: true, genre: slug });
+});
+
+// ── GET /api/genres — list all genre files ──────────────────
+app.get('/api/genres', (req, res) => {
+  try {
+    if (!fs.existsSync(GAME_TYPES_PATH)) return res.json({ genres: [] });
+    const files = fs.readdirSync(GAME_TYPES_PATH)
+      .filter(f => f.endsWith('.md') && !f.startsWith('_'));
+    const genres = files.map(f => {
+      const slug = f.replace('.md', '');
+      const content = fs.readFileSync(path.join(GAME_TYPES_PATH, f), 'utf8');
+      const status = /\*\*Status\*\*:\s*(\w+)/.exec(content)?.[1] || 'unknown';
+      const complexity = /\*\*Complexity\*\*:\s*([\w-]+)/.exec(content)?.[1] || 'unknown';
+      const nameMatch = /^#\s*Genre:\s*(.+)/m.exec(content);
+      const name = nameMatch ? nameMatch[1].trim() : slug;
+      return { slug, name, status, complexity };
+    });
+    res.json({ genres });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/genre-image — generate genre reference image ──
+app.post('/api/genre-image', async (req, res) => {
+  const { genre, prompt } = req.body;
+  if (!genre || !prompt) return res.status(400).json({ error: 'genre and prompt required' });
+
+  const slug = genre.replace(/[^a-z0-9-]/g, '');
+  const imagesDir = path.join(GAME_TYPES_PATH, 'images');
+  fs.mkdirSync(imagesDir, { recursive: true });
+
+  try {
+    const imagePaths = await generateConceptArt(prompt, imagesDir, 1);
+    // Rename to genre-reference.png
+    if (imagePaths.length > 0) {
+      const srcPath = path.join(REPO_PATH, imagePaths[0]);
+      const destPath = path.join(imagesDir, `${slug}-reference.png`);
+      if (fs.existsSync(srcPath)) {
+        fs.renameSync(srcPath, destPath);
+      }
+    }
+    res.json({ ok: true, path: `game-types/images/${slug}-reference.png` });
+  } catch (e) {
+    console.error('Genre image error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── PATCH /api/genre/:slug/section — append a section to a genre file ──
+app.patch('/api/genre/:slug/section', (req, res) => {
+  const slug = req.params.slug.replace(/[^a-z0-9-]/g, '');
+  const { section, content: sectionContent } = req.body;
+  if (!section || !sectionContent) return res.status(400).json({ error: 'section and content required' });
+
+  const filePath = path.join(GAME_TYPES_PATH, `${slug}.md`);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'genre file not found' });
+
+  let fileContent = fs.readFileSync(filePath, 'utf8');
+  const placeholder = `{{${section.toUpperCase().replace(/-/g, '_')}_PLACEHOLDER}}`;
+
+  if (fileContent.includes(placeholder)) {
+    fileContent = fileContent.replace(placeholder, sectionContent);
+  } else {
+    // Append to end of the relevant section header
+    const sectionHeader = `## ${section.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`;
+    if (fileContent.includes(sectionHeader)) {
+      fileContent = fileContent.replace(sectionHeader, `${sectionHeader}\n\n${sectionContent}`);
+    }
+  }
+
+  fs.writeFileSync(filePath, fileContent, 'utf8');
+  res.json({ ok: true });
+});
+
 // ── Helpers ───────────────────────────────────────────────
 
 function appendChatLog(gameId, messages, assistantReply) {
@@ -199,6 +315,34 @@ function updateGameMdDraft(gameId, designUpdates) {
   fs.writeFileSync(gameMdPath, content, 'utf8');
 }
 
+function saveGenreSections(slug, sections) {
+  const filePath = path.join(GAME_TYPES_PATH, `${slug}.md`);
+  // Create from template if doesn't exist
+  if (!fs.existsSync(filePath)) {
+    const templatePath = path.join(GAME_TYPES_PATH, '_template.md');
+    if (fs.existsSync(templatePath)) {
+      let template = fs.readFileSync(templatePath, 'utf8');
+      template = template.replace(/\{\{GENRE_NAME\}\}/g, slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+      template = template.replace(/\{\{DATE\}\}/g, new Date().toISOString().split('T')[0]);
+      template = template.replace(/\{\{SLUG\}\}/g, slug);
+      template = template.replace(/\{\{COMPLEXITY\}\}/g, 'unknown');
+      fs.mkdirSync(GAME_TYPES_PATH, { recursive: true });
+      fs.writeFileSync(filePath, template, 'utf8');
+    } else {
+      return;
+    }
+  }
+
+  let content = fs.readFileSync(filePath, 'utf8');
+  for (const gs of sections) {
+    const placeholder = `{{${gs.section.toUpperCase().replace(/-/g, '_')}_PLACEHOLDER}}`;
+    if (content.includes(placeholder)) {
+      content = content.replace(placeholder, gs.content);
+    }
+  }
+  fs.writeFileSync(filePath, content, 'utf8');
+}
+
 function saveConceptArtPrompt(gameId, prompt) {
   const gameMdPath = path.join(REPO_PATH, gameId, 'game.md');
   if (!fs.existsSync(gameMdPath)) return;
@@ -213,10 +357,13 @@ function saveConceptArtPrompt(gameId, prompt) {
   }
 }
 
-// ── Start ─────────────────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
+// ── Mount matchmaker + Start ──────────────────────────────
+initMatchmaker(server);
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Game Builder Server running on port ${PORT}`);
   console.log(`Repo path: ${REPO_PATH}`);
+  console.log(`Matchmaker: Socket.io mounted at /matchmaker`);
   if (!process.env.ANTHROPIC_API_KEY) console.warn('WARNING: ANTHROPIC_API_KEY not set');
   if (!process.env.XAI_API_KEY) console.warn('WARNING: XAI_API_KEY not set');
 });

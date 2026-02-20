@@ -10,8 +10,12 @@ const API_BASE = '/game-builder-api';
 
 // ── State ────────────────────────────────────────────────────
 const state = {
-  phase: 'DESIGN',          // DESIGN | VISUALIZE | GENERATING | PLAYING
+  phase: 'EXPLORE',         // EXPLORE | LOAD | DESIGN | VISUALIZE | GENERATING | PLAYING
   gameId: null,             // slug assigned when design begins
+  genreSlug: null,          // selected genre slug
+  genreGuideContent: null,  // loaded genre markdown
+  genreGuideEditMode: false,
+  genreAffinityScores: {},  // genre → score (0-1) for narrowing circle
   messages: [],             // full chat history {role, content}
   checklist: {              // design guide sections completion
     'core-concept':  false,
@@ -101,10 +105,20 @@ const dom = {
   designPanel:     $('gbDesignPanel'),
   techTree:        $('gbTechTree'),
   tabTree:         $('gbTabTree'),
+  tabGenre:        $('gbTabGenre'),
   tabGameMd:       $('gbTabGameMd'),
   tabContentTree:  $('gbTabContentTree'),
+  tabContentGenre: $('gbTabContentGenre'),
   tabContentGameMd:$('gbTabContentGameMd'),
   gameMdPreview:   $('gbGameMdPreview'),
+  genreGuide:      $('gbGenreGuide'),
+  genreGuideContent: $('gbGenreGuideContent'),
+  genreGuideEdit:  $('gbGenreGuideEdit'),
+  genreEditArea:   $('gbGenreEditArea'),
+  genreSaveBtn:    $('gbGenreSaveBtn'),
+  genreEditToggle: $('gbGenreEditToggle'),
+  genreGuideToolbar: $('gbGenreGuideToolbar'),
+  genreExplorerCanvas: $('gbGenreExplorerCanvas'),
   toastContainer:  $('gbToastContainer'),
   globalProgressFill:  $('gbGlobalProgressFill'),
   globalProgressLabel: $('gbGlobalProgressLabel'),
@@ -164,14 +178,15 @@ function init() {
   updateChecklist({});
   renderTechTree();
   initDesignTabs();
+  initGenreGuide();
   updateGlobalProgress();
-  setPhase('DESIGN');
+  setPhase('EXPLORE');
 }
 
 // ── Phase management ──────────────────────────────────────────
 function setPhase(phase) {
   state.phase = phase;
-  const phases = ['DESIGN', 'VISUALIZE', 'GENERATING', 'PLAYING'];
+  const phases = ['EXPLORE', 'LOAD', 'DESIGN', 'VISUALIZE', 'GENERATING', 'PLAYING'];
   const idx = phases.indexOf(phase);
 
   dom.phaseDots.forEach((dot, i) => {
@@ -180,10 +195,20 @@ function setPhase(phase) {
   });
 
   // Show/hide right panels
-  dom.designPanel.style.display   = phase === 'DESIGN' ? 'flex' : 'none';
+  const isDesignPhase = phase === 'EXPLORE' || phase === 'LOAD' || phase === 'DESIGN';
+  dom.designPanel.style.display   = isDesignPhase ? 'flex' : 'none';
   dom.artPanel.classList.toggle('visible',      phase === 'VISUALIZE');
   dom.progressPanel.classList.toggle('visible', phase === 'GENERATING');
   dom.gamePanel.classList.toggle('visible',     phase === 'PLAYING');
+
+  // During EXPLORE, show Genre Guide tab by default
+  if (phase === 'EXPLORE') {
+    switchDesignTab('genre');
+  } else if (phase === 'LOAD') {
+    switchDesignTab('genre');
+  } else if (phase === 'DESIGN') {
+    switchDesignTab('tree');
+  }
 
   // Chat width
   const chat = document.querySelector('.gb-chat');
@@ -232,6 +257,14 @@ async function sendMessage() {
       }
       if (response.metadata.techTreeUpdates) {
         applyTechTreeUpdates(response.metadata.techTreeUpdates);
+        // Check if genre was just resolved — transition from EXPLORE to LOAD/DESIGN
+        const genreUpdate = response.metadata.techTreeUpdates.find(u => u.node === 'genre');
+        if (genreUpdate && genreUpdate.value) {
+          onGenreSelected(genreUpdate.value);
+        }
+      }
+      if (response.metadata.genreGapDetected) {
+        showToast(`Genre "${response.metadata.genre}" not found — building knowledge base`);
       }
       if (response.metadata.conceptArtPrompt) {
         state.conceptArtPrompt = response.metadata.conceptArtPrompt;
@@ -247,6 +280,9 @@ async function sendMessage() {
       }
       updateGameMdPreview();
     }
+
+    // Update genre affinity scores from chat text for narrowing circle
+    updateGenreAffinityFromText(text);
 
   } catch (e) {
     removeTypingIndicator(typingEl);
@@ -465,7 +501,7 @@ function approveArt() {
   addMessage('ai', `Concept art selected! Your game is ready to generate.\n\nClick "Generate Game →" when you're ready. The process takes 1–15 minutes depending on complexity.`);
   dom.generateBtn.classList.add('visible');
   dom.generateBtn.textContent = 'Generate Game →';
-  setPhase('DESIGN'); // back to design with generate button showing
+  setPhase('DESIGN');
 }
 
 // ── Generation step descriptions ──────────────────────────────
@@ -932,16 +968,21 @@ function setGlobalProgress(pct) {
 // ── Design Tabs ───────────────────────────────────────────────
 function initDesignTabs() {
   dom.tabTree?.addEventListener('click', () => switchDesignTab('tree'));
+  dom.tabGenre?.addEventListener('click', () => switchDesignTab('genre'));
   dom.tabGameMd?.addEventListener('click', () => switchDesignTab('gamemd'));
 }
 
 function switchDesignTab(tab) {
-  const isTree = tab === 'tree';
-  dom.tabTree?.classList.toggle('active', isTree);
-  dom.tabGameMd?.classList.toggle('active', !isTree);
-  if (dom.tabContentTree) dom.tabContentTree.style.display = isTree ? '' : 'none';
-  if (dom.tabContentGameMd) dom.tabContentGameMd.style.display = isTree ? 'none' : '';
-  if (!isTree) updateGameMdPreview();
+  dom.tabTree?.classList.toggle('active', tab === 'tree');
+  dom.tabGenre?.classList.toggle('active', tab === 'genre');
+  dom.tabGameMd?.classList.toggle('active', tab === 'gamemd');
+  if (dom.tabContentTree) dom.tabContentTree.style.display = tab === 'tree' ? '' : 'none';
+  if (dom.tabContentGenre) dom.tabContentGenre.style.display = tab === 'genre' ? '' : 'none';
+  if (dom.tabContentGameMd) dom.tabContentGameMd.style.display = tab === 'gamemd' ? '' : 'none';
+  if (tab === 'gamemd') updateGameMdPreview();
+  if (tab === 'genre' && !state.genreSlug) {
+    initGenreExplorerCanvas();
+  }
 }
 
 // ── game.md Preview ───────────────────────────────────────────
@@ -1078,6 +1119,350 @@ async function initGameOnServer(gameId, title) {
     });
   } catch (e) {
     console.warn('Init game failed (server may be offline):', e.message);
+  }
+}
+
+// ── Genre Guide System ────────────────────────────────────────
+
+const GENRE_KEYWORDS = {
+  'platformer': ['jump', 'platform', 'gravity', 'side-scroll', 'mario', 'run', 'wall'],
+  'arcade-shooter': ['shoot', 'bullet', 'space', 'waves', 'invaders', 'shmup', 'gun'],
+  'puzzle': ['match', 'tile', 'grid', 'solve', 'logic', 'tetris', 'puzzle'],
+  'roguelike': ['dungeon', 'permadeath', 'procedural', 'roguelike', 'loot', 'rogue'],
+  'tower-defense': ['tower', 'defend', 'waves', 'path', 'td', 'defense'],
+  'rhythm-music': ['rhythm', 'music', 'beat', 'dance', 'song', 'tempo'],
+  'strategy-rts': ['strategy', 'rts', 'base', 'army', 'resource', 'troops'],
+  'racing': ['race', 'car', 'speed', 'driving', 'kart', 'track'],
+  'card-board': ['card', 'deck', 'board', 'hand', 'draw', 'poker'],
+  'fighting': ['fight', 'combo', 'punch', 'arena', 'versus', 'brawl'],
+  'sandbox': ['build', 'open world', 'mine', 'craft', 'sandbox', 'create'],
+  'fps-3d': ['fps', 'first person', '3d', 'aim', 'first-person'],
+  'idle-clicker': ['idle', 'click', 'upgrade', 'automate', 'prestige', 'incremental'],
+  'visual-novel': ['story', 'dialogue', 'choice', 'narrative', 'novel', 'dating'],
+};
+
+const GENRE_META = {
+  'platformer':     { name: 'Platformer',      complexity: 'medium',    color: '#0ff' },
+  'arcade-shooter': { name: 'Arcade Shooter',   complexity: 'medium',    color: '#0ff' },
+  'puzzle':         { name: 'Puzzle',            complexity: 'low-medium',color: '#0f8' },
+  'roguelike':      { name: 'Roguelike',         complexity: 'high',      color: '#8b5cf6' },
+  'tower-defense':  { name: 'Tower Defense',     complexity: 'medium-high',color: '#0ff' },
+  'rhythm-music':   { name: 'Rhythm / Music',    complexity: 'medium-high',color: '#0ff' },
+  'strategy-rts':   { name: 'Strategy / RTS',    complexity: 'high',      color: '#8b5cf6' },
+  'racing':         { name: 'Racing',            complexity: 'medium',    color: '#0ff' },
+  'card-board':     { name: 'Card / Board',      complexity: 'medium',    color: '#0ff' },
+  'fighting':       { name: 'Fighting',          complexity: 'high',      color: '#8b5cf6' },
+  'sandbox':        { name: 'Sandbox',           complexity: 'high',      color: '#8b5cf6' },
+  'fps-3d':         { name: 'FPS / 3D',          complexity: 'very-high', color: '#f55' },
+  'idle-clicker':   { name: 'Idle / Clicker',    complexity: 'low',       color: '#0f8' },
+  'visual-novel':   { name: 'Visual Novel',      complexity: 'low-medium',color: '#0f8' },
+};
+
+function initGenreGuide() {
+  dom.genreEditToggle?.addEventListener('click', toggleGenreEditMode);
+  dom.genreSaveBtn?.addEventListener('click', saveGenreGuide);
+  initGenreExplorerCanvas();
+}
+
+function updateGenreAffinityFromText(text) {
+  const lower = text.toLowerCase();
+  for (const [genre, keywords] of Object.entries(GENRE_KEYWORDS)) {
+    let score = state.genreAffinityScores[genre] || 0;
+    for (const kw of keywords) {
+      if (lower.includes(kw)) score += 0.15;
+    }
+    state.genreAffinityScores[genre] = Math.min(score, 1);
+  }
+  // Re-render the inline genre explorer if visible
+  if (dom.tabContentGenre && dom.tabContentGenre.style.display !== 'none' && !state.genreSlug) {
+    renderGenreExplorerFrame();
+  }
+}
+
+async function onGenreSelected(genreValue) {
+  const slug = genreValue.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  state.genreSlug = slug;
+
+  // Transition to LOAD phase
+  setPhase('LOAD');
+  showToast(`Loading genre: ${genreValue}`);
+
+  try {
+    const res = await fetch(`${API_BASE}/api/genre/${slug}`);
+    if (!res.ok) throw new Error(`Genre API ${res.status}`);
+    const data = await res.json();
+
+    state.genreGuideContent = data.content;
+
+    if (data.gap) {
+      showToast(`Building genre knowledge for: ${genreValue}`);
+    }
+
+    // Render the genre guide
+    renderGenreGuideContent(data.content, data.status || 'unknown');
+
+    // Hide canvas, show content
+    if (dom.genreExplorerCanvas) dom.genreExplorerCanvas.style.display = 'none';
+    if (dom.genreGuideContent) dom.genreGuideContent.style.display = '';
+    if (dom.genreGuideToolbar) dom.genreGuideToolbar.style.display = '';
+
+    // Transition to DESIGN
+    setTimeout(() => setPhase('DESIGN'), 600);
+
+  } catch (e) {
+    console.warn('Genre load failed:', e.message);
+    setPhase('DESIGN');
+  }
+}
+
+function renderGenreGuideContent(markdown, status) {
+  if (!dom.genreGuideContent) return;
+  dom.genreGuideContent.innerHTML = renderGenreMarkdown(markdown);
+}
+
+function renderGenreMarkdown(md) {
+  // Process TECHCARD annotations first
+  md = md.replace(/<!--\s*TECHCARD:\s*(\{[\s\S]*?\})\s*-->/g, (match, json) => {
+    try {
+      const card = JSON.parse(json);
+      return `<div class="gb-techcard" data-type="${escHtml(card.type || '')}">
+        <div class="gb-techcard-info">
+          <span class="gb-techcard-name">${escHtml(card.name || card.id)}</span>
+          <span class="gb-techcard-version">v${escHtml(card.version || '?')}</span>
+          <div class="gb-techcard-desc">${escHtml(card.best_for || '')}</div>
+          <div class="gb-techcard-meta">
+            ${card.reliability ? `<span>Reliability: ${escHtml(card.reliability)}</span>` : ''}
+            ${card.docs ? `<a href="${escHtml(card.docs)}" target="_blank" style="color:var(--accent)">Docs</a>` : ''}
+          </div>
+        </div>
+      </div>`;
+    } catch { return ''; }
+  });
+
+  // Process inline TECH annotations
+  md = md.replace(/<!--\s*TECH:\s*(\{[\s\S]*?\})\s*-->/g, (match, json) => {
+    try {
+      const tech = JSON.parse(json);
+      return `<span class="gb-tech-badge">${escHtml(tech.id)} (${escHtml(tech.role || '')})</span>`;
+    } catch { return ''; }
+  });
+
+  // Strip remaining HTML comments
+  md = md.replace(/<!--[\s\S]*?-->/g, '');
+
+  // Convert markdown to HTML
+  let html = md
+    // Code blocks (must be before inline code)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (m, lang, code) =>
+      `<pre><code>${escHtml(code.trim())}</code></pre>`)
+    // Headings
+    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // Bold and italic
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Images
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, src) => {
+      const imgSrc = src.startsWith('http') ? src : `${API_BASE}/../game-types/${src}`;
+      return `<img src="${imgSrc}" alt="${escHtml(alt)}" loading="lazy">`;
+    })
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent)">$1</a>')
+    // Blockquotes
+    .replace(/^>\s?(.+)$/gm, '<blockquote>$1</blockquote>')
+    // Horizontal rules
+    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0">')
+    // Tables
+    .replace(/^\|(.+)\|$/gm, (match, content) => {
+      const cells = content.split('|').map(c => c.trim());
+      if (cells.every(c => /^[-:]+$/.test(c))) return ''; // separator row
+      const tag = content.includes('---') ? 'td' : 'td';
+      return '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+    })
+    // Unordered lists
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    // Numbered lists
+    .replace(/^\d+\.\s(.+)$/gm, '<li>$1</li>')
+    // Paragraphs (double newline)
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+
+  // Wrap list items
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+  html = html.replace(/<\/ul>\s*<ul>/g, '');
+
+  // Wrap table rows
+  html = html.replace(/(<tr>[\s\S]*?<\/tr>)/g, '<table>$1</table>');
+  html = html.replace(/<\/table>\s*<table>/g, '');
+
+  return `<p>${html}</p>`;
+}
+
+function toggleGenreEditMode() {
+  state.genreGuideEditMode = !state.genreGuideEditMode;
+  if (state.genreGuideEditMode) {
+    dom.genreGuideContent.style.display = 'none';
+    dom.genreGuideEdit.style.display = 'flex';
+    dom.genreEditArea.value = state.genreGuideContent || '';
+    dom.genreEditToggle.textContent = 'Preview';
+  } else {
+    dom.genreGuideContent.style.display = '';
+    dom.genreGuideEdit.style.display = 'none';
+    dom.genreEditToggle.textContent = 'Edit';
+  }
+}
+
+async function saveGenreGuide() {
+  if (!state.genreSlug) return;
+  const content = dom.genreEditArea.value;
+  state.genreGuideContent = content;
+
+  try {
+    await fetch(`${API_BASE}/api/genre/${state.genreSlug}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    renderGenreGuideContent(content);
+    showToast('Genre guide saved');
+    toggleGenreEditMode();
+  } catch (e) {
+    showToast('Save failed: ' + e.message);
+  }
+}
+
+// ── Inline Genre Explorer (Narrowing Circle) ─────────────────
+let genreExplorerAnim = null;
+const genreBubbles = [];
+
+function initGenreExplorerCanvas() {
+  const canvas = dom.genreExplorerCanvas;
+  if (!canvas) return;
+
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width || 600;
+  canvas.height = rect.height || 400;
+
+  // Initialize bubbles
+  genreBubbles.length = 0;
+  const genres = Object.keys(GENRE_META);
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const radius = Math.min(cx, cy) * 0.7;
+
+  genres.forEach((slug, i) => {
+    const angle = (i / genres.length) * Math.PI * 2 - Math.PI / 2;
+    genreBubbles.push({
+      slug,
+      name: GENRE_META[slug].name,
+      color: GENRE_META[slug].color,
+      x: cx + Math.cos(angle) * radius,
+      y: cy + Math.sin(angle) * radius,
+      targetR: 32,
+      r: 32,
+      alpha: 0.6,
+      targetAlpha: 0.6,
+      hover: false,
+    });
+  });
+
+  // Mouse interaction
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    for (const b of genreBubbles) {
+      const dist = Math.hypot(mx - b.x, my - b.y);
+      b.hover = dist < b.r + 4;
+    }
+    canvas.style.cursor = genreBubbles.some(b => b.hover) ? 'pointer' : 'default';
+  });
+
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    for (const b of genreBubbles) {
+      const dist = Math.hypot(mx - b.x, my - b.y);
+      if (dist < b.r + 4) {
+        // Genre selected via explorer
+        dom.input.value = `I want to make a ${b.name.toLowerCase()} game`;
+        sendMessage();
+        return;
+      }
+    }
+  });
+
+  renderGenreExplorerFrame();
+}
+
+function renderGenreExplorerFrame() {
+  const canvas = dom.genreExplorerCanvas;
+  if (!canvas || canvas.style.display === 'none') return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Update bubble sizes based on affinity scores
+  for (const b of genreBubbles) {
+    const score = state.genreAffinityScores[b.slug] || 0;
+    b.targetR = 24 + score * 24;
+    b.targetAlpha = 0.3 + score * 0.7;
+    if (b.hover) { b.targetR += 6; b.targetAlpha = 1; }
+    // Lerp
+    b.r += (b.targetR - b.r) * 0.1;
+    b.alpha += (b.targetAlpha - b.alpha) * 0.1;
+  }
+
+  // Draw connections (subtle lines between bubbles)
+  ctx.strokeStyle = 'rgba(30, 30, 58, 0.5)';
+  ctx.lineWidth = 0.5;
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  for (const b of genreBubbles) {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+
+  // Draw bubbles
+  for (const b of genreBubbles) {
+    ctx.globalAlpha = b.alpha;
+
+    // Glow
+    if (b.alpha > 0.5) {
+      ctx.shadowColor = b.color;
+      ctx.shadowBlur = 12 * b.alpha;
+    }
+
+    // Circle
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${b.color === '#0ff' ? '0,255,255' : b.color === '#8b5cf6' ? '139,92,246' : b.color === '#0f8' ? '0,255,136' : '255,85,85'}, 0.12)`;
+    ctx.fill();
+    ctx.strokeStyle = b.color;
+    ctx.lineWidth = b.hover ? 2 : 1;
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Label
+    ctx.fillStyle = b.alpha > 0.5 ? '#e0e0f0' : '#5a5a7a';
+    ctx.font = `${Math.max(9, b.r * 0.35)}px "Courier New", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.name, b.x, b.y);
+  }
+
+  ctx.globalAlpha = 1;
+
+  // Continue animation
+  if (!state.genreSlug) {
+    genreExplorerAnim = requestAnimationFrame(renderGenreExplorerFrame);
   }
 }
 

@@ -5,6 +5,23 @@
  * Called after the design conversation is complete.
  */
 
+// Server infrastructure definitions
+const SERVERS = {
+  'matchmaking': {
+    name: 'OpenArcade Matchmaking',
+    host: process.env.MATCHMAKER_HOST || 'openarcade.net',
+    port: 8092,
+    path: '/matchmaker',
+    capabilities: ['room-management', 'quick-play', 'join-specific', 'room-messaging'],
+    clientSnippet: `<script src="https://cdn.socket.io/4.6.2/socket.io.min.js"></script>
+<script>
+  const matchmaker = io(MATCHMAKER_URL, { path: '/matchmaker' });
+  matchmaker.emit('quick-play', { gameId: GAME_ID });
+  matchmaker.on('room-update', (room) => { /* update lobby UI */ });
+</script>`,
+  },
+};
+
 // CDN-vetted library definitions
 const LIBS = {
   'three': {
@@ -140,11 +157,15 @@ function selectStack(design) {
     stack.multiplayerLib = LIBS['colyseus'];
     stack.cdns.push(LIBS['colyseus'].cdn);
     stack.justification.push('Colyseus: server-authoritative real-time multiplayer');
+    stack.server = SERVERS['matchmaking'];
+    stack.justification.push('OpenArcade Matchmaking: lobby and room management');
   } else if (design.multiplayerType === 'server' || design.multiplayerType === 'online') {
     stack.multiplayer = 'Socket.io 4.6';
     stack.multiplayerLib = LIBS['socket.io'];
     stack.cdns.push(LIBS['socket.io'].cdn);
     stack.justification.push('Socket.io: online multiplayer / turn-based server sync');
+    stack.server = SERVERS['matchmaking'];
+    stack.justification.push('OpenArcade Matchmaking: lobby and room management');
   } else if (design.multiplayerType === 'p2p') {
     stack.multiplayer = 'PeerJS 1.4';
     stack.multiplayerLib = LIBS['peerjs'];
@@ -218,8 +239,9 @@ function extractDesignFromGameMd(gameMdText) {
 
   // Multiplayer
   if (/colyseus|authoritative/i.test(lower)) design.multiplayerType = 'authoritative';
-  else if (/socket\.io|online.multi/i.test(lower)) design.multiplayerType = 'server';
+  else if (/socket\.io|online.multi|matchmak|lobby|room.based/i.test(lower)) design.multiplayerType = 'server';
   else if (/peerjs|p2p|peer.to.peer/i.test(lower)) design.multiplayerType = 'p2p';
+  else if (/multiplayer|co-?op|versus|pvp/i.test(lower)) design.multiplayerType = 'server';
 
   // Audio
   if (/tone\.js|synthesis|rhythm/i.test(lower)) design.audioNeeds = 'synthesis';
@@ -231,4 +253,4 @@ function extractDesignFromGameMd(gameMdText) {
   return design;
 }
 
-module.exports = { selectStack, generateCDNTags, extractDesignFromGameMd, LIBS };
+module.exports = { selectStack, generateCDNTags, extractDesignFromGameMd, LIBS, SERVERS };
