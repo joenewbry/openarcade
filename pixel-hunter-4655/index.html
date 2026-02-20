@@ -1,0 +1,412 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Pixel Hunter</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --accent: #e94560;
+            --player: #00ff88;
+            --enemy: #ff6b35;
+            --text: #eee;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            touch-action: none;
+        }
+        
+        #gameCanvas {
+            display: block;
+            background: var(--bg);
+        }
+        
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(26, 26, 46, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        #overlay.hidden {
+            display: none;
+        }
+        
+        #overlayTitle {
+            font-size: 2.5rem;
+            color: var(--accent);
+            margin-bottom: 1rem;
+            text-shadow: 0 0 20px var(--accent);
+        }
+        
+        #overlayScore {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .controls-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1rem;
+            border-radius: 10px;
+            margin-bottom: 1rem;
+            max-width: 400px;
+        }
+        
+        .controls-info h3 {
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+        
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+        }
+        
+        .control-item {
+            padding: 0.5rem;
+        }
+        
+        .control-key {
+            background: var(--accent);
+            color: var(--bg);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-bottom: 0.25rem;
+            display: inline-block;
+        }
+        
+        .btn {
+            background: var(--accent);
+            color: var(--text);
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.2rem;
+            font-family: inherit;
+            cursor: pointer;
+            margin: 0.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px var(--accent);
+        }
+        
+        #hud {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            font-size: 1.2rem;
+            z-index: 50;
+        }
+        
+        #soundToggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: transparent;
+            border: 2px solid var(--accent);
+            color: var(--text);
+            padding: 0.5rem;
+            cursor: pointer;
+            font-size: 1.5rem;
+            z-index: 50;
+        }
+        
+        #mobileControls {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            z-index: 50;
+        }
+        
+        .mobile-btn {
+            background: rgba(233, 69, 96, 0.6);
+            border: 2px solid var(--accent);
+            color: var(--text);
+            width: 60px;
+            height: 60px;
+            font-size: 1.5rem;
+            border-radius: 50%;
+            touch-action: none;
+        }
+        
+        .dpad {
+            position: absolute;
+            left: 20px;
+            bottom: 0;
+            display: grid;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(3, 60px);
+            gap: 5px;
+        }
+        
+        .dpad .mobile-btn:nth-child(1) { grid-column: 2; grid-row: 1; }
+        .dpad .mobile-btn:nth-child(2) { grid-column: 1; grid-row: 2; }
+        .dpad .mobile-btn:nth-child(3) { grid-column: 3; grid-row: 2; }
+        .dpad .mobile-btn:nth-child(4) { grid-column: 2; grid-row: 3; }
+        
+        .action-btns {
+            position: absolute;
+            right: 20px;
+            bottom: 40px;
+        }
+        
+        @media (pointer: coarse) {
+            #mobileControls {
+                display: block;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="hud">
+        <div>SCORE: <span id="scoreDisplay">0</span></div>
+        <div>LIVES: <span id="livesDisplay">3</span></div>
+        <div>WAVE: <span id="waveDisplay">1</span></div>
+    </div>
+    
+    <button id="soundToggle">🔊</button>
+    
+    <div id="mobileControls">
+        <div class="dpad">
+            <button class="mobile-btn" data-dir="up">▲</button>
+            <button class="mobile-btn" data-dir="left">◀</button>
+            <button class="mobile-btn" data-dir="right">▶</button>
+            <button class="mobile-btn" data-dir="down">▼</button>
+        </div>
+        <div class="action-btns">
+            <button class="mobile-btn" id="fireBtn">🔥</button>
+        </div>
+    </div>
+    
+    <div id="overlay">
+        <h1 id="overlayTitle">PIXEL HUNTER</h1>
+        <div id="overlayScore"></div>
+        
+        <div class="controls-info">
+            <h3>CONTROLS</h3>
+            <div class="controls-grid">
+                <div class="control-item">
+                    <div class="control-key">WASD / ↑↓←→</div>
+                    <div>Move</div>
+                </div>
+                <div class="control-item">
+                    <div class="control-key">SPACE</div>
+                    <div>Fire</div>
+                </div>
+                <div class="control-item">
+                    <div class="control-key">P / ESC</div>
+                    <div>Pause</div>
+                </div>
+            </div>
+        </div>
+        
+        <button class="btn" id="startBtn">START GAME</button>
+        <button class="btn" id="restartBtn" style="display: none;">PLAY AGAIN</button>
+        <button class="btn" id="resumeBtn" style="display: none;">RESUME</button>
+    </div>
+
+    <script>
+        // ==================== AUDIO SYSTEM ====================
+        const AudioSystem = (function() {
+            let audioContext = null;
+            let masterGain = null;
+            let enabled = true;
+
+            function init() {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    masterGain = audioContext.createGain();
+                    masterGain.connect(audioContext.destination);
+                    masterGain.gain.value = 0.3;
+                } catch (e) {
+                    console.warn('Web Audio API not supported');
+                    enabled = false;
+                }
+            }
+
+            function resume() {
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            }
+
+            function setEnabled(value) {
+                enabled = value;
+                if (masterGain) {
+                    masterGain.gain.value = value ? 0.3 : 0;
+                }
+            }
+
+            function isEnabled() {
+                return enabled;
+            }
+
+            function playShoot() {
+                if (!audioContext || !enabled) return;
+                resume();
+                
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                
+                osc.connect(gain);
+                gain.connect(masterGain);
+                
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(880, audioContext.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(440, audioContext.currentTime + 0.1);
+                
+                gain.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+                
+                osc.start(audioContext.currentTime);
+                osc.stop(audioContext.currentTime + 0.1);
+            }
+
+            function playHit() {
+                if (!audioContext || !enabled) return;
+                resume();
+                
+                const osc = audioContext.createOscillator();
+                const osc2 = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                const gain2 = audioContext.createGain();
+                
+                osc.connect(gain);
+                osc2.connect(gain2);
+                gain.connect(masterGain);
+                gain2.connect(masterGain);
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, audioContext.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + 0.2);
+                
+                osc2.type = 'square';
+                osc2.frequency.setValueAtTime(150, audioContext.currentTime);
+                osc2.frequency.exponentialRampToValueAtTime(30, audioContext.currentTime + 0.25);
+                
+                gain.gain.setValueAtTime(0.4, audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                
+                gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.25);
+                
+                osc.start(audioContext.currentTime);
+                osc.stop(audioContext.currentTime + 0.2);
+                osc2.start(audioContext.currentTime);
+                osc2.stop(audioContext.currentTime + 0.25);
+                
+                const bufferSize = audioContext.sampleRate * 0.15;
+                const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+                }
+                
+                const noise = audioContext.createBufferSource();
+                const noiseGain = audioContext.createGain();
+                noise.buffer = buffer;
+                noise.connect(noiseGain);
+                noiseGain.connect(masterGain);
+                noiseGain.gain.setValueAtTime(0.2, audioContext.currentTime);
+                noiseGain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+                noise.start(audioContext.currentTime);
+            }
+
+            function playCollect() {
+                if (!audioContext || !enabled) return;
+                resume();
+                
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                
+                osc.connect(gain);
+                gain.connect(masterGain);
+                
+                osc.type = 'sine';
+                
+                const now = audioContext.currentTime;
+                osc.frequency.setValueAtTime(523.25, now);
+                osc.frequency.setValueAtTime(659.25, now + 0.08);
+                osc.frequency.setValueAtTime(783.99, now + 0.16);
+                
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.setValueAtTime(0.3, now + 0.2);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+
+            function playDeath() {
+                if (!audioContext || !enabled) return;
+                resume();
+                
+                const now = audioContext.currentTime;
+                
+                const osc1 = audioContext.createOscillator();
+                const gain1 = audioContext.createGain();
+                osc1.connect(gain1);
+                gain1.connect(masterGain);
+                osc1.type = 'sawtooth';
+                osc1.frequency.setValueAtTime(100, now);
+                osc1.frequency.exponentialRampToValueAtTime(20, now + 0.8);
+                gain1.gain.setValueAtTime(0.5, now);
+                gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+                osc1.start(now);
+                osc1.stop(now + 0.8);
+                
+                const osc2 = audioContext.createOscillator();
+                const gain2 = audioContext.createGain();
+                osc2.connect(gain2);
+                gain2.connect(masterGain);
+                osc2.type = 'square';
+                osc2.frequency.setValueAtTime(400, now);
+                osc2.frequency.exponentialRampToValueAtTime(50, now + 0.6);
+                gain2.gain.setValueAtTime(0.3, now);
+                gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+                osc2.start(now);
+                osc2.stop(now + 0.6);
+                
+                const bufferSize = audioContext.sampleRate * 0.5;
+                const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+                }
+                const noise = audioContext.createBufferSource();
+                const noiseGain = audioContext.createGain();
+                noise.buffer = buffer;
+                noise.connect(noiseGain);
+                noiseGain.connect(masterGain);
+                noiseGain.gain.setValueAtTime(0.3, now);
+                noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                noise.start(now
