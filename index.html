@@ -3,14 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenArcade — Play Games, Train AI</title>
+  <title>OpenArcade</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='12' fill='%23ff6b35'/><text x='50' y='70' font-size='55' font-family='Arial,sans-serif' font-weight='bold' fill='white' text-anchor='middle'>A</text></svg>">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="landing">
     <h1>ARCADE</h1>
-    <p class="subtitle">Play games. Generate training data. Teach AI to see.</p>
 
     <div class="live-stats" id="liveStats">
       <div class="live-stat">
@@ -22,32 +21,6 @@
       <div class="live-stat">
         <span class="live-value" id="totalHours">--</span>
         <span class="live-label">hours played</span>
-      </div>
-      <span class="live-sep">&middot;</span>
-      <div class="live-stat">
-        <span class="live-value" id="totalData">--</span>
-        <span class="live-label">training data</span>
-      </div>
-    </div>
-
-    <div class="mission-bar" id="missionBar">
-      <div class="mission-content">
-        <p class="mission-text">Your gameplay trains a neural network to play games from raw pixels. We capture screen frames + keyboard inputs and feed them into a vision model.</p>
-        <a href="https://ssd.digitalsurface.com" target="_blank" rel="noopener" class="dashboard-link">Watch the AI train live &rarr;</a>
-      </div>
-      <div class="mission-stats" id="missionStats">
-        <div class="stat">
-          <span class="stat-value" id="statSessions">--</span>
-          <span class="stat-label">sessions</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value" id="statFrames">--</span>
-          <span class="stat-label">frames</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value" id="statData">--</span>
-          <span class="stat-label">collected</span>
-        </div>
       </div>
     </div>
 
@@ -999,7 +972,6 @@
   </div>
   <script>
     (function () {
-      var bar = document.getElementById('missionBar');
       var liveStats = document.getElementById('liveStats');
       var grid = document.querySelector('.games-grid');
       var pageloadTime = Date.now();
@@ -1242,14 +1214,6 @@
       sendLandingHeartbeat();
       setInterval(sendLandingHeartbeat, 30000);
 
-      /* ── Format bytes helper ── */
-      function fmtBytes(bytes) {
-        if (bytes > 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
-        if (bytes > 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
-        if (bytes > 1024) return (bytes / 1024).toFixed(0) + ' KB';
-        return bytes + ' B';
-      }
-
       /* ── Fetch real stats from API ── */
       fetch('/api/stats/arcade')
         .then(function (r) { return r.json(); })
@@ -1259,12 +1223,6 @@
           var mins = Math.floor((secs % 3600) / 60);
           document.getElementById('totalHours').textContent =
             hrs > 0 ? hrs.toLocaleString() + 'h ' + mins + 'm' : mins + 'm';
-          var bytes = d.total_bytes || 0;
-          document.getElementById('totalData').textContent = fmtBytes(bytes);
-          document.getElementById('statSessions').textContent = (d.total_sessions || 0).toLocaleString();
-          document.getElementById('statFrames').textContent = (d.total_frames || 0).toLocaleString();
-          document.getElementById('statData').textContent = fmtBytes(bytes);
-          bar.classList.add('loaded');
           var perGame = d.per_game || d.by_game || {};
           var totalSessions = d.total_sessions || 0;
           document.querySelectorAll('.plays-badge[data-game]').forEach(function (badge) {
@@ -1282,9 +1240,7 @@
           });
         })
         .catch(function () {
-          bar.style.display = 'none';
           document.getElementById('totalHours').textContent = '0h';
-          document.getElementById('totalData').textContent = '0 B';
         });
       /* ── Search and category filtering ── */
       var GAME_CATEGORIES = {
@@ -1359,6 +1315,14 @@
               ? '<img src="' + game.preview + '" alt="" style="width:100%;height:90px;object-fit:cover;border-radius:6px;margin-bottom:8px;opacity:0.85">'
               : '';
 
+            var trailHtml = '';
+            if (game.gameMd || game.chatLog) {
+              trailHtml = '<div style="display:flex;gap:8px;margin-top:6px">';
+              if (game.gameMd) trailHtml += '<a href="' + game.gameMd + '" target="_blank" rel="noopener" style="font-size:0.6rem;color:#a78bfa;text-decoration:none;border:1px solid rgba(139,92,246,0.3);padding:1px 6px;border-radius:3px" onclick="event.stopPropagation()">spec</a>';
+              if (game.chatLog) trailHtml += '<a href="' + game.chatLog + '" target="_blank" rel="noopener" style="font-size:0.6rem;color:#a78bfa;text-decoration:none;border:1px solid rgba(139,92,246,0.3);padding:1px 6px;border-radius:3px" onclick="event.stopPropagation()">chat log</a>';
+              trailHtml += '</div>';
+            }
+
             card.innerHTML =
               '<div class="card-header">' +
                 '<h2>' + escStr(game.title) + '</h2>' +
@@ -1366,7 +1330,8 @@
               '</div>' +
               previewHtml +
               '<p class="description">' + escStr(game.description || '') + '</p>' +
-              (game.controls ? '<p class="controls"><span>Controls:</span> ' + escStr(game.controls) + '</p>' : '');
+              (game.controls ? '<p class="controls"><span>Controls:</span> ' + escStr(game.controls) + '</p>' : '') +
+              trailHtml;
             grid.appendChild(card);
           });
           applyFilter();

@@ -16,12 +16,15 @@ const state = {
   checklist: {              // design guide sections completion
     'core-concept':  false,
     'mechanics':     false,
+    'progression':   false,
     'tech-needs':    false,
     'visual-design': false,
     'level-design':  false,
+    'onboarding':    false,
     'audio':         false,
     'multiplayer':   false,
     'ai-npc':        false,
+    'economy':       false,
     'concept-art':   false,
     'ready':         false,
   },
@@ -50,6 +53,8 @@ const dom = {
   progressBar:     $('gbProgressBar'),
   progressPct:     $('gbProgressPct'),
   progressStep:    $('gbProgressStep'),
+  stepLog:         $('gbStepLog'),
+  eta:             $('gbEta'),
   stackInfo:       $('gbStackInfo'),
   gamePanel:       $('gbGamePanel'),
   gameTitle:       $('gbGameTitle'),
@@ -131,6 +136,14 @@ async function sendMessage() {
 
   addMessage('user', text);
   state.messages.push({ role: 'user', content: text });
+
+  // In PLAYING phase, route to patch endpoint instead of design chat
+  if (state.phase === 'PLAYING') {
+    await applyPatch(text);
+    setInputEnabled(true);
+    dom.input.focus();
+    return;
+  }
 
   setInputEnabled(false);
   const typingEl = addTypingIndicator();
@@ -236,16 +249,17 @@ function createStreamingBubble() {
 }
 
 function updateStreamingBubble(bubble, text) {
-  bubble.textContent = text;
+  bubble.innerHTML = renderMarkdown(text);
   scrollToBottom();
 }
 
 function addMessage(role, content) {
   const msg = document.createElement('div');
   msg.className = `gb-msg ${role === 'user' ? 'user' : 'ai'}`;
+  const rendered = role === 'user' ? escHtml(content) : renderMarkdown(content);
   msg.innerHTML = `
     <div class="gb-avatar">${role === 'user' ? 'YOU' : 'AI'}</div>
-    <div class="gb-bubble">${escHtml(content)}</div>
+    <div class="gb-bubble">${rendered}</div>
   `;
   dom.messages.appendChild(msg);
   scrollToBottom();
@@ -383,11 +397,29 @@ function approveArt() {
   setPhase('DESIGN'); // back to design with generate button showing
 }
 
+// ── Generation step descriptions ──────────────────────────────
+const STEP_DESCRIPTIONS = {
+  'html-structure':        'Setting up HTML structure and styles',
+  'game-state':            'Defining game state and constants',
+  'entities':              'Creating entity definitions',
+  'game-loop':             'Building physics engine and game loop',
+  'rendering':             'Writing the rendering system',
+  'input':                 'Wiring up input handling',
+  'ui-overlays':           'Creating UI overlays and HUD',
+  'audio':                 'Generating audio system',
+  'recorder-integration':  'Integrating recorder and finalizing',
+  'assembling':            'Assembling final game file',
+};
+
 // ── Generation ────────────────────────────────────────────────
 async function startGeneration() {
   dom.generateBtn.disabled = true;
   dom.generateBtn.textContent = 'Building…';
   setPhase('GENERATING');
+  state.generationStartTime = Date.now();
+  state.completedSteps = [];
+  dom.stepLog.innerHTML = '';
+  dom.eta.textContent = '';
   setProgress(0, 'Starting…');
 
   try {
@@ -451,7 +483,58 @@ async function startGeneration() {
 function setProgress(pct, stepLabel) {
   dom.progressBar.style.width = pct + '%';
   dom.progressPct.textContent = pct + '%';
-  dom.progressStep.textContent = stepLabel || '';
+
+  const friendlyLabel = STEP_DESCRIPTIONS[stepLabel?.replace(/\s+/g, '-')] || stepLabel || '';
+  dom.progressStep.textContent = friendlyLabel;
+
+  // Update step log
+  if (stepLabel) {
+    addStepToLog(stepLabel, pct);
+  }
+
+  // Calculate ETA
+  if (pct > 0 && pct < 100 && state.generationStartTime) {
+    const elapsed = (Date.now() - state.generationStartTime) / 1000;
+    const totalEstimate = elapsed / (pct / 100);
+    const remaining = Math.max(0, Math.ceil(totalEstimate - elapsed));
+    if (remaining > 0) {
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      dom.eta.textContent = mins > 0 ? `~${mins}m ${secs}s remaining` : `~${secs}s remaining`;
+    }
+  } else if (pct >= 100) {
+    dom.eta.textContent = '';
+  }
+}
+
+function addStepToLog(stepKey, pct) {
+  const normalizedKey = stepKey.replace(/\s+/g, '-');
+  const label = STEP_DESCRIPTIONS[normalizedKey] || stepKey.replace(/-/g, ' ');
+
+  // Mark previous active step as done
+  const prev = dom.stepLog.querySelector('.gb-step-item.active');
+  if (prev) {
+    prev.classList.remove('active');
+    prev.classList.add('done');
+    const icon = prev.querySelector('.gb-step-icon');
+    if (icon) icon.textContent = '\u2713';
+  }
+
+  // Don't re-add if already exists
+  if (dom.stepLog.querySelector(`[data-step="${normalizedKey}"]`)) {
+    const existing = dom.stepLog.querySelector(`[data-step="${normalizedKey}"]`);
+    existing.classList.add('active');
+    existing.classList.remove('done');
+    const icon = existing.querySelector('.gb-step-icon');
+    if (icon) icon.innerHTML = '<span class="gb-spinner"></span>';
+    return;
+  }
+
+  const item = document.createElement('div');
+  item.className = 'gb-step-item active';
+  item.setAttribute('data-step', normalizedKey);
+  item.innerHTML = `<span class="gb-step-icon"><span class="gb-spinner"></span></span> ${escHtml(label)}`;
+  dom.stepLog.appendChild(item);
 }
 
 function updateStackDisplay(stack) {
@@ -548,12 +631,15 @@ function addPatchBadge(type, label) {
 const CHECK_LABELS = {
   'core-concept':  'Core Concept',
   'mechanics':     'Mechanics',
+  'progression':   'Progression',
   'tech-needs':    'Tech Needs',
   'visual-design': 'Visual Design',
   'level-design':  'Level Design',
+  'onboarding':    'Onboarding',
   'audio':         'Audio',
   'multiplayer':   'Multiplayer',
   'ai-npc':        'AI/NPC',
+  'economy':       'Economy',
   'concept-art':   'Concept Art',
   'ready':         'Ready',
 };
@@ -567,9 +653,12 @@ function applyDesignUpdates(updates) {
     // Auto-infer section progress
     if (s?.includes('core') || s?.includes('concept')) state.checklist['core-concept'] = true;
     if (s?.includes('mechanic') || s?.includes('control')) state.checklist['mechanics'] = true;
+    if (s?.includes('progress') || s?.includes('difficult') || s?.includes('curve')) state.checklist['progression'] = true;
     if (s?.includes('visual') || s?.includes('color') || s?.includes('style')) state.checklist['visual-design'] = true;
     if (s?.includes('level') || s?.includes('world')) state.checklist['level-design'] = true;
+    if (s?.includes('onboard') || s?.includes('tutorial')) state.checklist['onboarding'] = true;
     if (s?.includes('audio') || s?.includes('sound')) state.checklist['audio'] = true;
+    if (s?.includes('econom') || s?.includes('currenc') || s?.includes('shop')) state.checklist['economy'] = true;
   }
   updateChecklist({});
 }
@@ -628,6 +717,18 @@ function escHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+    .replace(/\n/g, '<br>');
+}
+
+function renderMarkdown(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/\n/g, '<br>');
 }
 

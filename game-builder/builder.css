@@ -97,7 +97,8 @@ body {
   transition: width 0.4s ease;
 }
 
-.gb-chat.narrow { width: 320px; }
+.gb-chat.narrow { width: 280px; }
+.gb-chat.narrow .gb-checklist { display: none; }
 .gb-chat.full   { width: 100%; }
 
 .gb-messages {
@@ -160,6 +161,15 @@ body {
   border-radius: 12px 4px 12px 12px;
   text-align: right;
 }
+
+/* Inline markdown styles in chat */
+.gb-bubble code {
+  background: rgba(255,255,255,0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.78rem;
+}
+.gb-bubble strong { color: var(--text); }
 
 /* Typing indicator */
 .gb-typing { display: flex; gap: 4px; align-items: center; padding: 8px 0; }
@@ -389,6 +399,61 @@ body {
 .gb-progress-step {
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+/* ── Step log ────────────────────────────────────────────── */
+.gb-step-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 480px;
+  margin-top: 8px;
+}
+
+.gb-step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 4px 0;
+  transition: color 0.3s;
+}
+
+.gb-step-item.active {
+  color: var(--accent);
+}
+
+.gb-step-item.done {
+  color: var(--success);
+}
+
+.gb-step-icon {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+}
+
+.gb-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: gb-spin 0.6s linear infinite;
+}
+
+@keyframes gb-spin {
+  to { transform: rotate(360deg); }
+}
+
+.gb-eta {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 4px;
 }
 
 .gb-stack-info {

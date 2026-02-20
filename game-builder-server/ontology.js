@@ -55,6 +55,14 @@ const LIBS = {
     description: 'P2P WebRTC connections between browsers',
     whenToUse: 'Local co-op or 2-player games where P2P is sufficient (no server needed)',
   },
+  'cannon': {
+    name: 'Cannon.js',
+    version: '0.6.2',
+    cdn: 'https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js',
+    capability: 'physics-3d',
+    description: '3D rigid body physics engine',
+    whenToUse: '3D games or FPS that need realistic physics (gravity, collisions, projectiles)',
+  },
   'howler': {
     name: 'Howler.js',
     version: '2.2.4',
@@ -104,6 +112,13 @@ function selectStack(design) {
     stack.renderingLib = LIBS['three'];
     stack.cdns.push(LIBS['three'].cdn);
     stack.justification.push('Three.js: 3D rendering required');
+    // 3D physics
+    if (design.physicsNeeds !== 'none') {
+      stack.physics = 'Cannon.js 0.6.2';
+      stack.physicsLib = LIBS['cannon'];
+      stack.cdns.push(LIBS['cannon'].cdn);
+      stack.justification.push('Cannon.js: 3D rigid body physics');
+    }
   }
 
   // Physics

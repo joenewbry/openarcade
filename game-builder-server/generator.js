@@ -141,6 +141,11 @@ async function generateGame(gameId, repoPath, res) {
   // Update games-manifest.json
   updateManifest(repoPath, gameId, gameMd);
 
+  // Notify training pipeline (non-fatal)
+  notifyTrainingPipeline(gameId, stack).catch(err =>
+    console.warn('Training webhook failed (non-fatal):', err.message)
+  );
+
   res.write(`event: complete\ndata: ${JSON.stringify({ url: `/${gameId}/index.html` })}\n\n`);
 }
 
@@ -204,9 +209,36 @@ function updateManifest(repoPath, gameId, gameMd) {
     source: 'generated',
     created: new Date().toISOString().split('T')[0],
     creator: 'anonymous',
+    gameMd: `/${gameId}/game.md`,
+    chatLog: `/${gameId}/chat.jsonl`,
   });
 
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+}
+
+async function notifyTrainingPipeline(gameId, stack) {
+  const url = process.env.TRAINING_WEBHOOK_URL || 'http://localhost:8090/api/webhook/new-game';
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      event: 'game_generated',
+      gameId,
+      timestamp: new Date().toISOString(),
+      stack: {
+        rendering: stack.rendering,
+        physics: stack.physics,
+        multiplayer: stack.multiplayer,
+        audio: stack.audio,
+      },
+      urls: {
+        game: `/${gameId}/index.html`,
+        spec: `/${gameId}/game.md`,
+        chatLog: `/${gameId}/chat.jsonl`,
+      },
+    }),
+  });
+  if (!res.ok) throw new Error(`Webhook ${res.status}`);
 }
 
 module.exports = { generateGame };
