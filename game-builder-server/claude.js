@@ -122,16 +122,46 @@ async function streamChat(messages, gameId, res, opts = {}) {
   });
 
   let fullText = '';
+  let pendingBuf = '';  // Buffer for text that might be inside a comment
 
   for await (const chunk of stream) {
     if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
       const text = chunk.delta.text;
       fullText += text;
-      // Strip hidden comments before streaming to client
-      const visibleText = text.replace(/<!--[\s\S]*?-->/g, '');
-      if (visibleText) {
-        res.write(`data: ${JSON.stringify({ type: 'text', text: visibleText })}\n\n`);
+      pendingBuf += text;
+
+      // Strip any complete comments from the buffer
+      pendingBuf = pendingBuf.replace(/<!--[\s\S]*?-->/g, '');
+
+      // If buffer contains a partial comment opening, hold it back
+      const commentStart = pendingBuf.indexOf('<!--');
+      if (commentStart !== -1) {
+        // Emit everything before the partial comment
+        const safe = pendingBuf.slice(0, commentStart);
+        if (safe) {
+          res.write(`data: ${JSON.stringify({ type: 'text', text: safe })}\n\n`);
+        }
+        pendingBuf = pendingBuf.slice(commentStart);
+      } else {
+        // Check for partial comment prefix at end of buffer (< or <! or <!-)
+        let holdBack = 0;
+        if (pendingBuf.endsWith('<!-')) holdBack = 3;
+        else if (pendingBuf.endsWith('<!')) holdBack = 2;
+        else if (pendingBuf.endsWith('<')) holdBack = 1;
+
+        const safe = holdBack ? pendingBuf.slice(0, -holdBack) : pendingBuf;
+        if (safe) {
+          res.write(`data: ${JSON.stringify({ type: 'text', text: safe })}\n\n`);
+        }
+        pendingBuf = holdBack ? pendingBuf.slice(-holdBack) : '';
       }
+    }
+  }
+  // Flush any remaining buffer (in case a comment was never closed)
+  if (pendingBuf) {
+    const cleaned = pendingBuf.replace(/<!--[\s\S]*?-->/g, '');
+    if (cleaned) {
+      res.write(`data: ${JSON.stringify({ type: 'text', text: cleaned })}\n\n`);
     }
   }
 
