@@ -154,20 +154,20 @@ async function init() {
   showBuilder();
 
   // Wire up input
-  dom.input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
-  dom.sendBtn.addEventListener('click', sendMessage);
-  dom.generateBtn.addEventListener('click', startGeneration);
-
-  // Auto-resize textarea
-  dom.input.addEventListener('input', () => {
-    dom.input.style.height = '42px';
-    dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
-  });
+  if (dom.input) {
+    dom.input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+    dom.input.addEventListener('input', () => {
+      dom.input.style.height = '42px';
+      dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
+    });
+  }
+  if (dom.sendBtn) dom.sendBtn.addEventListener('click', sendMessage);
+  if (dom.generateBtn) dom.generateBtn.addEventListener('click', startGeneration);
 
   // Try to load existing session
   if (existingId) {
@@ -557,10 +557,13 @@ function setPhase(phase) {
   const phases = ['PICK_TYPE', 'PICK_MODE', 'DESIGN', 'GENERATING', 'PLAYING'];
   const idx = phases.indexOf(phase);
 
-  dom.phaseDots.forEach((dot, i) => {
-    dot.classList.toggle('done', i < idx);
-    dot.classList.toggle('active', i === idx);
-  });
+  if (dom.phaseDots) {
+    dom.phaseDots.forEach((dot, i) => {
+      if (!dot) return;
+      dot.classList.toggle('done', i < idx);
+      dot.classList.toggle('active', i === idx);
+    });
+  }
 
   // Toggle overlays
   if (dom.pickType) dom.pickType.style.display = phase === 'PICK_TYPE' ? 'flex' : 'none';
@@ -591,8 +594,9 @@ function setPhase(phase) {
 
 // ── Chat ──────────────────────────────────────────────────────
 async function sendMessage() {
+  if (!dom.input) return;
   const text = dom.input.value.trim();
-  if (!text || dom.sendBtn.disabled) return;
+  if (!text || (dom.sendBtn && dom.sendBtn.disabled)) return;
 
   dom.input.value = '';
   dom.input.style.height = '42px';
@@ -732,6 +736,7 @@ async function streamChatRequest(messages, gameId, onToken) {
 
 // ── Streaming bubble helpers ──────────────────────────────────
 function createStreamingBubble() {
+  if (!dom.messages) return null;
   const msg = document.createElement('div');
   msg.className = 'gb-msg ai';
   msg.innerHTML = `
@@ -831,12 +836,12 @@ function removeTypingIndicator(el) {
 }
 
 function scrollToBottom() {
-  dom.messages.scrollTop = dom.messages.scrollHeight;
+  if (dom.messages) dom.messages.scrollTop = dom.messages.scrollHeight;
 }
 
 function setInputEnabled(enabled) {
-  dom.input.disabled = !enabled;
-  dom.sendBtn.disabled = !enabled;
+  if (dom.input) dom.input.disabled = !enabled;
+  if (dom.sendBtn) dom.sendBtn.disabled = !enabled;
 }
 
 // ── Concept art flow ──────────────────────────────────────────
