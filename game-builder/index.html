@@ -9,22 +9,27 @@
 </head>
 <body>
 
+<!-- ── Space background canvas ─────────────────────────────── -->
+<canvas id="gbSpaceCanvas" class="gb-space-canvas"></canvas>
+
+<!-- ── Confetti cursor canvas ──────────────────────────────── -->
+<canvas id="gbConfettiCanvas" class="gb-confetti-canvas"></canvas>
+
 <!-- ── Header ─────────────────────────────────────────────── -->
 <header class="gb-header">
   <a href="/" class="gb-logo">ARCADE</a>
   <span class="gb-breadcrumb">/ Game Builder</span>
 
-  <div class="gb-phase-indicator" title="Explore → Load → Design → Visualize → Generating → Playing">
-    <div class="gb-phase-dot active" title="Explore"></div>
-    <div class="gb-phase-dot" title="Load"></div>
+  <div class="gb-phase-indicator" title="Pick Type → Pick Mode → Design → Generating → Playing">
+    <div class="gb-phase-dot active" title="Pick Type"></div>
+    <div class="gb-phase-dot" title="Pick Mode"></div>
     <div class="gb-phase-dot" title="Design"></div>
-    <div class="gb-phase-dot" title="Visualize"></div>
     <div class="gb-phase-dot" title="Generating"></div>
     <div class="gb-phase-dot" title="Playing"></div>
   </div>
 
-  <a href="/genre-explorer/" class="gb-lib-link" target="_blank">Game Types ↗</a>
-  <a href="/library-ontology/" class="gb-lib-link" target="_blank">Tech Stack ↗</a>
+  <a href="/pipeline/" class="gb-lib-link" target="_blank">Pipeline ↗</a>
+  <a href="/how-it-works/" class="gb-lib-link" target="_blank">How It's Made ↗</a>
 </header>
 
 <!-- ── Global Progress Bar ────────────────────────────────── -->
@@ -38,15 +43,57 @@
   <div class="gb-global-progress-label" id="gbGlobalProgressLabel">0%</div>
 </div>
 
+<!-- ── Session Dashboard (no ?id=) ────────────────────────── -->
+<div class="gb-dashboard" id="gbDashboard" style="display:none">
+  <div class="gb-dashboard-header">
+    <h2>Your Game Sessions</h2>
+    <button class="gb-new-game-btn" id="gbNewGameBtn">+ New Game</button>
+  </div>
+  <div class="gb-dashboard-grid" id="gbDashboardGrid">
+    <div class="gb-dashboard-loading">Loading sessions...</div>
+  </div>
+</div>
+
+<!-- ── PICK_TYPE overlay ──────────────────────────────────── -->
+<div class="gb-pick-type" id="gbPickType" style="display:none">
+  <div class="gb-pick-type-header">
+    <h2>What kind of game?</h2>
+    <p>Choose your starting archetype — this sets up the right agents and tools</p>
+  </div>
+  <div class="gb-pick-type-grid" id="gbPickTypeGrid">
+    <!-- Rendered by builder.js from /api/archetypes -->
+  </div>
+</div>
+
+<!-- ── PICK_MODE overlay ─────────────────────────────────── -->
+<div class="gb-pick-mode" id="gbPickMode" style="display:none">
+  <div class="gb-pick-mode-header">
+    <h2>How many players?</h2>
+    <p>This affects networking, state sync, and matchmaking agents</p>
+  </div>
+  <div class="gb-pick-mode-cards">
+    <div class="gb-mode-card" data-mode="single">
+      <div class="gb-mode-icon">1P</div>
+      <div class="gb-mode-label">Single Player</div>
+      <div class="gb-mode-desc">Classic solo experience — AI opponents, local high scores</div>
+    </div>
+    <div class="gb-mode-card" data-mode="multiplayer">
+      <div class="gb-mode-icon">2P+</div>
+      <div class="gb-mode-label">Multiplayer</div>
+      <div class="gb-mode-desc">Real-time online play with server networking and matchmaking</div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Main ───────────────────────────────────────────────── -->
-<main class="gb-main">
+<main class="gb-main" id="gbMain">
 
   <!-- ── Chat sidebar ──────────────────────────────────────── -->
   <aside class="gb-chat">
 
     <!-- Design checklist -->
     <div class="gb-checklist">
-      <div class="gb-checklist-title">Game Ontology</div>
+      <div class="gb-checklist-title">Design Progress</div>
       <div class="gb-design-progress">
         <div class="gb-design-progress-fill" id="gbDesignProgress"></div>
       </div>
@@ -57,6 +104,11 @@
 
     <!-- Messages -->
     <div class="gb-messages" id="gbMessages"></div>
+
+    <!-- Agent bar -->
+    <div class="gb-agent-bar" id="gbAgentBar">
+      <!-- Rendered by builder.js — colored chips for active agents -->
+    </div>
 
     <!-- Generate button (shown when ready) -->
     <button class="gb-generate-btn" id="gbGenerateBtn"></button>
@@ -80,57 +132,15 @@
   <!-- ── Right panel ───────────────────────────────────────── -->
   <section class="gb-right">
 
-    <!-- Tech Tree + game.md panel (EXPLORE/LOAD/DESIGN phases) -->
-    <div class="gb-design-panel" id="gbDesignPanel">
-      <div class="gb-design-tabs">
-        <button class="gb-design-tab active" data-tab="tree" id="gbTabTree">Tech Tree</button>
-        <button class="gb-design-tab" data-tab="genre" id="gbTabGenre">Genre Guide</button>
-        <button class="gb-design-tab" data-tab="gamemd" id="gbTabGameMd">game.md</button>
+    <!-- Concept panel (DESIGN phase — concept art + level options) -->
+    <div class="gb-concept-panel" id="gbConceptPanel">
+      <div class="gb-concept-title">CONCEPT PREVIEW</div>
+      <div class="gb-concept-image" id="gbConceptImage">
+        <div class="gb-concept-placeholder">Concept art generates as your design takes shape...</div>
       </div>
-      <div class="gb-design-tab-content" id="gbTabContentTree">
-        <div class="gb-tech-tree" id="gbTechTree">
-          <!-- Rendered by builder.js -->
-        </div>
+      <div class="gb-level-options" id="gbLevelOptions" style="display:none">
+        <!-- 2x2 grid of level design option thumbnails -->
       </div>
-      <div class="gb-design-tab-content" id="gbTabContentGenre" style="display:none">
-        <div class="gb-genre-guide" id="gbGenreGuide">
-          <canvas id="gbGenreExplorerCanvas" width="600" height="400"></canvas>
-          <div class="gb-genre-guide-content" id="gbGenreGuideContent" style="display:none"></div>
-          <div class="gb-genre-guide-edit" id="gbGenreGuideEdit" style="display:none">
-            <textarea class="gb-genre-edit-area" id="gbGenreEditArea"></textarea>
-            <button class="btn btn-primary" id="gbGenreSaveBtn">Save</button>
-          </div>
-          <div class="gb-genre-guide-toolbar" id="gbGenreGuideToolbar" style="display:none">
-            <button class="btn btn-ghost btn-sm" id="gbGenreEditToggle">Edit</button>
-          </div>
-        </div>
-      </div>
-      <div class="gb-design-tab-content" id="gbTabContentGameMd" style="display:none">
-        <pre class="gb-gamemd-preview" id="gbGameMdPreview">Design decisions will appear here as you chat...</pre>
-      </div>
-    </div>
-
-    <!-- Live spec + early preview (DESIGN phase) -->
-    <div class="gb-design-right" id="gbDesignRight" style="display:none">
-      <div class="gb-spec-panel" id="gbSpecPanel">
-        <div class="gb-spec-title">GAME SPEC</div>
-        <div class="gb-spec-content" id="gbSpecContent">
-          <div class="gb-spec-empty">Your game spec will appear here as you describe your idea...</div>
-        </div>
-      </div>
-      <div class="gb-early-preview" id="gbEarlyPreview">
-        <div class="gb-spec-title">EARLY PREVIEW</div>
-        <div class="gb-preview-content" id="gbPreviewContent">
-          <div class="gb-preview-placeholder">Preview generates after a few design details are set</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Concept art panel (VISUALIZE phase) -->
-    <div class="gb-art-panel" id="gbArtPanel">
-      <div style="font-size:0.65rem;letter-spacing:2px;color:var(--muted);text-transform:uppercase">Concept Art</div>
-      <div class="gb-art-grid" id="gbArtGrid"></div>
-      <div style="font-size:0.7rem;color:var(--muted)">Click an image to select it</div>
     </div>
 
     <!-- Generation progress panel (GENERATING phase) -->
@@ -145,12 +155,44 @@
 
       <div id="gbProgressStep" class="gb-progress-step">Initializing…</div>
 
+      <!-- Build Checklist (from game.md sections) -->
+      <div class="gb-build-checklist" id="gbBuildChecklist">
+        <!-- Rendered by builder.js during GENERATING -->
+      </div>
+
+      <!-- Agent Grid (parallel mode) -->
+      <div class="gb-agent-grid" id="gbAgentGrid">
+        <div class="gb-agent-tier" data-tier="0">
+          <div class="gb-agent-tier-label">TIER 0: PLANNING</div>
+          <div class="gb-agent-tier-agents" id="gbTier0Agents"></div>
+        </div>
+        <div class="gb-agent-tier" data-tier="1">
+          <div class="gb-agent-tier-label">TIER 1: DEPARTMENTS (parallel)</div>
+          <div class="gb-agent-tier-agents" id="gbTier1Agents"></div>
+        </div>
+        <div class="gb-agent-tier" data-tier="2">
+          <div class="gb-agent-tier-label">TIER 2: INTEGRATION</div>
+          <div class="gb-agent-tier-agents" id="gbTier2Agents"></div>
+        </div>
+        <div class="gb-agent-tier" data-tier="3">
+          <div class="gb-agent-tier-label">TIER 3: QUALITY CHECK</div>
+          <div class="gb-agent-tier-agents" id="gbTier3Agents"></div>
+        </div>
+      </div>
+
+      <!-- Sequential step log (fallback) -->
       <div class="gb-step-log" id="gbStepLog"></div>
 
       <div class="gb-eta" id="gbEta"></div>
 
       <div class="gb-stack-info" id="gbStackInfo">
         <div>Resolving tech stack…</div>
+      </div>
+
+      <!-- QA Result overlay -->
+      <div class="gb-qa-overlay" id="gbQaOverlay" style="display:none">
+        <div class="gb-qa-title">Quality Check</div>
+        <div class="gb-qa-checklist" id="gbQaChecklist"></div>
       </div>
 
       <div class="gb-console" id="gbConsole">

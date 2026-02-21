@@ -3,21 +3,22 @@
 /**
  * OpenArcade Game Builder — Frontend State Machine
  *
- * Phases: DESIGN → VISUALIZE → GENERATING → PLAYING
+ * Phases: PICK_TYPE → PICK_MODE → DESIGN → GENERATING → PLAYING
  */
 
 const API_BASE = '/game-builder-api';
 
 // ── State ────────────────────────────────────────────────────
 const state = {
-  phase: 'EXPLORE',         // EXPLORE | LOAD | DESIGN | VISUALIZE | GENERATING | PLAYING
-  gameId: null,             // slug assigned when design begins
-  genreSlug: null,          // selected genre slug
-  genreGuideContent: null,  // loaded genre markdown
-  genreGuideEditMode: false,
-  genreAffinityScores: {},  // genre → score (0-1) for narrowing circle
-  messages: [],             // full chat history {role, content}
-  checklist: {              // design guide sections completion
+  phase: 'PICK_TYPE',         // PICK_TYPE | PICK_MODE | DESIGN | GENERATING | PLAYING
+  gameId: null,
+  selectedArchetype: null,    // archetype id from /api/archetypes
+  selectedMode: null,         // 'single' | 'multiplayer'
+  activeAgents: [],           // computed from ontology selections
+  buildChecklistItems: [],    // parsed from game.md H2 sections during GENERATING
+  ontologyDimensions: null,   // cached from /api/ontology-dimensions
+  messages: [],
+  checklist: {
     'core-concept':  false,
     'mechanics':     false,
     'progression':   false,
@@ -32,14 +33,13 @@ const state = {
     'concept-art':   false,
     'ready':         false,
   },
-  techTree: {},             // node → value mapping (e.g. { genre: 'platformer' })
+  techTree: {},
   conceptArtPrompt: null,
-  conceptArtImages: [],     // array of URLs
-  selectedArt: null,        // chosen art URL
-  forkSeed: null,           // pre-filled from ?fork= and ?seed=
-  currentIframeSrc: null,   // URL of game iframe
+  conceptArtImages: [],
+  selectedArt: null,
+  forkSeed: null,
+  currentIframeSrc: null,
   patchPending: false,
-  // Items that start hidden — only shown when the AI mentions them
   checklistRelevance: {
     'core-concept':  true,
     'mechanics':     true,
@@ -57,56 +57,29 @@ const state = {
   },
 };
 
-// ── Tech Tree Definition ─────────────────────────────────────
-const TECH_TREE_TIERS = [
-  {
-    name: 'Foundation',
-    nodes: [
-      { id: 'genre', label: 'Genre', chatPrompt: "Let's decide on the game genre" },
-      { id: 'theme', label: 'Theme', chatPrompt: "What theme or setting should the game have?" },
-    ],
-    weight: 15, // % per node
-  },
-  {
-    name: 'Mechanics',
-    nodes: [
-      { id: 'controls', label: 'Controls', chatPrompt: "What controls should the player use?" },
-      { id: 'core-loop', label: 'Core Loop', chatPrompt: "What's the core gameplay loop?" },
-      { id: 'win-condition', label: 'Win Condition', chatPrompt: "How does the player win or progress?" },
-      { id: 'progression', label: 'Progression', chatPrompt: "What kind of progression system should we use?" },
-    ],
-    weight: 10,
-  },
-  {
-    name: 'Tech Stack',
-    auto: true,
-    nodes: [
-      { id: 'rendering', label: 'Rendering' },
-      { id: 'physics', label: 'Physics' },
-      { id: 'audio-engine', label: 'Audio' },
-      { id: 'multiplayer-engine', label: 'Multiplayer' },
-    ],
-    weight: 0, // auto-resolved, no progress contribution
-  },
-  {
-    name: 'Polish',
-    nodes: [
-      { id: 'visual-style', label: 'Visual Style', chatPrompt: "What visual style are you going for?" },
-      { id: 'level-design', label: 'Level Design', chatPrompt: "How should the levels be structured?" },
-      { id: 'ai-npc', label: 'AI/NPC', chatPrompt: "Should the game have AI-controlled characters or NPCs?" },
-      { id: 'economy', label: 'Economy', chatPrompt: "Should the game have an economy or currency system?" },
-    ],
-    weight: 5,
-  },
-  {
-    name: 'Finalize',
-    nodes: [
-      { id: 'concept-art', label: 'Concept Art' },
-      { id: 'ready', label: 'Ready to Generate', locked: true },
-    ],
-    weight: 5,
-  },
-];
+// ── Archetype icons ──────────────────────────────────────────
+const ARCHETYPE_ICONS = {
+  'arcade':       '🕹️',
+  'platformer':   '🏃',
+  'arena':        '⚔️',
+  'strategy':     '♟️',
+  'roguelike':    '🗡️',
+  'sim-tycoon':   '🏭',
+  'narrative':    '📖',
+  '3d-open-world':'🌍',
+};
+
+// ── Agent category mapping ───────────────────────────────────
+const AGENT_CATEGORIES = {
+  'lead-architect': 'design', 'html-css': 'code', 'entity': 'code',
+  'input': 'code', 'level-designer': 'design', 'ui-overlay': 'code',
+  'core-engine': 'code', 'qa-validator': 'qa',
+  'sprite-gen': 'assets', 'mesh-gen': 'assets', 'texture': 'assets', 'shader': 'code',
+  'game-server': 'backend', 'state-sync': 'backend',
+  'physics': 'code', 'npc-ai': 'code', 'narrative': 'design',
+  'economy-balance': 'design', 'proc-gen': 'code',
+  'sfx': 'audio', 'music': 'audio',
+};
 
 // ── DOM refs ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -117,32 +90,25 @@ const dom = {
   sendBtn:         $('gbSend'),
   generateBtn:     $('gbGenerateBtn'),
   phaseDots:       document.querySelectorAll('.gb-phase-dot'),
-
-  designPanel:     $('gbDesignPanel'),
-  techTree:        $('gbTechTree'),
-  tabTree:         $('gbTabTree'),
-  tabGenre:        $('gbTabGenre'),
-  tabGameMd:       $('gbTabGameMd'),
-  tabContentTree:  $('gbTabContentTree'),
-  tabContentGenre: $('gbTabContentGenre'),
-  tabContentGameMd:$('gbTabContentGameMd'),
-  gameMdPreview:   $('gbGameMdPreview'),
-  genreGuide:      $('gbGenreGuide'),
-  genreGuideContent: $('gbGenreGuideContent'),
-  genreGuideEdit:  $('gbGenreGuideEdit'),
-  genreEditArea:   $('gbGenreEditArea'),
-  genreSaveBtn:    $('gbGenreSaveBtn'),
-  genreEditToggle: $('gbGenreEditToggle'),
-  genreGuideToolbar: $('gbGenreGuideToolbar'),
-  genreExplorerCanvas: $('gbGenreExplorerCanvas'),
   toastContainer:  $('gbToastContainer'),
   globalProgressFill:  $('gbGlobalProgressFill'),
   globalProgressLabel: $('gbGlobalProgressLabel'),
-  designRight:     $('gbDesignRight'),
-  specContent:     $('gbSpecContent'),
-  previewContent:  $('gbPreviewContent'),
-  artPanel:        $('gbArtPanel'),
-  artGrid:         $('gbArtGrid'),
+
+  // New panels
+  pickType:        $('gbPickType'),
+  pickTypeGrid:    $('gbPickTypeGrid'),
+  pickMode:        $('gbPickMode'),
+  conceptPanel:    $('gbConceptPanel'),
+  conceptImage:    $('gbConceptImage'),
+  levelOptions:    $('gbLevelOptions'),
+  agentBar:        $('gbAgentBar'),
+  buildChecklist:  $('gbBuildChecklist'),
+
+  // Canvases
+  confettiCanvas:  $('gbConfettiCanvas'),
+  spaceCanvas:     $('gbSpaceCanvas'),
+
+  // Progress
   progressPanel:   $('gbProgressPanel'),
   progressBar:     $('gbProgressBar'),
   progressPct:     $('gbProgressPct'),
@@ -151,19 +117,41 @@ const dom = {
   eta:             $('gbEta'),
   stackInfo:       $('gbStackInfo'),
   consoleBody:     $('gbConsoleBody'),
+
+  // Game
   gamePanel:       $('gbGamePanel'),
   gameTitle:       $('gbGameTitle'),
   gameMeta:        $('gbGameMeta'),
   gameIframe:      $('gbGameIframe'),
+
+  // Agent Grid
+  agentGrid:       $('gbAgentGrid'),
+  qaOverlay:       $('gbQaOverlay'),
+  qaChecklist:     $('gbQaChecklist'),
 };
 
 // ── Init ─────────────────────────────────────────────────────
 async function init() {
-  // Parse query params
   const params = new URLSearchParams(window.location.search);
   const forkGame = params.get('fork');
   const seedText = params.get('seed');
   const existingId = params.get('id');
+
+  // Init visual effects
+  initConfetti();
+  initSpaceBackground();
+
+  // Fetch and cache ontology dimensions
+  fetchOntologyDimensions();
+
+  // If no ?id= param, show dashboard
+  if (!existingId && !forkGame) {
+    showDashboard();
+    return;
+  }
+
+  // Hide dashboard, show main builder
+  showBuilder();
 
   // Wire up input
   dom.input.addEventListener('keydown', e => {
@@ -185,30 +173,324 @@ async function init() {
   if (existingId) {
     state.gameId = existingId;
     const loaded = await loadExistingSession(existingId);
-    if (loaded) return; // session restored
+    if (loaded) return;
   }
 
-  // New session
+  // New session — start with PICK_TYPE
   state.gameId = forkGame || generateGameId();
   pushGameIdToUrl();
 
-  // Init game on server
-  initGameOnServer(state.gameId, forkGame ? `Fork of ${forkGame}` : 'New Game');
-
-  // First message
   if (forkGame && seedText) {
-    addMessage('ai', `Welcome back! I'm picking up from where ${forkGame} left off.\n\nYou said: "${decodeURIComponent(seedText)}"\n\nLet's build on that. What aspects of ${forkGame} do you most want to change?`);
+    // Fork flow — skip to design
+    initGameOnServer(state.gameId, `Fork of ${forkGame}`);
     state.forkSeed = { game: forkGame, text: decodeURIComponent(seedText) };
+    addMessage('ai', `Welcome back! I'm picking up from where ${forkGame} left off.\n\nYou said: "${decodeURIComponent(seedText)}"\n\nLet's build on that. What aspects of ${forkGame} do you most want to change?`);
+    updateChecklist({});
+    setPhase('DESIGN');
   } else {
-    addMessage('ai', 'Welcome to the Game Builder! I\'m here to help you create an HTML5 game from scratch.\n\nWhat kind of game shall we make?');
+    // New game — show type picker
+    setPhase('PICK_TYPE');
+    initPickType();
   }
 
-  updateChecklist({});
-  renderTechTree();
-  initDesignTabs();
-  initGenreGuide();
   updateGlobalProgress();
-  setPhase('EXPLORE');
+}
+
+// ── Fetch ontology dimensions ────────────────────────────────
+async function fetchOntologyDimensions() {
+  try {
+    const res = await fetch(`${API_BASE}/api/ontology-dimensions`);
+    if (res.ok) {
+      state.ontologyDimensions = await res.json();
+    }
+  } catch (e) {
+    console.warn('Ontology dimensions fetch failed:', e);
+  }
+}
+
+// ── PICK_TYPE ────────────────────────────────────────────────
+async function initPickType() {
+  try {
+    const res = await fetch(`${API_BASE}/api/archetypes`);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+
+    dom.pickTypeGrid.innerHTML = data.archetypes.map(arch => `
+      <div class="gb-type-card" data-archetype="${escHtml(arch.id)}">
+        <div class="gb-type-card-icon">${ARCHETYPE_ICONS[arch.id] || '🎮'}</div>
+        <div class="gb-type-card-label">${escHtml(arch.label)}</div>
+        <div class="gb-type-card-desc">${escHtml(arch.description)}</div>
+        <div class="gb-type-card-meta">
+          <span>🤖 ${arch.agentCount} agents</span>
+          <span>⏱ ~${arch.estimatedTime}s</span>
+        </div>
+        <div class="gb-type-card-examples">${arch.examples.slice(0, 3).join(', ')}</div>
+      </div>
+    `).join('');
+
+    // Wire click handlers
+    dom.pickTypeGrid.querySelectorAll('.gb-type-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const archId = card.dataset.archetype;
+        const arch = data.archetypes.find(a => a.id === archId);
+        state.selectedArchetype = arch;
+        setPhase('PICK_MODE');
+        initPickMode();
+      });
+    });
+  } catch (e) {
+    dom.pickTypeGrid.innerHTML = `<div style="color:var(--danger);grid-column:1/-1;text-align:center">Failed to load archetypes: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── PICK_MODE ────────────────────────────────────────────────
+function initPickMode() {
+  dom.pickMode.querySelectorAll('.gb-mode-card').forEach(card => {
+    card.addEventListener('click', () => {
+      state.selectedMode = card.dataset.mode;
+      transitionToDesign();
+    });
+  });
+}
+
+// ── Transition to DESIGN ─────────────────────────────────────
+async function transitionToDesign() {
+  // Init game on server
+  const title = state.selectedArchetype?.label || 'New Game';
+  await initGameOnServer(state.gameId, title);
+
+  // Compute agents from archetype + mode
+  if (state.selectedArchetype) {
+    updateAgentsFromSelections(state.selectedArchetype, state.selectedMode);
+  }
+
+  // Set phase
+  setPhase('DESIGN');
+  updateChecklist({});
+
+  // Send welcome message
+  const archLabel = state.selectedArchetype?.label || 'game';
+  const modeLabel = state.selectedMode === 'multiplayer' ? 'multiplayer' : 'single player';
+  addMessage('ai', `Let's build a **${archLabel}** (${modeLabel})!\n\nI've pre-configured ${state.activeAgents.length} agents for this type. Tell me about your game idea — the theme, setting, and what makes it unique.`);
+
+  // Render agent bar
+  renderAgentBar();
+}
+
+// ── Agent computation from ontology ──────────────────────────
+function updateAgentsFromSelections(archetype, mode) {
+  if (!state.ontologyDimensions) return;
+
+  const dims = state.ontologyDimensions.dimensions;
+  const baseAgents = state.ontologyDimensions.baseAgents || [];
+  const added = new Set(baseAgents);
+  const skipped = new Set();
+
+  // Use the archetype's ontology to resolve each dimension
+  const ontology = archetype.ontology || {};
+
+  // Override multiplayer dimension if mode is multiplayer
+  if (mode === 'multiplayer' && ontology['multiplayer'] === 'solo') {
+    ontology['multiplayer'] = 'server-auth';
+  }
+
+  for (const [dimId, valueId] of Object.entries(ontology)) {
+    const dim = dims[dimId];
+    if (!dim) continue;
+    const val = dim.values.find(v => v.id === valueId);
+    if (!val) continue;
+    for (const a of (val.agents || [])) added.add(a);
+    for (const s of (val.skip || [])) skipped.add(s);
+  }
+
+  // Remove skipped (but never base agents)
+  for (const s of skipped) {
+    if (!baseAgents.includes(s)) added.delete(s);
+  }
+
+  state.activeAgents = [...added].sort();
+
+  // Also store in techTree for game.md generation
+  if (ontology['visual-style']) state.techTree['rendering'] = ontology['visual-style'];
+  if (ontology['multiplayer']) state.techTree['multiplayer-engine'] = ontology['multiplayer'];
+  if (ontology['core-mechanics']) state.techTree['core-loop'] = ontology['core-mechanics'];
+  if (ontology['audio']) state.techTree['audio-engine'] = ontology['audio'];
+  state.techTree['genre'] = archetype.label?.toLowerCase() || '';
+}
+
+// ── Agent Bar ────────────────────────────────────────────────
+function renderAgentBar() {
+  if (!dom.agentBar) return;
+
+  if (state.activeAgents.length === 0) {
+    dom.agentBar.innerHTML = '';
+    dom.agentBar.classList.remove('has-agents');
+    return;
+  }
+
+  dom.agentBar.classList.add('has-agents');
+  dom.agentBar.innerHTML = state.activeAgents.map(agent => {
+    const cat = AGENT_CATEGORIES[agent] || 'code';
+    return `<span class="gb-agent-chip" data-cat="${cat}"><span class="gb-agent-chip-dot"></span>${escHtml(agent)}</span>`;
+  }).join('');
+}
+
+// ── Concept Image ────────────────────────────────────────────
+async function updateConceptImage() {
+  if (!dom.conceptImage) return;
+  dom.conceptImage.innerHTML = '<div class="gb-concept-loading">Generating concept preview...</div>';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/imagine-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: state.gameId }),
+    });
+    if (!res.ok) throw new Error(`Preview API ${res.status}`);
+    const data = await res.json();
+    if (data.image) {
+      dom.conceptImage.innerHTML = `<img src="${data.image}" alt="Concept preview">`;
+    }
+  } catch (e) {
+    dom.conceptImage.innerHTML = '<div class="gb-concept-placeholder">Concept art generates as your design takes shape...</div>';
+    console.warn('Concept image error:', e);
+  }
+}
+
+// ── Level Options ────────────────────────────────────────────
+function showLevelOptions(images) {
+  if (!dom.levelOptions || !images || images.length === 0) return;
+  dom.levelOptions.style.display = 'grid';
+  dom.levelOptions.innerHTML = images.map((img, i) => `
+    <div class="gb-level-option" data-idx="${i}">
+      <img src="${escHtml(img.url || img)}" alt="Level option ${i + 1}">
+      <div class="gb-level-option-label">${escHtml(img.label || `Option ${i + 1}`)}</div>
+    </div>
+  `).join('');
+
+  dom.levelOptions.querySelectorAll('.gb-level-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      dom.levelOptions.querySelectorAll('.gb-level-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      const label = opt.querySelector('.gb-level-option-label')?.textContent || 'selected level';
+      dom.input.value = `I like "${label}" for the level design`;
+      sendMessage();
+    });
+  });
+}
+
+// ── Build Checklist ──────────────────────────────────────────
+function initBuildChecklist() {
+  if (!dom.buildChecklist) return;
+
+  // Parse game.md into sections
+  const md = buildGameMdFromTree();
+  const sections = [];
+  const h2Regex = /^## (.+)$/gm;
+  let match;
+  while ((match = h2Regex.exec(md)) !== null) {
+    sections.push(match[1]);
+  }
+
+  // Default sections if none found
+  if (sections.length === 0) {
+    sections.push('Core Concept', 'Mechanics', 'Tech Stack', 'Level Design', 'Audio', 'Ready');
+  }
+
+  state.buildChecklistItems = sections.map(s => ({ label: s, checked: false }));
+
+  dom.buildChecklist.innerHTML = state.buildChecklistItems.map((item, i) => `
+    <div class="gb-build-item" data-idx="${i}">
+      <div class="gb-build-check">
+        <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <span>${escHtml(item.label)}</span>
+    </div>
+  `).join('');
+}
+
+function checkBuildItem(index) {
+  if (index < 0 || index >= state.buildChecklistItems.length) return;
+  state.buildChecklistItems[index].checked = true;
+  const el = dom.buildChecklist?.querySelector(`[data-idx="${index}"]`);
+  if (el) el.classList.add('checked');
+}
+
+// Agent-complete → build checklist mapping
+const AGENT_CHECKLIST_MAP = {
+  'lead-architect': 'Core Concept',
+  'html-css': 'Tech Stack',
+  'entity': 'Mechanics',
+  'level-designer': 'Level Design',
+  'sfx': 'Audio',
+  'music': 'Audio',
+  'core-engine': 'Ready',
+};
+
+function checkBuildItemByAgent(agentName) {
+  const sectionLabel = AGENT_CHECKLIST_MAP[agentName];
+  if (!sectionLabel) return;
+  const idx = state.buildChecklistItems.findIndex(item =>
+    item.label.toLowerCase().includes(sectionLabel.toLowerCase())
+  );
+  if (idx >= 0) checkBuildItem(idx);
+}
+
+// ── Session Dashboard ─────────────────────────────────────────
+async function showDashboard() {
+  const dashboard = document.getElementById('gbDashboard');
+  const main = document.getElementById('gbMain');
+  if (dom.pickType) dom.pickType.style.display = 'none';
+  if (dom.pickMode) dom.pickMode.style.display = 'none';
+  if (dashboard) dashboard.style.display = '';
+  if (main) main.style.display = 'none';
+
+  document.getElementById('gbNewGameBtn')?.addEventListener('click', () => {
+    const id = generateGameId();
+    window.location.href = `?id=${id}`;
+  });
+
+  const grid = document.getElementById('gbDashboardGrid');
+  try {
+    const res = await fetch(`${API_BASE}/api/sessions`);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    const sessions = data.sessions || [];
+
+    if (sessions.length === 0) {
+      grid.innerHTML = '<div class="gb-dashboard-empty">No game sessions yet. Click "New Game" to start!</div>';
+      return;
+    }
+
+    grid.innerHTML = sessions.map(s => {
+      const phase = s.phase || 'DESIGN';
+      const phaseCls = phase === 'PLAYING' ? 'done' : phase === 'GENERATING' ? 'running' : '';
+      const date = s.updatedAt ? new Date(s.updatedAt).toLocaleDateString() : '';
+      const thumb = s.thumbnail
+        ? `<img class="gb-session-thumb" src="${s.thumbnail}" alt="" loading="lazy">`
+        : '<div class="gb-session-thumb-placeholder"></div>';
+      return `<a href="?id=${escHtml(s.gameId)}" class="gb-session-card">
+        ${thumb}
+        <div class="gb-session-info">
+          <div class="gb-session-title">${escHtml(s.title)}</div>
+          <div class="gb-session-meta">
+            <span class="gb-session-phase ${phaseCls}">${escHtml(phase)}</span>
+            ${s.hasGame ? '<span class="gb-session-badge">playable</span>' : ''}
+            <span class="gb-session-date">${date}</span>
+          </div>
+        </div>
+      </a>`;
+    }).join('');
+  } catch (e) {
+    grid.innerHTML = `<div class="gb-dashboard-empty">Could not load sessions: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function showBuilder() {
+  const dashboard = document.getElementById('gbDashboard');
+  const main = document.getElementById('gbMain');
+  if (dashboard) dashboard.style.display = 'none';
+  if (main) main.style.display = '';
 }
 
 function pushGameIdToUrl() {
@@ -233,22 +515,16 @@ async function loadExistingSession(gameId) {
       addMessage('ai', 'Welcome back! Resuming your game design session.');
     }
 
-    // Restore checklist
-    if (data.checklist) {
-      Object.assign(state.checklist, data.checklist);
-    }
-    if (data.checklistRelevance) {
-      Object.assign(state.checklistRelevance, data.checklistRelevance);
-    }
+    if (data.checklist) Object.assign(state.checklist, data.checklist);
+    if (data.checklistRelevance) Object.assign(state.checklistRelevance, data.checklistRelevance);
 
-    // Restore phase
-    const phase = data.phase || 'DESIGN';
+    // Migrate old phase names
+    let phase = data.phase || 'DESIGN';
+    if (phase === 'EXPLORE' || phase === 'LOAD' || phase === 'VISUALIZE') phase = 'DESIGN';
+
     updateChecklist({});
     setPhase(phase);
     pushGameIdToUrl();
-
-    // Refresh spec panel
-    refreshSpecPanel();
 
     return true;
   } catch (e) {
@@ -278,7 +554,7 @@ async function saveSessionState() {
 // ── Phase management ──────────────────────────────────────────
 function setPhase(phase) {
   state.phase = phase;
-  const phases = ['EXPLORE', 'LOAD', 'DESIGN', 'VISUALIZE', 'GENERATING', 'PLAYING'];
+  const phases = ['PICK_TYPE', 'PICK_MODE', 'DESIGN', 'GENERATING', 'PLAYING'];
   const idx = phases.indexOf(phase);
 
   dom.phaseDots.forEach((dot, i) => {
@@ -286,27 +562,31 @@ function setPhase(phase) {
     dot.classList.toggle('active', i === idx);
   });
 
-  // Show/hide right panels
-  const isDesignPhase = phase === 'EXPLORE' || phase === 'LOAD' || phase === 'DESIGN';
-  if (dom.designPanel) dom.designPanel.style.display = isDesignPhase ? 'flex' : 'none';
-  if (dom.designRight) dom.designRight.style.display = phase === 'DESIGN' ? 'flex' : 'none';
-  dom.artPanel.classList.toggle('visible',      phase === 'VISUALIZE');
-  dom.progressPanel.classList.toggle('visible', phase === 'GENERATING');
-  dom.gamePanel.classList.toggle('visible',     phase === 'PLAYING');
+  // Toggle overlays
+  if (dom.pickType) dom.pickType.style.display = phase === 'PICK_TYPE' ? 'flex' : 'none';
+  if (dom.pickMode) dom.pickMode.style.display = phase === 'PICK_MODE' ? 'flex' : 'none';
 
-  // During EXPLORE, show Genre Guide tab by default
-  if (phase === 'EXPLORE') {
-    switchDesignTab('genre');
-  } else if (phase === 'LOAD') {
-    switchDesignTab('genre');
-  } else if (phase === 'DESIGN') {
-    switchDesignTab('tree');
-  }
+  // Toggle main panels
+  const isDesignPhase = phase === 'DESIGN';
+  if (dom.conceptPanel) dom.conceptPanel.classList.toggle('visible', isDesignPhase);
+  if (dom.progressPanel) dom.progressPanel.classList.toggle('visible', phase === 'GENERATING');
+  if (dom.gamePanel) dom.gamePanel.classList.toggle('visible', phase === 'PLAYING');
+
+  // Show/hide main area for overlay phases
+  const main = document.getElementById('gbMain');
+  if (main) main.style.display = (phase === 'PICK_TYPE' || phase === 'PICK_MODE') ? 'none' : '';
 
   // Chat width
   const chat = document.querySelector('.gb-chat');
-  chat.classList.toggle('narrow', phase === 'PLAYING');
-  chat.classList.toggle('full',   false);
+  if (chat) {
+    chat.classList.toggle('narrow', phase === 'PLAYING');
+    chat.classList.toggle('full', false);
+  }
+
+  // Agent bar visibility
+  if (dom.agentBar) {
+    dom.agentBar.style.display = isDesignPhase ? '' : 'none';
+  }
 }
 
 // ── Chat ──────────────────────────────────────────────────────
@@ -320,7 +600,7 @@ async function sendMessage() {
   addMessage('user', text);
   state.messages.push({ role: 'user', content: text });
 
-  // In PLAYING phase, route to patch endpoint instead of design chat
+  // In PLAYING phase, route to patch endpoint
   if (state.phase === 'PLAYING') {
     await applyPatch(text);
     setInputEnabled(true);
@@ -331,6 +611,9 @@ async function sendMessage() {
   setInputEnabled(false);
   const typingEl = addTypingIndicator();
 
+  // Trigger parallel knowledge search (non-blocking)
+  searchKnowledge(text).catch(() => {});
+
   try {
     const response = await streamChatRequest(state.messages, state.gameId, (token) => {
       updateTypingWithText(typingEl, token);
@@ -338,7 +621,6 @@ async function sendMessage() {
 
     removeTypingIndicator(typingEl);
 
-    // Final full assistant message added from stream result
     if (response.fullText) {
       state.messages.push({ role: 'assistant', content: response.fullText.replace(/<!--[\s\S]*?-->/g, '').trim() });
     }
@@ -347,40 +629,40 @@ async function sendMessage() {
     if (response.metadata) {
       if (response.metadata.designUpdates) {
         applyDesignUpdates(response.metadata.designUpdates);
-        // Refresh spec panel and maybe generate early preview
-        refreshSpecPanel();
-        maybeGenerateEarlyPreview();
+        // Maybe generate concept image every few turns
+        maybeUpdateConceptImage();
       }
       if (response.metadata.techTreeUpdates) {
-        applyTechTreeUpdates(response.metadata.techTreeUpdates);
-        // Check if genre was just resolved — transition from EXPLORE to LOAD/DESIGN
-        const genreUpdate = response.metadata.techTreeUpdates.find(u => u.node === 'genre');
-        if (genreUpdate && genreUpdate.value) {
-          onGenreSelected(genreUpdate.value);
+        for (const u of response.metadata.techTreeUpdates) {
+          if (u.node && u.value) {
+            state.techTree[u.node] = u.value;
+            const label = u.node.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            showToast(`${label}: ${u.value}`);
+          }
         }
-      }
-      if (response.metadata.genreGapDetected) {
-        showToast(`Genre "${response.metadata.genre}" not found — building knowledge base`);
+        updateGlobalProgress();
       }
       if (response.metadata.conceptArtPrompt) {
         state.conceptArtPrompt = response.metadata.conceptArtPrompt;
         updateChecklist({ 'concept-art': true });
-        resolveTechTreeNode('concept-art', 'ready');
         showConceptArtButton();
       }
       if (response.metadata.readyToGenerate) {
         updateChecklist({ 'ready': true });
-        resolveTechTreeNode('ready', 'yes');
         dom.generateBtn.classList.add('visible');
         dom.generateBtn.textContent = 'Generate Game →';
       }
-      updateGameMdPreview();
+      if (response.metadata.ontologyDecisions) {
+        // Re-compute agents if ontology changed
+        for (const d of response.metadata.ontologyDecisions) {
+          if (d.dimension && d.value) {
+            state.ontologyDecisions = state.ontologyDecisions || {};
+            state.ontologyDecisions[d.dimension] = d.value;
+          }
+        }
+      }
     }
 
-    // Update genre affinity scores from chat text for narrowing circle
-    updateGenreAffinityFromText(text);
-
-    // Persist session state after each turn
     saveSessionState();
 
   } catch (e) {
@@ -391,6 +673,15 @@ async function sendMessage() {
 
   setInputEnabled(true);
   dom.input.focus();
+}
+
+function maybeUpdateConceptImage() {
+  // Throttle: only after enough info + every 3 user turns
+  if (!state.checklist['core-concept'] || !state.checklist['visual-design']) return;
+  const turnCount = state.messages.filter(m => m.role === 'user').length;
+  if (state.lastPreviewTurn && turnCount - state.lastPreviewTurn < 3) return;
+  state.lastPreviewTurn = turnCount;
+  updateConceptImage();
 }
 
 async function streamChatRequest(messages, gameId, onToken) {
@@ -407,7 +698,6 @@ async function streamChatRequest(messages, gameId, onToken) {
   let buffer = '';
   let fullText = '';
   let metadata = {};
-
   let currentBubble = null;
   let currentBubbleText = '';
 
@@ -426,9 +716,7 @@ async function streamChatRequest(messages, gameId, onToken) {
         if (msg.type === 'text') {
           fullText += msg.text;
           currentBubbleText += msg.text;
-          if (!currentBubble) {
-            currentBubble = createStreamingBubble();
-          }
+          if (!currentBubble) currentBubble = createStreamingBubble();
           updateStreamingBubble(currentBubble, currentBubbleText);
         } else if (msg.type === 'metadata') {
           metadata = { ...metadata, ...msg };
@@ -438,11 +726,7 @@ async function streamChatRequest(messages, gameId, onToken) {
     }
   }
 
-  // Finalize the streaming bubble — detect options, remove streaming class
-  if (currentBubble) {
-    finalizeStreamingBubble(currentBubble);
-  }
-
+  if (currentBubble) finalizeStreamingBubble(currentBubble);
   return { fullText, metadata };
 }
 
@@ -460,7 +744,8 @@ function createStreamingBubble() {
 }
 
 function updateStreamingBubble(bubble, text) {
-  bubble.innerHTML = renderMarkdown(text);
+  const cleaned = text.replace(/<!--[\s\S]*?-->/g, '').replace(/<!--[\s\S]*$/g, '');
+  bubble.innerHTML = renderMarkdown(cleaned);
   scrollToBottom();
 }
 
@@ -469,13 +754,8 @@ function finalizeStreamingBubble(bubble) {
   renderOptionsFromBubble(bubble);
 }
 
-/**
- * Scan a bubble for option patterns like "- Something?" or "- **Something**"
- * and replace them with clickable buttons.
- */
 function renderOptionsFromBubble(bubble) {
   const html = bubble.innerHTML;
-  // Match lines that look like options: "- Text?" or "- **Text**" or "- Text"
   const optionRegex = /(?:^|<br>)\s*[-•]\s*(?:<strong>)?(.+?)(?:<\/strong>)?(?:\?)?(?=<br>|$)/g;
   const matches = [];
   let m;
@@ -483,15 +763,12 @@ function renderOptionsFromBubble(bubble) {
     matches.push({ full: m[0], text: m[1].replace(/<\/?[^>]+>/g, '').replace(/\?$/, '').trim() });
   }
 
-  // Only convert if we found 2-5 option-like lines (avoids false positives)
   if (matches.length < 2 || matches.length > 6) return;
 
-  // Build replacement: remove the matched lines, append buttons
   let cleaned = html;
   for (const match of matches) {
     cleaned = cleaned.replace(match.full, '');
   }
-  // Remove trailing <br> tags
   cleaned = cleaned.replace(/(<br>\s*)+$/, '');
 
   const buttons = matches.map(opt =>
@@ -502,7 +779,6 @@ function renderOptionsFromBubble(bubble) {
     `<div class="gb-options-row">${buttons}` +
     `<button class="gb-option-btn gb-option-other">Something else...</button></div>`;
 
-  // Wire click handlers
   bubble.querySelectorAll('.gb-option-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.classList.contains('gb-option-other')) {
@@ -565,13 +841,12 @@ function setInputEnabled(enabled) {
 
 // ── Concept art flow ──────────────────────────────────────────
 function showConceptArtButton() {
-  // Add a button inside chat to trigger art generation
   const msg = document.createElement('div');
   msg.className = 'gb-msg ai';
   msg.innerHTML = `
     <div class="gb-avatar">AI</div>
     <div class="gb-bubble">
-      Ready to see some concept art! Click below to generate 3 visual directions.
+      Ready to see some concept art! Click below to generate visual directions.
       <br><br>
       <button class="btn btn-secondary" id="gbImagineBtn" style="margin-top:6px">Generate Concept Art →</button>
     </div>
@@ -586,8 +861,10 @@ async function generateConceptArt() {
   const btn = document.getElementById('gbImagineBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
 
-  setPhase('VISUALIZE');
-  dom.artGrid.innerHTML = '<div style="color:var(--muted);font-size:0.75rem;text-align:center;width:100%">Generating concept art via Grok…</div>';
+  // Show loading in concept panel
+  if (dom.conceptImage) {
+    dom.conceptImage.innerHTML = '<div class="gb-concept-loading">Generating concept art via Grok...</div>';
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/imagine`, {
@@ -600,63 +877,64 @@ async function generateConceptArt() {
     const data = await res.json();
     state.conceptArtImages = data.images || [];
 
-    renderConceptArt(state.conceptArtImages);
+    // Show first image in concept panel
+    if (state.conceptArtImages.length > 0 && dom.conceptImage) {
+      dom.conceptImage.innerHTML = `<img src="${state.conceptArtImages[0]}" alt="Concept art">`;
+    }
+
+    // Add thumbnails to chat for selection
+    if (state.conceptArtImages.length > 1) {
+      addConceptArtThumbnails(state.conceptArtImages);
+    }
+
+    // Auto-approve first if only one
+    if (state.conceptArtImages.length === 1) {
+      state.selectedArt = state.conceptArtImages[0];
+      approveArt();
+    }
 
   } catch (e) {
-    dom.artGrid.innerHTML = `<div style="color:var(--danger);font-size:0.75rem">${escHtml(e.message)}</div>`;
+    if (dom.conceptImage) {
+      dom.conceptImage.innerHTML = `<div style="color:var(--danger);font-size:0.75rem">${escHtml(e.message)}</div>`;
+    }
     console.error('Concept art error:', e);
   }
 }
 
-function renderConceptArt(images) {
-  dom.artGrid.innerHTML = '';
-
-  if (!images.length) {
-    dom.artGrid.innerHTML = '<div style="color:var(--muted)">No images returned.</div>';
-    return;
-  }
-
-  images.forEach((url, i) => {
-    const img = document.createElement('img');
-    img.className = 'gb-art-full';
-    img.src = url;
-    img.alt = `Concept art variation ${i + 1}`;
-    img.addEventListener('click', () => selectArt(url, img));
-    dom.artGrid.appendChild(img);
-  });
-
-  // Action buttons
-  const actions = document.createElement('div');
-  actions.className = 'gb-art-actions';
-  actions.innerHTML = `
-    <button class="btn btn-ghost" id="gbRegenerateArt">Regenerate</button>
-    <button class="btn btn-primary" id="gbApproveArt" disabled>Use Selected →</button>
+function addConceptArtThumbnails(images) {
+  const msgEl = document.createElement('div');
+  msgEl.className = 'gb-msg ai';
+  let thumbsHtml = images.map((url, i) =>
+    `<img class="gb-art-thumb" src="${url}" alt="Option ${i + 1}" data-url="${escHtml(url)}">`
+  ).join('');
+  msgEl.innerHTML = `
+    <div class="gb-avatar">AI</div>
+    <div class="gb-bubble">
+      Here are ${images.length} concept directions. Click one to select it:
+      <div class="gb-art-row">${thumbsHtml}</div>
+    </div>
   `;
-  dom.artPanel.appendChild(actions);
+  dom.messages.appendChild(msgEl);
+  scrollToBottom();
 
-  document.getElementById('gbRegenerateArt').addEventListener('click', () => {
-    dom.artPanel.querySelectorAll('.gb-art-actions').forEach(a => a.remove());
-    generateConceptArt();
+  msgEl.querySelectorAll('.gb-art-thumb').forEach(thumb => {
+    thumb.addEventListener('click', () => {
+      msgEl.querySelectorAll('.gb-art-thumb').forEach(t => t.classList.remove('selected'));
+      thumb.classList.add('selected');
+      state.selectedArt = thumb.dataset.url;
+      // Update concept panel
+      if (dom.conceptImage) {
+        dom.conceptImage.innerHTML = `<img src="${state.selectedArt}" alt="Concept art">`;
+      }
+      approveArt();
+    });
   });
-  document.getElementById('gbApproveArt').addEventListener('click', () => {
-    if (!state.selectedArt) return;
-    approveArt();
-  });
-}
-
-function selectArt(url, imgEl) {
-  state.selectedArt = url;
-  dom.artGrid.querySelectorAll('.gb-art-full').forEach(img => img.classList.remove('selected'));
-  imgEl.classList.add('selected');
-  const approveBtn = document.getElementById('gbApproveArt');
-  if (approveBtn) approveBtn.disabled = false;
 }
 
 function approveArt() {
   addMessage('ai', `Concept art selected! Your game is ready to generate.\n\nClick "Generate Game →" when you're ready. The process takes 1–15 minutes depending on complexity.`);
   dom.generateBtn.classList.add('visible');
   dom.generateBtn.textContent = 'Generate Game →';
-  setPhase('DESIGN');
 }
 
 // ── Generation step descriptions ──────────────────────────────
@@ -678,7 +956,7 @@ async function startGeneration() {
   dom.generateBtn.disabled = true;
   dom.generateBtn.textContent = 'Building…';
 
-  // Save complete game.md from tech tree state before generating
+  // Save game.md
   try {
     await fetch(`${API_BASE}/api/save-game-md`, {
       method: 'POST',
@@ -697,6 +975,10 @@ async function startGeneration() {
   dom.consoleBody.innerHTML = '';
   consoleLineQueue = [];
   if (consoleTimer) { clearTimeout(consoleTimer); consoleTimer = null; }
+
+  // Init build checklist
+  initBuildChecklist();
+
   addConsoleLine('> OpenArcade Game Builder v2.0', 'system');
   addConsoleLine('> Starting build pipeline...', 'system');
   setProgress(0, 'Starting…');
@@ -721,15 +1003,45 @@ async function startGeneration() {
       const lines = buffer.split('\n');
       buffer = lines.pop();
 
+      let currentEvent = '';
       for (const line of lines) {
-        if (line.startsWith('event: progress')) continue;
-        if (line.startsWith('event: complete')) continue;
-        if (line.startsWith('event: stack')) continue;
-        if (line.startsWith('event: error')) continue;
-
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim();
+          continue;
+        }
+        if (line.startsWith(': ')) continue;
         if (!line.startsWith('data: ')) continue;
+
         try {
           const msg = JSON.parse(line.slice(6));
+
+          if (currentEvent === 'agent-plan') {
+            renderDynamicAgentGrid(msg);
+            addConsoleLine(`> Agent plan: ${msg.agentCount} agents (${msg.archetype} archetype)`, 'system');
+            addConsoleLine(`> Estimated build time: ~${msg.estimatedSeconds}s`, 'system');
+          } else if (currentEvent === 'markdown') {
+            addConsoleLine(`> Wrote ${msg.file}`, 'system');
+          } else if (currentEvent === 'agent-start') {
+            updateAgentCard(msg.agent, 'running', msg.tier);
+            addConsoleLine(`> [${msg.agent}] Starting...`, 'system');
+          } else if (currentEvent === 'agent-complete') {
+            updateAgentCard(msg.agent, 'done', msg.tier, msg.duration);
+            addConsoleLine(`> [${msg.agent}] Complete (${msg.duration?.toFixed(1)}s)`, 'system');
+            // Check off build checklist item
+            checkBuildItemByAgent(msg.agent);
+          } else if (currentEvent === 'agent-error') {
+            updateAgentCard(msg.agent, 'error', msg.tier);
+            addConsoleLine(`> [${msg.agent}] ERROR: ${msg.error}`, 'error');
+          } else if (currentEvent === 'blueprint') {
+            addConsoleLine(`> Blueprint: ${msg.contractCount} contracts defined`, 'system');
+          } else if (currentEvent === 'tier-complete') {
+            addConsoleLine(`> Tier ${msg.tier} complete`, 'system');
+          } else if (currentEvent === 'qa-result') {
+            showQaResult(msg);
+          } else if (currentEvent === 'fallback') {
+            addConsoleLine(`> Falling back: ${msg.reason}`, 'error');
+            if (dom.agentGrid) dom.agentGrid.style.display = 'none';
+          }
 
           if (msg.step !== undefined && msg.pct !== undefined) {
             setProgress(msg.pct, msg.step.replace(/-/g, ' '));
@@ -741,13 +1053,14 @@ async function startGeneration() {
           if (msg.url) {
             gameReady(msg.url);
           }
-          if (msg.error) {
+          if (msg.error && currentEvent !== 'agent-error') {
             throw new Error(msg.error);
           }
-          // Stack info
           if (msg.rendering) {
             updateStackDisplay(msg);
           }
+
+          currentEvent = '';
         } catch (parseErr) {
           if (parseErr.message !== 'Unexpected token') console.warn(parseErr);
         }
@@ -766,19 +1079,13 @@ async function startGeneration() {
 function setProgress(pct, stepLabel) {
   dom.progressBar.style.width = pct + '%';
   dom.progressPct.textContent = pct + '%';
-
-  // Also update global progress bar during generation
   setGlobalProgress(pct);
 
   const friendlyLabel = STEP_DESCRIPTIONS[stepLabel?.replace(/\s+/g, '-')] || stepLabel || '';
   dom.progressStep.textContent = friendlyLabel;
 
-  // Update step log
-  if (stepLabel) {
-    addStepToLog(stepLabel, pct);
-  }
+  if (stepLabel) addStepToLog(stepLabel, pct);
 
-  // Calculate ETA
   if (pct > 0 && pct < 100 && state.generationStartTime) {
     const elapsed = (Date.now() - state.generationStartTime) / 1000;
     const totalEstimate = elapsed / (pct / 100);
@@ -797,7 +1104,6 @@ function addStepToLog(stepKey, pct) {
   const normalizedKey = stepKey.replace(/\s+/g, '-');
   const label = STEP_DESCRIPTIONS[normalizedKey] || stepKey.replace(/-/g, ' ');
 
-  // Mark previous active step as done
   const prev = dom.stepLog.querySelector('.gb-step-item.active');
   if (prev) {
     prev.classList.remove('active');
@@ -806,7 +1112,6 @@ function addStepToLog(stepKey, pct) {
     if (icon) icon.textContent = '\u2713';
   }
 
-  // Don't re-add if already exists
   if (dom.stepLog.querySelector(`[data-step="${normalizedKey}"]`)) {
     const existing = dom.stepLog.querySelector(`[data-step="${normalizedKey}"]`);
     existing.classList.add('active');
@@ -881,7 +1186,6 @@ function addConsoleCodeSnippet(text) {
   line.className = 'gb-console-line code';
   line.textContent = text.slice(0, 120);
   dom.consoleBody.appendChild(line);
-  // Keep scrolled to bottom, but limit total lines
   if (dom.consoleBody.children.length > 200) {
     dom.consoleBody.removeChild(dom.consoleBody.firstChild);
   }
@@ -897,7 +1201,7 @@ function gameReady(url) {
     dom.gameIframe.src = url;
     dom.gameTitle.textContent = state.gameId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     dom.gameMeta.textContent = `v1.0 · ${new Date().toISOString().split('T')[0]}`;
-    addMessage('ai', '🎮 Your game is live! Play it in the preview. Type here to modify it — I\'ll apply changes instantly for visual tweaks, or rebuild for bigger changes.');
+    addMessage('ai', 'Your game is live! Play it in the preview. Type here to modify it — I\'ll apply changes instantly for visual tweaks, or rebuild for bigger changes.');
   }, 600);
 }
 
@@ -905,8 +1209,6 @@ function gameReady(url) {
 async function applyPatch(instruction) {
   if (state.patchPending) return;
   state.patchPending = true;
-
-  // Add user message to chat (already done in sendMessage)
   setInputEnabled(false);
 
   try {
@@ -920,18 +1222,15 @@ async function applyPatch(instruction) {
     const result = await res.json();
 
     if (result.type === 'instant_css') {
-      // Inject CSS into iframe
       injectCSSIntoIframe(result.css);
-      addPatchBadge('instant', '⚡ Instant — CSS patched');
+      addPatchBadge('instant', 'Instant — CSS patched');
     } else if (result.type === 'fast_rebuild') {
-      addPatchBadge('fast', '↻ Rebuilding — keep playing…');
-      // Reload iframe after a moment
+      addPatchBadge('fast', 'Rebuilding — keep playing…');
       setTimeout(() => {
         dom.gameIframe.src = state.currentIframeSrc + '?t=' + Date.now();
       }, 2000);
     } else if (result.type === 'full_rebuild') {
-      addPatchBadge('full', '⧖ Major change — rebuilding in background…');
-      // Trigger full rebuild
+      addPatchBadge('full', 'Major change — rebuilding in background…');
       startGeneration();
     }
 
@@ -955,7 +1254,6 @@ function injectCSSIntoIframe(css) {
     }
     styleEl.textContent = css;
   } catch (e) {
-    // Cross-origin — reload instead
     dom.gameIframe.src = state.currentIframeSrc + '?t=' + Date.now();
   }
 }
@@ -969,248 +1267,31 @@ function addPatchBadge(type, label) {
   lastMsg.querySelector('.gb-bubble')?.appendChild(badge);
 }
 
-// ── Tech Tree ─────────────────────────────────────────────────
-function renderTechTree() {
-  const container = dom.techTree;
-  if (!container) return;
-  container.innerHTML = '';
-
-  TECH_TREE_TIERS.forEach((tier, tierIdx) => {
-    // Add connector between tiers
-    if (tierIdx > 0) {
-      const connector = document.createElement('div');
-      connector.className = 'gb-tree-connector';
-      container.appendChild(connector);
-    }
-
-    const tierEl = document.createElement('div');
-    tierEl.className = 'gb-tree-tier';
-
-    const label = document.createElement('div');
-    label.className = 'gb-tree-tier-label';
-    label.textContent = `${tierIdx + 1}. ${tier.name}${tier.auto ? ' (auto)' : ''}`;
-    tierEl.appendChild(label);
-
-    const nodesRow = document.createElement('div');
-    nodesRow.className = 'gb-tree-tier-nodes';
-
-    tier.nodes.forEach(node => {
-      const nodeEl = document.createElement('div');
-      nodeEl.className = 'gb-tree-node';
-      nodeEl.setAttribute('data-node-id', node.id);
-
-      if (node.locked) nodeEl.classList.add('locked');
-      if (tier.auto) nodeEl.style.cursor = 'default';
-
-      const nodeLabel = document.createElement('div');
-      nodeLabel.className = 'gb-tree-node-label';
-      nodeLabel.textContent = node.label;
-
-      const nodeValue = document.createElement('div');
-      nodeValue.className = 'gb-tree-node-value';
-      nodeValue.textContent = state.techTree[node.id] || '';
-
-      nodeEl.appendChild(nodeLabel);
-      nodeEl.appendChild(nodeValue);
-
-      // Click handler for unresolved nodes
-      if (node.chatPrompt && !tier.auto) {
-        nodeEl.addEventListener('click', () => onTreeNodeClick(node));
-      }
-
-      nodesRow.appendChild(nodeEl);
-    });
-
-    tierEl.appendChild(nodesRow);
-    container.appendChild(tierEl);
-  });
-}
-
-function onTreeNodeClick(node) {
-  if (state.techTree[node.id]) return; // already resolved
-  if (dom.sendBtn.disabled) return; // chat busy
-
-  // Mark as pending
-  const nodeEl = dom.techTree.querySelector(`[data-node-id="${node.id}"]`);
-  if (nodeEl) nodeEl.classList.add('pending');
-
-  // Send the prompt as a chat message
-  dom.input.value = node.chatPrompt;
-  sendMessage();
-}
-
-function applyTechTreeUpdates(updates) {
-  let delay = 0;
-  for (const u of updates) {
-    if (u.node && u.value) {
-      setTimeout(() => {
-        resolveTechTreeNode(u.node, u.value);
-      }, delay);
-      delay += 200; // stagger animations
-    }
-  }
-  // Auto-resolve tech stack after a short delay
-  setTimeout(() => autoResolveTechStack(), delay + 300);
-}
-
-function resolveTechTreeNode(nodeId, value) {
-  state.techTree[nodeId] = value;
-
-  const nodeEl = dom.techTree.querySelector(`[data-node-id="${nodeId}"]`);
-  if (nodeEl) {
-    nodeEl.classList.remove('pending', 'locked');
-    nodeEl.classList.add('resolved');
-    const valueEl = nodeEl.querySelector('.gb-tree-node-value');
-    if (valueEl) valueEl.textContent = value;
-  }
-
-  // Unlock "ready" node when tiers 1, 2, 4 have enough
-  checkReadyUnlock();
-
-  // Show toast
-  const label = findNodeLabel(nodeId);
-  if (label) showToast(`${label}: ${value}`);
-
-  updateGlobalProgress();
-}
-
-function autoResolveTechStack() {
-  // Infer tech stack from resolved design nodes (mirrors ontology.js logic)
-  const tree = state.techTree;
-
-  // Rendering
-  if (!tree['rendering']) {
-    if (tree['genre'] && /fps|3d/i.test(tree['genre'])) {
-      autoResolveNode('rendering', 'Three.js');
-    } else if (tree['genre'] || tree['theme']) {
-      autoResolveNode('rendering', 'Canvas 2D');
-    }
-  }
-
-  // Physics
-  if (!tree['physics']) {
-    if (tree['genre'] && /platformer|pinball|physics/i.test(tree['genre'])) {
-      autoResolveNode('physics', 'Matter.js');
-    } else if (tree['core-loop'] && /build|solve/i.test(tree['core-loop'])) {
-      autoResolveNode('physics', 'none');
-    } else if (tree['genre']) {
-      autoResolveNode('physics', 'none');
-    }
-  }
-
-  // Audio
-  if (!tree['audio-engine']) {
-    if (tree['genre'] && /rhythm|music/i.test(tree['genre'])) {
-      autoResolveNode('audio-engine', 'Tone.js');
-    } else if (tree['genre']) {
-      autoResolveNode('audio-engine', 'Web Audio API');
-    }
-  }
-
-  // Multiplayer
-  if (!tree['multiplayer-engine']) {
-    if (tree['core-loop'] || tree['genre']) {
-      autoResolveNode('multiplayer-engine', 'none');
-    }
-  }
-}
-
-function autoResolveNode(nodeId, value) {
-  state.techTree[nodeId] = value;
-  const nodeEl = dom.techTree.querySelector(`[data-node-id="${nodeId}"]`);
-  if (nodeEl) {
-    nodeEl.classList.add('auto-resolved');
-    const valueEl = nodeEl.querySelector('.gb-tree-node-value');
-    if (valueEl) valueEl.textContent = value;
-  }
-}
-
-function findNodeLabel(nodeId) {
-  for (const tier of TECH_TREE_TIERS) {
-    const node = tier.nodes.find(n => n.id === nodeId);
-    if (node) return node.label;
-  }
-  return null;
-}
-
-function checkReadyUnlock() {
-  // Unlock "ready" if tiers 1-2 are mostly filled
-  const tier1Filled = ['genre', 'theme'].filter(id => state.techTree[id]).length;
-  const tier2Filled = ['controls', 'core-loop', 'win-condition', 'progression'].filter(id => state.techTree[id]).length;
-
-  if (tier1Filled >= 1 && tier2Filled >= 2) {
-    const readyNode = dom.techTree.querySelector('[data-node-id="ready"]');
-    if (readyNode && readyNode.classList.contains('locked')) {
-      readyNode.classList.remove('locked');
-    }
-  }
-}
-
 // ── Global Progress Bar ───────────────────────────────────────
 function updateGlobalProgress() {
   let pct = 0;
   const tree = state.techTree;
 
-  // Tier 1 (15% each, 2 nodes = 30%)
   if (tree['genre']) pct += 15;
   if (tree['theme']) pct += 15;
-
-  // Tier 2 (10% each, 4 nodes = 40%)
   if (tree['controls']) pct += 10;
   if (tree['core-loop']) pct += 10;
   if (tree['win-condition']) pct += 10;
   if (tree['progression']) pct += 10;
-
-  // Tier 4 (5% each, 4 nodes = 20%)
   if (tree['visual-style']) pct += 5;
-  if (tree['level-design']) pct += 5;
-  if (tree['ai-npc']) pct += 5;
-  if (tree['economy']) pct += 5;
-
-  // Concept art: 5%
   if (tree['concept-art']) pct += 5;
-
-  // Ready: 5%
+  if (tree['level-design']) pct += 5;
   if (tree['ready']) pct += 5;
 
   setGlobalProgress(pct);
 }
 
 function setGlobalProgress(pct) {
-  if (dom.globalProgressFill) {
-    dom.globalProgressFill.style.width = pct + '%';
-  }
-  if (dom.globalProgressLabel) {
-    dom.globalProgressLabel.textContent = pct + '%';
-  }
+  if (dom.globalProgressFill) dom.globalProgressFill.style.width = pct + '%';
+  if (dom.globalProgressLabel) dom.globalProgressLabel.textContent = pct + '%';
 }
 
-// ── Design Tabs ───────────────────────────────────────────────
-function initDesignTabs() {
-  dom.tabTree?.addEventListener('click', () => switchDesignTab('tree'));
-  dom.tabGenre?.addEventListener('click', () => switchDesignTab('genre'));
-  dom.tabGameMd?.addEventListener('click', () => switchDesignTab('gamemd'));
-}
-
-function switchDesignTab(tab) {
-  dom.tabTree?.classList.toggle('active', tab === 'tree');
-  dom.tabGenre?.classList.toggle('active', tab === 'genre');
-  dom.tabGameMd?.classList.toggle('active', tab === 'gamemd');
-  if (dom.tabContentTree) dom.tabContentTree.style.display = tab === 'tree' ? '' : 'none';
-  if (dom.tabContentGenre) dom.tabContentGenre.style.display = tab === 'genre' ? '' : 'none';
-  if (dom.tabContentGameMd) dom.tabContentGameMd.style.display = tab === 'gamemd' ? '' : 'none';
-  if (tab === 'gamemd') updateGameMdPreview();
-  if (tab === 'genre' && !state.genreSlug) {
-    initGenreExplorerCanvas();
-  }
-}
-
-// ── game.md Preview ───────────────────────────────────────────
-function updateGameMdPreview() {
-  if (!dom.gameMdPreview) return;
-  dom.gameMdPreview.textContent = buildGameMdFromTree();
-}
-
+// ── game.md from tech tree ────────────────────────────────────
 function buildGameMdFromTree() {
   const tree = state.techTree;
   let md = `# Game: ${state.gameId}\n`;
@@ -1241,12 +1322,11 @@ function buildGameMdFromTree() {
     md += `\n`;
   }
 
-  if (tree['visual-style'] || tree['level-design'] || tree['ai-npc'] || tree['economy']) {
-    md += `## Polish\n`;
+  if (tree['visual-style'] || tree['concept-art'] || tree['level-design']) {
+    md += `## Polish & Visuals\n`;
     if (tree['visual-style']) md += `- Visual Style: ${tree['visual-style']}\n`;
+    if (tree['concept-art']) md += `- Concept Art: ${tree['concept-art']}\n`;
     if (tree['level-design']) md += `- Level Design: ${tree['level-design']}\n`;
-    if (tree['ai-npc']) md += `- AI/NPC: ${tree['ai-npc']}\n`;
-    if (tree['economy']) md += `- Economy: ${tree['economy']}\n`;
     md += `\n`;
   }
 
@@ -1289,9 +1369,8 @@ function applyDesignUpdates(updates) {
     const s = u.section?.toLowerCase().replace(/\s+/g, '-');
     if (s && state.checklist.hasOwnProperty(s)) {
       state.checklist[s] = true;
-      state.checklistRelevance[s] = true; // make visible
+      state.checklistRelevance[s] = true;
     }
-    // Auto-infer section progress + reveal conditional items
     if (s?.includes('core') || s?.includes('concept')) { state.checklist['core-concept'] = true; }
     if (s?.includes('mechanic') || s?.includes('control')) { state.checklist['mechanics'] = true; }
     if (s?.includes('progress') || s?.includes('difficult') || s?.includes('curve')) { state.checklist['progression'] = true; }
@@ -1320,64 +1399,129 @@ function updateChecklist(overrides) {
   const container = document.getElementById('gbChecks');
   if (!container) return;
 
-  // Only show relevant items
   const relevant = Object.entries(state.checklist).filter(([key]) => state.checklistRelevance[key]);
   container.innerHTML = relevant.map(([key, done]) => {
     const cls = done ? 'done' : 'needs-info';
     return `<div class="gb-check ${cls}"><div class="gb-check-dot"></div>${CHECK_LABELS[key]}</div>`;
   }).join('');
 
-  // Update design progress bar — only count relevant items
   const doneCount = relevant.filter(([, d]) => d).length;
   const pct = relevant.length ? Math.round((doneCount / relevant.length) * 100) : 0;
   const bar = document.getElementById('gbDesignProgress');
   if (bar) bar.style.width = pct + '%';
 }
 
-// ── Live spec panel + early preview ───────────────────────
-async function refreshSpecPanel() {
-  try {
-    const res = await fetch(`${API_BASE}/../${state.gameId}/game.md`);
-    if (!res.ok) return;
-    const md = await res.text();
-    // Simple markdown rendering for the spec
-    const html = md
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-      .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/^- (.+)$/gm, '<div class="gb-spec-item">$1</div>')
-      .replace(/\n/g, '<br>');
-    dom.specContent.innerHTML = html;
-  } catch {}
+// ── Dynamic Agent Grid ────────────────────────────────────────
+function renderDynamicAgentGrid(plan) {
+  const grid = dom.agentGrid;
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  const tierLabels = {
+    0: 'TIER 0: PLANNING',
+    1: `TIER 1: DEPARTMENTS (${(plan.tiers[1] || []).length} agents, parallel)`,
+    2: 'TIER 2: INTEGRATION',
+    3: 'TIER 3: QUALITY CHECK',
+  };
+
+  for (const [tierNum, agents] of Object.entries(plan.tiers)) {
+    if (!agents || agents.length === 0) continue;
+    const tierEl = document.createElement('div');
+    tierEl.className = 'gb-agent-tier';
+    tierEl.setAttribute('data-tier', tierNum);
+
+    const label = document.createElement('div');
+    label.className = 'gb-agent-tier-label';
+    label.textContent = tierLabels[tierNum] || `TIER ${tierNum}`;
+    tierEl.appendChild(label);
+
+    const agentsEl = document.createElement('div');
+    agentsEl.className = 'gb-agent-tier-agents';
+
+    for (const agentName of agents) {
+      const card = document.createElement('div');
+      card.className = 'gb-agent-card waiting';
+      card.setAttribute('data-agent', agentName);
+      card.innerHTML = `
+        <div class="gb-agent-name">${agentName}</div>
+        <div class="gb-agent-status">waiting</div>
+        <div class="gb-agent-duration"></div>
+      `;
+      agentsEl.appendChild(card);
+    }
+
+    tierEl.appendChild(agentsEl);
+    grid.appendChild(tierEl);
+  }
 }
 
-async function maybeGenerateEarlyPreview() {
-  // Only generate if we have enough info (core-concept + visual-design)
-  if (!state.checklist['core-concept'] || !state.checklist['visual-design']) return;
-  // Throttle: at least 2 chat turns since last preview
-  const turnCount = state.messages.filter(m => m.role === 'user').length;
-  if (state.lastPreviewTurn && turnCount - state.lastPreviewTurn < 2) return;
+function updateAgentCard(agentName, status, tier, duration) {
+  let card = document.querySelector(`.gb-agent-card[data-agent="${agentName}"]`);
 
-  state.lastPreviewTurn = turnCount;
-  dom.previewContent.innerHTML = '<div class="gb-preview-loading">Generating preview...</div>';
+  if (!card) {
+    const tierStr = String(tier ?? 1);
+    let tierAgents = document.querySelector(`.gb-agent-tier[data-tier="${tierStr}"] .gb-agent-tier-agents`);
 
-  try {
-    const res = await fetch(`${API_BASE}/api/imagine-preview`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gameId: state.gameId }),
-    });
-    if (!res.ok) throw new Error(`Preview API ${res.status}`);
-    const data = await res.json();
-    if (data.image) {
-      dom.previewContent.innerHTML = `<img class="gb-preview-img" src="${data.image}" alt="Early preview">`;
+    if (!tierAgents) {
+      const tierEl = document.createElement('div');
+      tierEl.className = 'gb-agent-tier';
+      tierEl.setAttribute('data-tier', tierStr);
+      tierEl.innerHTML = `<div class="gb-agent-tier-label">TIER ${tierStr}</div>`;
+      tierAgents = document.createElement('div');
+      tierAgents.className = 'gb-agent-tier-agents';
+      tierEl.appendChild(tierAgents);
+      if (dom.agentGrid) dom.agentGrid.appendChild(tierEl);
     }
-  } catch (e) {
-    dom.previewContent.innerHTML = '<div class="gb-preview-placeholder">Preview will appear soon...</div>';
-    console.warn('Early preview error:', e);
+
+    card = document.createElement('div');
+    card.className = 'gb-agent-card waiting';
+    card.setAttribute('data-agent', agentName);
+    card.innerHTML = `
+      <div class="gb-agent-name">${agentName}</div>
+      <div class="gb-agent-status">waiting</div>
+      <div class="gb-agent-duration"></div>
+    `;
+    tierAgents.appendChild(card);
   }
+
+  card.className = `gb-agent-card ${status}`;
+  const statusEl = card.querySelector('.gb-agent-status');
+  if (statusEl) statusEl.textContent = status;
+
+  if (duration !== undefined) {
+    const durEl = card.querySelector('.gb-agent-duration');
+    if (durEl) durEl.textContent = `${duration.toFixed(1)}s`;
+  }
+}
+
+// ── QA Result Display ─────────────────────────────────────────
+function showQaResult(result) {
+  if (!dom.qaOverlay || !dom.qaChecklist) return;
+  dom.qaOverlay.style.display = '';
+
+  const passLabel = result.pass ? 'PASSED' : 'ISSUES FOUND';
+  const passClass = result.pass ? 'pass' : 'fail';
+  const score = result.score || result.visualScore || 0;
+
+  let html = `<div class="gb-qa-status ${passClass}">${passLabel} (${score}/100)</div>`;
+
+  if (result.issues?.length) {
+    html += '<div class="gb-qa-issues">';
+    for (const issue of result.issues.slice(0, 8)) {
+      const sev = issue.severity || 'warning';
+      html += `<div class="gb-qa-issue ${sev}">
+        <span class="gb-qa-sev">[${sev}]</span> ${escHtml(issue.description || issue.message || '')}
+        ${issue.fix ? `<div class="gb-qa-fix">Fix: ${escHtml(issue.fix)}</div>` : ''}
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  if (result.fixed) {
+    html += '<div class="gb-qa-fixed">Auto-fixed and re-validated</div>';
+  }
+
+  dom.qaChecklist.innerHTML = html;
 }
 
 // ── Toolbar actions ───────────────────────────────────────────
@@ -1391,7 +1535,7 @@ function initToolbar() {
   document.getElementById('gbShareLink')?.addEventListener('click', () => {
     const url = `${window.location.origin}/${state.gameId}/index.html`;
     navigator.clipboard.writeText(url).then(() => {
-      alert('Link copied: ' + url);
+      showToast('Link copied!');
     });
   });
 }
@@ -1409,348 +1553,210 @@ async function initGameOnServer(gameId, title) {
   }
 }
 
-// ── Genre Guide System ────────────────────────────────────────
+// ── Confetti Particle System ──────────────────────────────────
+const confettiParticles = [];
+const CONFETTI_COLORS = ['#0ff', '#8b5cf6', '#0f8', '#fa0', '#f55', '#f0a', '#4df'];
+const MAX_CONFETTI = 150;
 
-const GENRE_KEYWORDS = {
-  'platformer': ['jump', 'platform', 'gravity', 'side-scroll', 'mario', 'run', 'wall'],
-  'arcade-shooter': ['shoot', 'bullet', 'space', 'waves', 'invaders', 'shmup', 'gun'],
-  'puzzle': ['match', 'tile', 'grid', 'solve', 'logic', 'tetris', 'puzzle'],
-  'roguelike': ['dungeon', 'permadeath', 'procedural', 'roguelike', 'loot', 'rogue'],
-  'tower-defense': ['tower', 'defend', 'waves', 'path', 'td', 'defense'],
-  'rhythm-music': ['rhythm', 'music', 'beat', 'dance', 'song', 'tempo'],
-  'strategy-rts': ['strategy', 'rts', 'base', 'army', 'resource', 'troops'],
-  'racing': ['race', 'car', 'speed', 'driving', 'kart', 'track'],
-  'card-board': ['card', 'deck', 'board', 'hand', 'draw', 'poker'],
-  'fighting': ['fight', 'combo', 'punch', 'arena', 'versus', 'brawl'],
-  'sandbox': ['build', 'open world', 'mine', 'craft', 'sandbox', 'create'],
-  'fps-3d': ['fps', 'first person', '3d', 'aim', 'first-person'],
-  'idle-clicker': ['idle', 'click', 'upgrade', 'automate', 'prestige', 'incremental'],
-  'visual-novel': ['story', 'dialogue', 'choice', 'narrative', 'novel', 'dating'],
-};
-
-const GENRE_META = {
-  'platformer':     { name: 'Platformer',      complexity: 'medium',    color: '#0ff' },
-  'arcade-shooter': { name: 'Arcade Shooter',   complexity: 'medium',    color: '#0ff' },
-  'puzzle':         { name: 'Puzzle',            complexity: 'low-medium',color: '#0f8' },
-  'roguelike':      { name: 'Roguelike',         complexity: 'high',      color: '#8b5cf6' },
-  'tower-defense':  { name: 'Tower Defense',     complexity: 'medium-high',color: '#0ff' },
-  'rhythm-music':   { name: 'Rhythm / Music',    complexity: 'medium-high',color: '#0ff' },
-  'strategy-rts':   { name: 'Strategy / RTS',    complexity: 'high',      color: '#8b5cf6' },
-  'racing':         { name: 'Racing',            complexity: 'medium',    color: '#0ff' },
-  'card-board':     { name: 'Card / Board',      complexity: 'medium',    color: '#0ff' },
-  'fighting':       { name: 'Fighting',          complexity: 'high',      color: '#8b5cf6' },
-  'sandbox':        { name: 'Sandbox',           complexity: 'high',      color: '#8b5cf6' },
-  'fps-3d':         { name: 'FPS / 3D',          complexity: 'very-high', color: '#f55' },
-  'idle-clicker':   { name: 'Idle / Clicker',    complexity: 'low',       color: '#0f8' },
-  'visual-novel':   { name: 'Visual Novel',      complexity: 'low-medium',color: '#0f8' },
-};
-
-function initGenreGuide() {
-  dom.genreEditToggle?.addEventListener('click', toggleGenreEditMode);
-  dom.genreSaveBtn?.addEventListener('click', saveGenreGuide);
-  initGenreExplorerCanvas();
-}
-
-function updateGenreAffinityFromText(text) {
-  const lower = text.toLowerCase();
-  for (const [genre, keywords] of Object.entries(GENRE_KEYWORDS)) {
-    let score = state.genreAffinityScores[genre] || 0;
-    for (const kw of keywords) {
-      if (lower.includes(kw)) score += 0.15;
-    }
-    state.genreAffinityScores[genre] = Math.min(score, 1);
-  }
-  // Re-render the inline genre explorer if visible
-  if (dom.tabContentGenre && dom.tabContentGenre.style.display !== 'none' && !state.genreSlug) {
-    renderGenreExplorerFrame();
-  }
-}
-
-async function onGenreSelected(genreValue) {
-  const slug = genreValue.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-  state.genreSlug = slug;
-
-  // Transition to LOAD phase
-  setPhase('LOAD');
-  showToast(`Loading genre: ${genreValue}`);
-
-  try {
-    const res = await fetch(`${API_BASE}/api/genre/${slug}`);
-    if (!res.ok) throw new Error(`Genre API ${res.status}`);
-    const data = await res.json();
-
-    state.genreGuideContent = data.content;
-
-    if (data.gap) {
-      showToast(`Building genre knowledge for: ${genreValue}`);
-    }
-
-    // Render the genre guide
-    renderGenreGuideContent(data.content, data.status || 'unknown');
-
-    // Hide canvas, show content
-    if (dom.genreExplorerCanvas) dom.genreExplorerCanvas.style.display = 'none';
-    if (dom.genreGuideContent) dom.genreGuideContent.style.display = '';
-    if (dom.genreGuideToolbar) dom.genreGuideToolbar.style.display = '';
-
-    // Transition to DESIGN
-    setTimeout(() => setPhase('DESIGN'), 600);
-
-  } catch (e) {
-    console.warn('Genre load failed:', e.message);
-    setPhase('DESIGN');
-  }
-}
-
-function renderGenreGuideContent(markdown, status) {
-  if (!dom.genreGuideContent) return;
-  dom.genreGuideContent.innerHTML = renderGenreMarkdown(markdown);
-}
-
-function renderGenreMarkdown(md) {
-  // Process TECHCARD annotations first
-  md = md.replace(/<!--\s*TECHCARD:\s*(\{[\s\S]*?\})\s*-->/g, (match, json) => {
-    try {
-      const card = JSON.parse(json);
-      return `<div class="gb-techcard" data-type="${escHtml(card.type || '')}">
-        <div class="gb-techcard-info">
-          <span class="gb-techcard-name">${escHtml(card.name || card.id)}</span>
-          <span class="gb-techcard-version">v${escHtml(card.version || '?')}</span>
-          <div class="gb-techcard-desc">${escHtml(card.best_for || '')}</div>
-          <div class="gb-techcard-meta">
-            ${card.reliability ? `<span>Reliability: ${escHtml(card.reliability)}</span>` : ''}
-            ${card.docs ? `<a href="${escHtml(card.docs)}" target="_blank" style="color:var(--accent)">Docs</a>` : ''}
-          </div>
-        </div>
-      </div>`;
-    } catch { return ''; }
-  });
-
-  // Process inline TECH annotations
-  md = md.replace(/<!--\s*TECH:\s*(\{[\s\S]*?\})\s*-->/g, (match, json) => {
-    try {
-      const tech = JSON.parse(json);
-      return `<span class="gb-tech-badge">${escHtml(tech.id)} (${escHtml(tech.role || '')})</span>`;
-    } catch { return ''; }
-  });
-
-  // Strip remaining HTML comments
-  md = md.replace(/<!--[\s\S]*?-->/g, '');
-
-  // Convert markdown to HTML
-  let html = md
-    // Code blocks (must be before inline code)
-    .replace(/```(\w*)\n([\s\S]*?)```/g, (m, lang, code) =>
-      `<pre><code>${escHtml(code.trim())}</code></pre>`)
-    // Headings
-    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // Bold and italic
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Images
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, src) => {
-      const imgSrc = src.startsWith('http') ? src : `${API_BASE}/../game-types/${src}`;
-      return `<img src="${imgSrc}" alt="${escHtml(alt)}" loading="lazy">`;
-    })
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent)">$1</a>')
-    // Blockquotes
-    .replace(/^>\s?(.+)$/gm, '<blockquote>$1</blockquote>')
-    // Horizontal rules
-    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0">')
-    // Tables
-    .replace(/^\|(.+)\|$/gm, (match, content) => {
-      const cells = content.split('|').map(c => c.trim());
-      if (cells.every(c => /^[-:]+$/.test(c))) return ''; // separator row
-      const tag = content.includes('---') ? 'td' : 'td';
-      return '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
-    })
-    // Unordered lists
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // Numbered lists
-    .replace(/^\d+\.\s(.+)$/gm, '<li>$1</li>')
-    // Paragraphs (double newline)
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/\n/g, '<br>');
-
-  // Wrap list items
-  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
-  html = html.replace(/<\/ul>\s*<ul>/g, '');
-
-  // Wrap table rows
-  html = html.replace(/(<tr>[\s\S]*?<\/tr>)/g, '<table>$1</table>');
-  html = html.replace(/<\/table>\s*<table>/g, '');
-
-  return `<p>${html}</p>`;
-}
-
-function toggleGenreEditMode() {
-  state.genreGuideEditMode = !state.genreGuideEditMode;
-  if (state.genreGuideEditMode) {
-    dom.genreGuideContent.style.display = 'none';
-    dom.genreGuideEdit.style.display = 'flex';
-    dom.genreEditArea.value = state.genreGuideContent || '';
-    dom.genreEditToggle.textContent = 'Preview';
-  } else {
-    dom.genreGuideContent.style.display = '';
-    dom.genreGuideEdit.style.display = 'none';
-    dom.genreEditToggle.textContent = 'Edit';
-  }
-}
-
-async function saveGenreGuide() {
-  if (!state.genreSlug) return;
-  const content = dom.genreEditArea.value;
-  state.genreGuideContent = content;
-
-  try {
-    await fetch(`${API_BASE}/api/genre/${state.genreSlug}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
-    renderGenreGuideContent(content);
-    showToast('Genre guide saved');
-    toggleGenreEditMode();
-  } catch (e) {
-    showToast('Save failed: ' + e.message);
-  }
-}
-
-// ── Inline Genre Explorer (Narrowing Circle) ─────────────────
-let genreExplorerAnim = null;
-const genreBubbles = [];
-
-function initGenreExplorerCanvas() {
-  const canvas = dom.genreExplorerCanvas;
+function initConfetti() {
+  const canvas = dom.confettiCanvas;
   if (!canvas) return;
 
-  const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width || 600;
-  canvas.height = rect.height || 400;
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 
-  // Initialize bubbles
-  genreBubbles.length = 0;
-  const genres = Object.keys(GENRE_META);
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-  const radius = Math.min(cx, cy) * 0.7;
-
-  genres.forEach((slug, i) => {
-    const angle = (i / genres.length) * Math.PI * 2 - Math.PI / 2;
-    genreBubbles.push({
-      slug,
-      name: GENRE_META[slug].name,
-      color: GENRE_META[slug].color,
-      x: cx + Math.cos(angle) * radius,
-      y: cy + Math.sin(angle) * radius,
-      targetR: 32,
-      r: 32,
-      alpha: 0.6,
-      targetAlpha: 0.6,
-      hover: false,
-    });
+  window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
   });
 
-  // Mouse interaction
-  canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    for (const b of genreBubbles) {
-      const dist = Math.hypot(mx - b.x, my - b.y);
-      b.hover = dist < b.r + 4;
-    }
-    canvas.style.cursor = genreBubbles.some(b => b.hover) ? 'pointer' : 'default';
-  });
-
-  canvas.addEventListener('click', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    for (const b of genreBubbles) {
-      const dist = Math.hypot(mx - b.x, my - b.y);
-      if (dist < b.r + 4) {
-        // Genre selected via explorer
-        dom.input.value = `I want to make a ${b.name.toLowerCase()} game`;
-        sendMessage();
-        return;
-      }
+  document.addEventListener('mousemove', (e) => {
+    // Spawn 2-3 particles
+    const count = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      if (confettiParticles.length >= MAX_CONFETTI) break;
+      confettiParticles.push({
+        x: e.clientX + (Math.random() - 0.5) * 10,
+        y: e.clientY + (Math.random() - 0.5) * 10,
+        vx: (Math.random() - 0.5) * 3,
+        vy: (Math.random() - 0.5) * 3 - 1,
+        size: 2 + Math.random() * 4,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        shape: Math.random() > 0.5 ? 'rect' : 'circle',
+        life: 1,
+        decay: 0.015 + Math.random() * 0.02,
+      });
     }
   });
 
-  renderGenreExplorerFrame();
+  requestAnimationFrame(renderConfetti);
 }
 
-function renderGenreExplorerFrame() {
-  const canvas = dom.genreExplorerCanvas;
-  if (!canvas || canvas.style.display === 'none') return;
+function renderConfetti() {
+  const canvas = dom.confettiCanvas;
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Update bubble sizes based on affinity scores
-  for (const b of genreBubbles) {
-    const score = state.genreAffinityScores[b.slug] || 0;
-    b.targetR = 24 + score * 24;
-    b.targetAlpha = 0.3 + score * 0.7;
-    if (b.hover) { b.targetR += 6; b.targetAlpha = 1; }
-    // Lerp
-    b.r += (b.targetR - b.r) * 0.1;
-    b.alpha += (b.targetAlpha - b.alpha) * 0.1;
-  }
+  for (let i = confettiParticles.length - 1; i >= 0; i--) {
+    const p = confettiParticles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.08; // gravity
+    p.life -= p.decay;
 
-  // Draw connections (subtle lines between bubbles)
-  ctx.strokeStyle = 'rgba(30, 30, 58, 0.5)';
-  ctx.lineWidth = 0.5;
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-  for (const b of genreBubbles) {
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-  }
-
-  // Draw bubbles
-  for (const b of genreBubbles) {
-    ctx.globalAlpha = b.alpha;
-
-    // Glow
-    if (b.alpha > 0.5) {
-      ctx.shadowColor = b.color;
-      ctx.shadowBlur = 12 * b.alpha;
+    if (p.life <= 0) {
+      confettiParticles.splice(i, 1);
+      continue;
     }
 
-    // Circle
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${b.color === '#0ff' ? '0,255,255' : b.color === '#8b5cf6' ? '139,92,246' : b.color === '#0f8' ? '0,255,136' : '255,85,85'}, 0.12)`;
-    ctx.fill();
-    ctx.strokeStyle = b.color;
-    ctx.lineWidth = b.hover ? 2 : 1;
-    ctx.stroke();
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
 
-    ctx.shadowBlur = 0;
-
-    // Label
-    ctx.fillStyle = b.alpha > 0.5 ? '#e0e0f0' : '#5a5a7a';
-    ctx.font = `${Math.max(9, b.r * 0.35)}px "Courier New", monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(b.name, b.x, b.y);
+    if (p.shape === 'rect') {
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size * 0.6);
+    } else {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   ctx.globalAlpha = 1;
+  requestAnimationFrame(renderConfetti);
+}
 
-  // Continue animation
-  if (!state.genreSlug) {
-    genreExplorerAnim = requestAnimationFrame(renderGenreExplorerFrame);
+// ── Space Background (Parallax Starfield) ─────────────────────
+const starLayers = [[], [], []];
+const floatingObjects = [];
+let mouseX = 0, mouseY = 0;
+
+function initSpaceBackground() {
+  const canvas = dom.spaceCanvas;
+  if (!canvas) return;
+
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  });
+
+  // Layer 0: distant (200 stars)
+  for (let i = 0; i < 200; i++) {
+    starLayers[0].push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: 0.5 + Math.random() * 0.8,
+      alpha: 0.2 + Math.random() * 0.3,
+      speed: 0.02,
+    });
   }
+
+  // Layer 1: mid (100 stars)
+  for (let i = 0; i < 100; i++) {
+    starLayers[1].push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: 0.8 + Math.random() * 1.2,
+      alpha: 0.3 + Math.random() * 0.4,
+      speed: 0.06,
+    });
+  }
+
+  // Layer 2: close (40 stars)
+  for (let i = 0; i < 40; i++) {
+    starLayers[2].push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: 1.2 + Math.random() * 1.5,
+      alpha: 0.5 + Math.random() * 0.5,
+      speed: 0.12,
+    });
+  }
+
+  // Floating emoji objects
+  const emojis = ['🪐', '☄️', '🚀', '🛸', '⭐', '🌙'];
+  for (const emoji of emojis) {
+    floatingObjects.push({
+      emoji,
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.2,
+      size: 16 + Math.random() * 12,
+      alpha: 0.15 + Math.random() * 0.15,
+    });
+  }
+
+  document.addEventListener('mousemove', (e) => {
+    mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+    mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+  });
+
+  requestAnimationFrame(renderSpaceBackground);
+}
+
+function renderSpaceBackground() {
+  if (document.hidden) {
+    requestAnimationFrame(renderSpaceBackground);
+    return;
+  }
+
+  const canvas = dom.spaceCanvas;
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw star layers with parallax
+  const parallaxStrength = [4, 10, 20];
+  for (let layer = 0; layer < 3; layer++) {
+    const offsetX = mouseX * parallaxStrength[layer];
+    const offsetY = mouseY * parallaxStrength[layer];
+
+    for (const star of starLayers[layer]) {
+      // Slow drift
+      star.y += star.speed;
+      if (star.y > canvas.height + 5) {
+        star.y = -5;
+        star.x = Math.random() * canvas.width;
+      }
+
+      const sx = star.x + offsetX;
+      const sy = star.y + offsetY;
+
+      ctx.globalAlpha = star.alpha;
+      ctx.fillStyle = '#e0e0f0';
+      ctx.beginPath();
+      ctx.arc(sx, sy, star.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Draw floating objects
+  for (const obj of floatingObjects) {
+    obj.x += obj.vx;
+    obj.y += obj.vy;
+
+    // Wrap around
+    if (obj.x < -30) obj.x = canvas.width + 30;
+    if (obj.x > canvas.width + 30) obj.x = -30;
+    if (obj.y < -30) obj.y = canvas.height + 30;
+    if (obj.y > canvas.height + 30) obj.y = -30;
+
+    const ox = obj.x + mouseX * 15;
+    const oy = obj.y + mouseY * 15;
+
+    ctx.globalAlpha = obj.alpha;
+    ctx.font = `${obj.size}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(obj.emoji, ox, oy);
+  }
+
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(renderSpaceBackground);
 }
 
 // ── Utilities ─────────────────────────────────────────────────
@@ -1772,6 +1778,7 @@ function escHtml(str) {
 }
 
 function renderMarkdown(str) {
+  str = str.replace(/<!--[\s\S]*?-->/g, '').replace(/<!--[\s\S]*$/g, '');
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -1781,6 +1788,15 @@ function renderMarkdown(str) {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/\n/g, '<br>');
+}
+
+// ── Knowledge search (non-blocking, enriches context) ─────────
+async function searchKnowledge(text) {
+  try {
+    const res = await fetch(`${API_BASE}/api/knowledge/search?q=${encodeURIComponent(text)}&limit=3`);
+    if (!res.ok) return;
+    // Results are used server-side to enrich chat context
+  } catch {}
 }
 
 // ── Boot ──────────────────────────────────────────────────────

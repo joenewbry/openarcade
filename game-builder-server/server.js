@@ -8,10 +8,17 @@ const path = require('path');
 
 const http = require('http');
 const { streamChat } = require('./claude');
-const { generateConceptArt, generateQuickPreview } = require('./grok');
+const { generateConceptArt, generateQuickPreview, generateKnowledgeImage } = require('./grok');
 const { generateGame } = require('./generator');
+const { generateGameParallel } = require('./parallel-generator');
 const { applyPatch } = require('./patcher');
 const { initMatchmaker } = require('./matchmaker');
+const { initKnowledgeIndex, search: knowledgeSearch, getChunk, getStats: getKnowledgeStats } = require('./knowledge-index');
+const { DIMENSIONS, BASE_AGENTS, resolveOntology, agentsFromOntology, libsFromOntology } = require('./game-ontology');
+const { ARCHETYPES, matchArchetype } = require('./archetypes');
+const { FLOW, resolveFromGameMd, compileExecutionPlan } = require('./decision-flow');
+const { getAgentManifest, loadAllAgents } = require('./agent-registry');
+const { getChain } = require('./markdown-chain');
 
 const app = express();
 const server = http.createServer(app);
@@ -40,7 +47,7 @@ app.get('/api/games', (req, res) => {
 
 // ── POST /api/chat — SSE streaming chat ───────────────────
 app.post('/api/chat', async (req, res) => {
-  const { messages, gameId } = req.body;
+  const { messages, gameId, knowledgeContext } = req.body;
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
   }
@@ -58,7 +65,9 @@ app.post('/api/chat', async (req, res) => {
   res.flushHeaders();
 
   try {
-    const { fullText, metadata } = await streamChat(messages, gameId, res);
+    const { fullText, metadata } = await streamChat(messages, gameId, res, {
+      knowledgeContext: knowledgeContext || [],
+    });
 
     // Persist chat turn to jsonl
     appendChatLog(gameId, messages, fullText);
@@ -142,7 +151,7 @@ app.post('/api/imagine-preview', async (req, res) => {
 
 // ── POST /api/generate — SSE game code generation ─────────
 app.post('/api/generate', async (req, res) => {
-  const { gameId } = req.body;
+  const { gameId, mode } = req.body;
   if (!gameId) {
     return res.status(400).json({ error: 'gameId required' });
   }
@@ -152,8 +161,15 @@ app.post('/api/generate', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  // Determine generation mode
+  const useParallel = mode !== 'sequential' && process.env.PARALLEL_GENERATION !== 'false';
+
   try {
-    await generateGame(gameId, REPO_PATH, res);
+    if (useParallel) {
+      await generateGameParallel(gameId, REPO_PATH, res);
+    } else {
+      await generateGame(gameId, REPO_PATH, res);
+    }
   } catch (e) {
     console.error('Generate error:', e);
     res.write(`event: error\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
@@ -423,6 +439,175 @@ function saveConceptArtPrompt(gameId, prompt) {
   }
 }
 
+// ── GET /api/sessions — list all game sessions ──────────────
+app.get('/api/sessions', (req, res) => {
+  try {
+    const sessions = [];
+    const entries = fs.readdirSync(REPO_PATH, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const statePath = path.join(REPO_PATH, entry.name, 'session-state.json');
+      if (!fs.existsSync(statePath)) continue;
+
+      try {
+        const data = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+        const gameMdPath = path.join(REPO_PATH, entry.name, 'game.md');
+        let title = entry.name;
+        if (fs.existsSync(gameMdPath)) {
+          const gameMd = fs.readFileSync(gameMdPath, 'utf8');
+          const titleMatch = /^#\s*(?:Game:\s*)?(.+)/m.exec(gameMd);
+          if (titleMatch) title = titleMatch[1].trim();
+        }
+
+        const thumbnail = fs.existsSync(path.join(REPO_PATH, entry.name, 'concept-art-1.png'))
+          ? `/${entry.name}/concept-art-1.png` : null;
+
+        sessions.push({
+          gameId: entry.name,
+          title,
+          phase: data.phase || 'DESIGN',
+          updatedAt: data.updatedAt || null,
+          thumbnail,
+          hasGame: fs.existsSync(path.join(REPO_PATH, entry.name, 'index.html')),
+        });
+      } catch {}
+    }
+
+    sessions.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    res.json({ sessions });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/session/:gameId/files — list session files ──────
+app.get('/api/session/:gameId/files', (req, res) => {
+  const { gameId } = req.params;
+  const gameDir = path.join(REPO_PATH, gameId);
+
+  if (!fs.existsSync(gameDir)) {
+    return res.status(404).json({ error: 'Session directory not found' });
+  }
+
+  try {
+    const files = fs.readdirSync(gameDir);
+    const chain = getChain(gameDir);
+    res.json({ gameId, files, chain });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/ontology — return ontology dimensions, archetypes, flow ──
+app.get('/api/ontology', (req, res) => {
+  res.json({
+    dimensions: DIMENSIONS,
+    archetypes: ARCHETYPES,
+    flow: FLOW,
+  });
+});
+
+// ── GET /api/archetypes — card data for game type picker ──
+app.get('/api/archetypes', (req, res) => {
+  const cards = Object.entries(ARCHETYPES).map(([key, arch]) => ({
+    id: key,
+    label: arch.label,
+    description: arch.description,
+    agentCount: arch.agentCount,
+    examples: arch.examples,
+    estimatedTime: arch.estimatedTime,
+    ontology: arch.ontology,
+  }));
+  res.json({ archetypes: cards });
+});
+
+// ── GET /api/ontology-dimensions — expose dimensions + base agents ──
+app.get('/api/ontology-dimensions', (req, res) => {
+  res.json({ dimensions: DIMENSIONS, baseAgents: BASE_AGENTS });
+});
+
+// ── GET /api/agents — return full agent manifest ──────────────
+app.get('/api/agents', (req, res) => {
+  try {
+    const manifest = getAgentManifest();
+    res.json({ agents: manifest, count: manifest.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/agents/:name — return single agent .md content ──
+app.get('/api/agents/:name', (req, res) => {
+  const name = req.params.name.replace(/[^a-z0-9-]/g, '');
+  const mdPath = path.join(__dirname, 'agents', `${name}.md`);
+
+  if (!fs.existsSync(mdPath)) {
+    return res.status(404).json({ error: `Agent ${name} not found` });
+  }
+
+  const content = fs.readFileSync(mdPath, 'utf8');
+  const agents = loadAllAgents();
+  const meta = agents[name] || {};
+
+  res.json({ name, content, ...meta });
+});
+
+// ── GET /api/knowledge/search — search knowledge base ──────
+app.get('/api/knowledge/search', (req, res) => {
+  const { q, type, limit, game, genre } = req.query;
+  if (!q) return res.status(400).json({ error: 'q (query) required' });
+
+  const results = knowledgeSearch(q, {
+    type: type || undefined,
+    game: game || undefined,
+    genre: genre || undefined,
+    limit: parseInt(limit) || 6,
+  });
+
+  res.json({ results, query: q, count: results.length });
+});
+
+// ── GET /api/knowledge/chunk/:type/:game/:section — full chunk content ──
+app.get('/api/knowledge/chunk/:type/:game/:section', (req, res) => {
+  const { type, game, section } = req.params;
+  const chunk = getChunk(type, game, section);
+
+  if (!chunk) {
+    return res.status(404).json({ error: 'Chunk not found' });
+  }
+
+  res.json(chunk);
+});
+
+// ── POST /api/knowledge/generate-image — on-demand image gen ──
+app.post('/api/knowledge/generate-image', async (req, res) => {
+  const { prompt, outputPath, game, type } = req.body;
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+
+  const slug = (game || 'unknown').replace(/[^a-z0-9-]/gi, '');
+  const dir = type === 'genre-guide' ? 'game-types/images' : `${type}/images`;
+  const fullDir = path.join(REPO_PATH, dir);
+  const fullPath = outputPath || path.join(fullDir, `${slug}-ref.png`);
+
+  try {
+    await generateKnowledgeImage(prompt, fullPath);
+    const relPath = fullPath.replace(REPO_PATH, '').replace(/^\//, '');
+    res.json({ ok: true, path: '/' + relPath });
+  } catch (e) {
+    console.error('Knowledge image error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/knowledge/stats — index statistics ──────────────
+app.get('/api/knowledge/stats', (req, res) => {
+  res.json(getKnowledgeStats());
+});
+
+// ── Update /api/chat to support knowledge context ────────────
+// (The knowledgeContext is passed in the request body alongside messages)
+
 // ── Mount matchmaker + Start ──────────────────────────────
 initMatchmaker(server);
 
@@ -432,4 +617,11 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Matchmaker: Socket.io mounted at /matchmaker`);
   if (!process.env.ANTHROPIC_API_KEY) console.warn('WARNING: ANTHROPIC_API_KEY not set');
   if (!process.env.XAI_API_KEY) console.warn('WARNING: XAI_API_KEY not set');
+
+  // Initialize knowledge base index (async, non-blocking)
+  try {
+    initKnowledgeIndex();
+  } catch (e) {
+    console.warn('Knowledge index init failed (non-fatal):', e.message);
+  }
 });
