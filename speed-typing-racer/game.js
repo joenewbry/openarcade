@@ -501,8 +501,8 @@ export function createGame() {
         beginCountdown();
       }
       // Also start on any letter key (like the original)
-      for (const key of input._pressed) {
-        if (key.length === 1) { beginCountdown(); break; }
+      for (let c = 97; c <= 122; c++) {
+        if (input.wasPressed(String.fromCharCode(c))) { beginCountdown(); break; }
       }
       return;
     }
