@@ -1045,6 +1045,12 @@ function drawQuestBoard(renderer, text) {
 export function createGame() {
   const game = new Game('game');
 
+  // ── Cache DOM HUD refs ──
+  const levelDisp = document.getElementById('levelDisp');
+  const xpDisp    = document.getElementById('xpDisp');
+  const goldDisp  = document.getElementById('goldDisp');
+  const scoreDisp = document.getElementById('score');
+
   // ── Canvas mouse tracking (for UI hit-testing) ──
   const canvasEl = document.getElementById('game');
   canvasEl.addEventListener('mousemove', e => {
@@ -1347,10 +1353,10 @@ export function createGame() {
     checkQuestCompletion();
 
     // ── DOM HUD ──
-    document.getElementById('levelDisp').textContent = player.level;
-    document.getElementById('xpDisp').textContent = player.xp + '/' + player.xpToLevel;
-    document.getElementById('goldDisp').textContent = player.gold;
-    document.getElementById('score').textContent = score;
+    levelDisp.textContent = player.level;
+    xpDisp.textContent = player.xp + '/' + player.xpToLevel;
+    goldDisp.textContent = player.gold;
+    scoreDisp.textContent = score;
 
     // ── Death ──
     if (player.hp <= 0) {
@@ -1369,7 +1375,6 @@ export function createGame() {
   };
 
   game.onDraw = (renderer, text) => {
-    renderer.begin('#111122');
     drawGame(renderer, text, tick);
   };
 
