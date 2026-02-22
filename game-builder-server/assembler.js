@@ -1,0 +1,182 @@
+'use strict';
+
+/**
+ * Assembles agent outputs into a single index.html file.
+ * Data-driven assembly order — reads assembly-order from agent registry.
+ *
+ * Default order (by assembly-order field):
+ * 1. html-css (10)      — DOCTYPE through opening <script>
+ * 2. mesh-gen (14)      — 3D geometry (if present)
+ * 3. sprite-gen (15)    — Sprite data (if present)
+ * 4. shader (16)        — Shader code (if present)
+ * 5. texture (17)       — Texture code (if present)
+ * 6. sfx (21)           — Sound effects
+ * 7. audio (21)         — Legacy audio (if sfx not present)
+ * 8. music (22)         — Background music (if present)
+ * 9. entity (20)        — Entity class definitions
+ * 10. physics (25)      — Physics system (if present)
+ * 11. input (30)        — Input handlers
+ * 12. level-designer (32) — Level data
+ * 13. proc-gen (33)     — Procedural generation (if present)
+ * 14. npc-ai (35)       — NPC AI (if present)
+ * 15. narrative (36)    — Narrative system (if present)
+ * 16. economy-balance (37) — Economy (if present)
+ * 17. game-server (38)  — Networking (if present)
+ * 18. state-sync (39)   — State sync (if present)
+ * 19. ui-overlay (40)   — UI overlay functions
+ * 20. core-engine (90)  — Core engine glue
+ * 21. Closing </script> + recorder.js + rating.js
+ */
+
+const { getAssemblyOrder } = require('./agent-registry');
+
+// Human-readable labels for section separators
+const SECTION_LABELS = {
+  'html-css': 'HTML/CSS Structure',
+  'mesh-gen': '3D Mesh Generation',
+  'sprite-gen': 'Sprite Data',
+  'shader': 'Shaders',
+  'texture': 'Textures',
+  'sfx': 'Sound Effects',
+  'audio': 'Audio System',
+  'music': 'Background Music',
+  'entity': 'Entity Definitions',
+  'physics': 'Physics System',
+  'input': 'Input Handling',
+  'level-designer': 'Level Data',
+  'proc-gen': 'Procedural Generation',
+  'npc-ai': 'NPC AI',
+  'narrative': 'Narrative System',
+  'economy-balance': 'Economy & Balance',
+  'game-server': 'Networking',
+  'state-sync': 'State Synchronization',
+  'ui-overlay': 'UI Overlays',
+  'core-engine': 'Core Engine',
+};
+
+/**
+ * Assemble all agent outputs into a complete index.html.
+ * @param {object} outputs - keyed by agent name
+ * @param {object} [opts] - assembly options
+ * @param {string} [opts.gameId] - game identifier for comments
+ * @param {string[]} [opts.artPaths] - generated art image paths
+ * @returns {string} complete index.html
+ */
+function assemble(outputs, opts = {}) {
+  const parts = [];
+
+  // Get sorted agent names (by assembly-order from registry)
+  const agentNames = Object.keys(outputs).filter(name =>
+    name !== 'html-css' && name !== 'lead-architect' && name !== 'qa-validator' && name !== 'visual-qa'
+  );
+  const sortedAgents = getAssemblyOrder(agentNames);
+
+  // Separate core-engine (always last before closing)
+  const coreEngineIdx = sortedAgents.indexOf('core-engine');
+  if (coreEngineIdx !== -1) sortedAgents.splice(coreEngineIdx, 1);
+
+  // 1. HTML/CSS — must start with <!DOCTYPE html>
+  let htmlCss = outputs['html-css'] || '';
+
+  // Ensure it ends with an opening <script> tag
+  if (!htmlCss.includes('<script>')) {
+    const bodyClose = htmlCss.lastIndexOf('</body>');
+    if (bodyClose !== -1) {
+      htmlCss = htmlCss.slice(0, bodyClose) + '\n<script>\n';
+    } else {
+      htmlCss += '\n<script>\n';
+    }
+  } else {
+    htmlCss = htmlCss.replace(/<script>\s*$/, '<script>\n');
+  }
+
+  parts.push(htmlCss);
+
+  // Section separator
+  const sep = (name) => {
+    const label = SECTION_LABELS[name] || name;
+    const pad = Math.max(50 - label.length, 5);
+    return `\n// ── ${label} ${'─'.repeat(pad)}\n\n`;
+  };
+
+  // 2-N. All other agents in assembly order (except core-engine)
+  for (const agentName of sortedAgents) {
+    if (outputs[agentName]) {
+      parts.push(sep(agentName));
+      parts.push(outputs[agentName]);
+    }
+  }
+
+  // Core Engine — always last JS section
+  if (outputs['core-engine']) {
+    parts.push(sep('core-engine'));
+    parts.push(outputs['core-engine']);
+  }
+
+  // Closing tags + recorder/rating scripts
+  parts.push('\n');
+
+  const lastPart = parts[parts.length - 2] || '';
+  if (!lastPart.includes('</script>')) {
+    parts.push('</script>\n');
+  }
+
+  parts.push('<script src="../recorder.js"></script>\n');
+  parts.push('<script src="../rating.js"></script>\n');
+
+  const assembled = parts.join('');
+  if (!assembled.includes('</body>')) {
+    parts.push('</body>\n');
+  }
+  if (!assembled.includes('</html>')) {
+    parts.push('</html>\n');
+  }
+
+  let result = parts.join('');
+
+  // Inject art if paths provided
+  if (opts.artPaths && opts.artPaths.length > 0) {
+    const artComment = `<!-- Generated art: ${opts.artPaths.join(', ')} -->\n`;
+    result = result.replace('</head>', `${artComment}</head>`);
+  }
+
+  // Add generation comment
+  if (opts.gameId) {
+    const timestamp = new Date().toISOString();
+    const agentCount = Object.keys(outputs).length;
+    const genComment = `<!-- Generated by OpenArcade Game Builder v2 | ${opts.gameId} | ${agentCount} agents | ${timestamp} -->\n`;
+    result = result.replace('<!DOCTYPE html>', `<!DOCTYPE html>\n${genComment}`);
+  }
+
+  return result;
+}
+
+/**
+ * Validate assembled HTML has essential elements.
+ * @param {string} html - assembled HTML string
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+function validateAssembly(html) {
+  const errors = [];
+
+  if (!html.includes('<!DOCTYPE html>')) errors.push('Missing <!DOCTYPE html>');
+  if (!html.includes('<canvas')) errors.push('Missing <canvas> element');
+  if (!html.includes('overlay')) errors.push('Missing overlay element');
+  if (!html.includes('requestAnimationFrame')) errors.push('Missing requestAnimationFrame (game loop)');
+  if (!html.includes('init')) errors.push('Missing init function');
+  if (!html.includes('recorder.js')) errors.push('Missing recorder.js script tag');
+  if (!html.includes('rating.js')) errors.push('Missing rating.js script tag');
+  if (!html.includes('</html>')) errors.push('Missing closing </html> tag');
+
+  if (/setInterval\s*\(\s*(?:gameLoop|update|render|tick|frame)/i.test(html)) {
+    errors.push('Uses setInterval for game loop (should use requestAnimationFrame)');
+  }
+
+  if (/\/\/\s*TODO|\/\/\s*FIXME|\/\/\s*implement|\/\/\s*placeholder/i.test(html)) {
+    errors.push('Contains TODO/placeholder comments');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+module.exports = { assemble, validateAssembly };

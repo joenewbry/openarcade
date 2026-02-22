@@ -96,6 +96,39 @@ const LIBS = {
     description: 'Music synthesis and scheduling',
     whenToUse: 'Music/rhythm games, synthesizer games, procedurally generated music',
   },
+  'rapier': {
+    name: 'Rapier WASM',
+    version: '0.11.2',
+    cdn: 'https://cdn.jsdelivr.net/npm/@dimforge/rapier3d@0.11.2/rapier.js',
+    capability: 'physics-3d-wasm',
+    description: '3D physics engine (WASM, fast)',
+    whenToUse: '3D games needing high-performance physics (better than Cannon.js for complex scenes)',
+  },
+  'zzfx': {
+    name: 'ZzFX',
+    version: '1.0.0',
+    cdn: 'https://cdn.jsdelivr.net/npm/zzfx@1.0.0/ZzFX.js',
+    capability: 'sfx-tiny',
+    description: 'Tiny procedural sound effect generator (~1KB)',
+    whenToUse: 'Lightweight SFX when full Web Audio API setup is overkill',
+  },
+  'three-orbit': {
+    name: 'Three.js OrbitControls',
+    version: 'r134',
+    cdn: 'https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js',
+    capability: 'camera-controls',
+    description: 'Orbital camera controls for Three.js',
+    whenToUse: 'Any 3D game or viewer requiring mouse/touch camera orbit',
+    requires: ['three'],
+  },
+  'immer': {
+    name: 'Immer',
+    version: '10.0.3',
+    cdn: 'https://cdn.jsdelivr.net/npm/immer@10.0.3/dist/immer.umd.production.min.js',
+    capability: 'state-management',
+    description: 'Immutable state management with mutable-looking API',
+    whenToUse: 'Complex state management in strategy/sim games with undo/redo support',
+  },
 };
 
 /**

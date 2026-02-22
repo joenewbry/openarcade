@@ -81,6 +81,19 @@ BEHAVIOR RULES:
    <!-- CONCEPT_ART_PROMPT: [full Grok prompt here] -->
 11. When design is complete and user approves generation, output at end:
    <!-- READY_TO_GENERATE: true -->
+12. When referencing a known game's design pattern from the knowledge base, output:
+   <!-- KNOWLEDGE_REF: {"game": "tetris", "section": "Visual Design"} -->
+13. When you want to trigger a visual reference search for the user, output:
+   <!-- VISUAL_REF: {"query": "neon pixel art space shooter", "generatePrompt": "..."} -->
+14. ONTOLOGY DECISIONS: As the design takes shape, classify it along these 5 dimensions. Output one for each resolved dimension:
+   <!-- ONTOLOGY: {"dimension": "visual-style", "value": "pixel-2d"} -->
+   Dimensions and valid values:
+   - visual-style: pixel-2d, canvas-2d, canvas-3d, voxel
+   - multiplayer: solo, local-coop, p2p, server-auth
+   - core-mechanics: reflex, physics-sim, turn-strategy, rts, narrative-choice, building-crafting
+   - content-scope: single-screen, multi-level, hub-branches, procedural-infinite
+   - audio-narrative: sfx-none, sfx-music-none, sfx-music-story, adaptive-story
+   Emit these as early as possible — the frontend uses them to preview agent selection.
 
 Remember: you're building excitement and helping someone create their dream game. Be a great collaborator.`;
 
@@ -96,6 +109,15 @@ async function streamChat(messages, gameId, res, opts = {}) {
   // Build dynamic system prompt with genre-specific knowledge
   let systemPrompt = CHAT_SYSTEM_PROMPT;
   const genre = opts.detectedGenre || detectGenreFromMessages(messages);
+
+  // Inject selected knowledge references if provided
+  if (opts.knowledgeContext && opts.knowledgeContext.length > 0) {
+    systemPrompt += '\n\n---\n\nSELECTED REFERENCE MATERIAL (user chose these for context):\n';
+    for (const ref of opts.knowledgeContext) {
+      systemPrompt += `\n### ${ref.game || ref.source} — ${ref.section}\n${ref.content?.slice(0, 800) || ref.excerpt || ''}\n`;
+    }
+    systemPrompt += '\nUse this reference material to inform your design guidance when relevant.';
+  }
 
   if (genre) {
     const guide = loadGenreGuide(genre);
@@ -310,7 +332,100 @@ function extractMetadata(text) {
   }
   if (genreSections.length) meta.genreSections = genreSections;
 
+  // Extract ontology decisions
+  const ontologyDecisions = [];
+  const ontRegex = /<!--\s*ONTOLOGY:\s*(\{[\s\S]*?\})\s*-->/g;
+  let ontMatch;
+  while ((ontMatch = ontRegex.exec(text)) !== null) {
+    try { ontologyDecisions.push(JSON.parse(ontMatch[1])); } catch {}
+  }
+  if (ontologyDecisions.length) meta.ontologyDecisions = ontologyDecisions;
+
   return meta;
 }
 
-module.exports = { streamChat, complete, streamGenerationStep, loadGenreGuide, detectGenreFromMessages };
+/**
+ * Stream an agent step to SSE — used by parallel generator for individual agents.
+ * Similar to streamGenerationStep but with agent-specific naming.
+ * @param {string} system - system prompt
+ * @param {string} userPrompt - the prompt
+ * @param {object} res - Express SSE response
+ * @param {string} agentName - agent identifier for progress events
+ * @param {object} [opts] - options
+ * @param {string} [opts.model] - model override
+ * @param {number} [opts.maxTokens] - max tokens override
+ * @returns {string} full generated text
+ */
+async function streamAgentStep(system, userPrompt, res, agentName, opts = {}) {
+  const model = opts.model || 'claude-sonnet-4-5-20250514';
+  const maxTokens = opts.maxTokens || 4096;
+
+  res.write(`event: agent-progress\ndata: ${JSON.stringify({ agent: agentName, status: 'running' })}\n\n`);
+
+  const heartbeat = setInterval(() => {
+    res.write(`: heartbeat\n\n`);
+  }, 15000);
+
+  try {
+    const stream = await client.messages.stream({
+      model,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+
+    let fullText = '';
+    let charsSinceEmit = 0;
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
+        fullText += chunk.delta.text;
+        charsSinceEmit += chunk.delta.text.length;
+        if (charsSinceEmit >= 200) {
+          const snippet = fullText.slice(-80).trim();
+          if (snippet) {
+            res.write(`data: ${JSON.stringify({ type: 'gen_text', agent: agentName, text: snippet })}\n\n`);
+          }
+          charsSinceEmit = 0;
+        }
+      }
+    }
+
+    return fullText;
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+/**
+ * Extract knowledge reference metadata from Claude responses.
+ * Extends extractMetadata with KNOWLEDGE_REF and VISUAL_REF tags.
+ */
+function extractKnowledgeMetadata(text) {
+  const meta = extractMetadata(text);
+
+  // Extract knowledge references
+  const knowledgeRefs = [];
+  const krRegex = /<!--\s*KNOWLEDGE_REF:\s*(\{[\s\S]*?\})\s*-->/g;
+  let krMatch;
+  while ((krMatch = krRegex.exec(text)) !== null) {
+    try { knowledgeRefs.push(JSON.parse(krMatch[1])); } catch {}
+  }
+  if (knowledgeRefs.length) meta.knowledgeRefs = knowledgeRefs;
+
+  // Extract visual reference triggers
+  const visualRefs = [];
+  const vrRegex = /<!--\s*VISUAL_REF:\s*(\{[\s\S]*?\})\s*-->/g;
+  let vrMatch;
+  while ((vrMatch = vrRegex.exec(text)) !== null) {
+    try { visualRefs.push(JSON.parse(vrMatch[1])); } catch {}
+  }
+  if (visualRefs.length) meta.visualRefs = visualRefs;
+
+  return meta;
+}
+
+module.exports = {
+  streamChat, complete, streamGenerationStep, streamAgentStep,
+  loadGenreGuide, detectGenreFromMessages,
+  extractMetadata, extractKnowledgeMetadata,
+};

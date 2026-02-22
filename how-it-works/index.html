@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How It's Made — OpenArcade</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='12' fill='%238b5cf6'/><text x='50' y='70' font-size='55' font-family='Arial,sans-serif' font-weight='bold' fill='white' text-anchor='middle'>G</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a14;
+  --surface: #12121f;
+  --surface2: #1a1a2e;
+  --border: #2a2a3e;
+  --text: #e0e0f0;
+  --dim: #6a6a8a;
+  --muted: #5a5a7a;
+  --cyan: #0ff;
+  --purple: #8b5cf6;
+  --green: #34d399;
+  --pink: #f472b6;
+  --orange: #fb923c;
+  --blue: #60a5fa;
+  --red: #f87171;
+  --yellow: #fbbf24;
+  --font: "Courier New", "Lucida Console", monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  line-height: 1.7;
+  overflow-x: hidden;
+}
+
+/* ── Header ── */
+.oa-header {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+}
+.oa-logo {
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  letter-spacing: 2px;
+  text-decoration: none;
+  font-weight: bold;
+}
+.oa-logo:hover { text-shadow: 0 0 12px rgba(0,255,255,0.6); }
+.oa-sep { color: var(--dim); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; }
+.oa-nav { display: flex; gap: 8px; margin-left: auto; }
+.oa-nav a {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--dim);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: color 0.2s, border-color 0.2s;
+}
+.oa-nav a:hover { color: var(--cyan); border-color: var(--cyan); }
+
+/* ── Hero ── */
+.hero {
+  text-align: center;
+  padding: 80px 24px 60px;
+  position: relative;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50px; left: 50%; transform: translateX(-50%);
+  width: 800px; height: 600px;
+  background: radial-gradient(ellipse, rgba(0,255,255,0.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 900;
+  letter-spacing: -1.5px;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 12px;
+}
+.hero .subtitle {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--dim);
+  letter-spacing: 1px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* ── Article ── */
+.article {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 24px 100px;
+}
+
+.section {
+  margin-bottom: 64px;
+}
+
+.section-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--cyan);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.section h2 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+.section p {
+  font-size: 0.92rem;
+  color: #b0b0d0;
+  margin-bottom: 16px;
+  line-height: 1.8;
+}
+
+.section a {
+  color: var(--cyan);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(0,255,255,0.3);
+  transition: border-color 0.2s;
+}
+.section a:hover { border-color: var(--cyan); }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-bottom: 10px;
+}
+
+/* ── Code blocks ── */
+.code-block {
+  background: #0d0d1a;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+.code-block pre {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: #c0c0e0;
+  white-space: pre;
+}
+.code-block .comment { color: var(--dim); }
+.code-block .keyword { color: var(--purple); }
+.code-block .string { color: var(--green); }
+.code-block .fn { color: var(--cyan); }
+.code-block .type { color: var(--orange); }
+
+/* ── Diagram ── */
+.diagram {
+  background: #0d0d1a;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  margin: 20px 0;
+  overflow-x: auto;
+}
+.diagram pre {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  line-height: 1.7;
+  color: #a0a0c0;
+  text-align: center;
+  white-space: pre;
+}
+.diagram .hl { color: var(--cyan); font-weight: 700; }
+.diagram .hl2 { color: var(--purple); }
+.diagram .hl3 { color: var(--green); }
+.diagram .hl4 { color: var(--orange); }
+
+/* ── Agent grid ── */
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.agent-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  transition: border-color 0.2s;
+}
+.agent-card:hover { border-color: rgba(0,255,255,0.3); }
+.agent-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  margin-bottom: 4px;
+}
+.agent-desc {
+  font-size: 0.75rem;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.agent-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  padding: 2px 7px;
+  border-radius: 3px;
+  margin-top: 6px;
+}
+
+/* ── Tier labels ── */
+.tier-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin: 24px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tier-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Pill list ── */
+.pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0;
+}
+.pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  padding: 5px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--dim);
+}
+
+/* ── Patch levels ── */
+.patch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.patch-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.patch-card h4 {
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+}
+.patch-card p {
+  font-size: 0.75rem;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.patch-card .speed {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  margin-top: 8px;
+}
+
+/* ── Stats row ── */
+.stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 20px 0;
+}
+.stat-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  text-align: center;
+  flex: 1;
+  min-width: 120px;
+}
+.stat-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--cyan);
+}
+.stat-label {
+  font-size: 0.7rem;
+  color: var(--dim);
+  margin-top: 4px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .agent-grid { grid-template-columns: 1fr; }
+  .patch-grid { grid-template-columns: 1fr; }
+  .stats-row { flex-direction: column; }
+  .oa-nav { gap: 4px; }
+  .oa-nav a { font-size: 0.6rem; padding: 3px 6px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<div class="oa-header">
+  <a href="/" class="oa-logo">ARCADE</a>
+  <span class="oa-sep">/ How It's Made</span>
+  <nav class="oa-nav">
+    <a href="/pipeline/">Pipeline</a>
+    <a href="/agent-ontology/">Agent Ontology</a>
+    <a href="/game-builder/">Game Builder</a>
+  </nav>
+</div>
+
+<!-- ── Hero ── -->
+<div class="hero">
+  <h1>How It's Made</h1>
+  <p class="subtitle">Building an AI game studio that turns a sentence into a playable game</p>
+</div>
+
+<!-- ── Article ── -->
+<div class="article">
+
+  <!-- 1. THE PROBLEM -->
+  <div class="section">
+    <div class="section-num">01 &mdash; The Problem</div>
+    <h2>Game development is absurdly expensive</h2>
+    <p>
+      A typical indie game takes 1&ndash;3 years with a small team. A AAA title takes 3&ndash;7 years,
+      hundreds of people, and $50M&ndash;$300M+. Even a simple browser game needs weeks of work across
+      art, audio, code, level design, and QA.
+    </p>
+    <p>
+      What if you could describe a game in one sentence and play it 60 seconds later? Not a template
+      or a drag-and-drop toy &mdash; a real game with custom mechanics, procedural audio, concept art,
+      multiple levels, and quality validation.
+    </p>
+    <p>
+      That's what OpenArcade's Game Builder does. Here's how.
+    </p>
+  </div>
+
+  <!-- 2. ARCHITECTURE OVERVIEW -->
+  <div class="section">
+    <div class="section-num">02 &mdash; Architecture</div>
+    <h2>The 10,000-foot view</h2>
+    <p>
+      The system is a chat-driven pipeline. A user describes their game idea in natural language.
+      The server orchestrates multiple AI agents to design, code, and assemble a playable HTML5 game.
+    </p>
+
+    <div class="diagram">
+<pre>
+<span class="hl">User</span>  &rarr;  <span class="hl2">Chat UI</span>  &rarr;  <span class="hl">Express Server</span>
+                            |
+              &darr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&darr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&darr;
+         <span class="hl2">Claude (Design)</span>    <span class="hl2">Claude (Code)</span>    <span class="hl4">Grok (Art)</span>
+              |                |                |
+              &darr;                &darr;                &darr;
+         <span class="hl3">game.md</span>  &rarr;  <span class="hl3">Blueprint</span>  &rarr;  <span class="hl3">6 Parallel Agents</span>
+                                        |
+                                   <span class="hl">Assembly</span>  &rarr;  <span class="hl">QA</span>  &rarr;  <span class="hl3">Playable Game</span>
+</pre>
+    </div>
+
+    <p>
+      The Express server (<code>server.js</code>) handles SSE streaming, game generation, concept art,
+      knowledge base search, and post-generation patching. The front end (<code>builder.js</code>) manages
+      the chat UI, design checklist, tech tree visualization, and the live game iframe.
+    </p>
+
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-value">9</div>
+        <div class="stat-label">Agent definitions</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value">4</div>
+        <div class="stat-label">Tiers</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value">6</div>
+        <div class="stat-label">Parallel agents</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value">2</div>
+        <div class="stat-label">QA passes</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. GAME DESIGN PIPELINE -->
+  <div class="section">
+    <div class="section-num">03 &mdash; The Chat Pipeline</div>
+    <h2>From idea to game.md</h2>
+    <p>
+      The chat phase is a structured conversation powered by Claude. The user doesn't need to know
+      anything about game design &mdash; the AI walks them through concept, mechanics, visual style,
+      audio, and controls. Each answer updates a living <code>game.md</code> document: the source of
+      truth for the entire build.
+    </p>
+    <p>
+      The design checklist tracks progress across 8 dimensions (concept, genre, mechanics, visual,
+      audio, controls, levels, title). The knowledge base provides genre-specific context &mdash;
+      if you're building a platformer, the AI references patterns from platformer design guides,
+      visual references, and level design examples.
+    </p>
+    <p>
+      When the design is complete, the "Generate" button appears. One click kicks off the
+      multi-agent build pipeline.
+    </p>
+    <p>
+      <a href="/pipeline/">See the full pipeline visualization &rarr;</a>
+    </p>
+  </div>
+
+  <!-- 4. MULTI-AGENT SYSTEM -->
+  <div class="section">
+    <div class="section-num">04 &mdash; The Multi-Agent System</div>
+    <h2>Blueprint as contract, agents as departments</h2>
+    <p>
+      The key insight: if you give 6 AI agents the same task, they'll write conflicting code.
+      Variable names won't match, function signatures will differ, the pieces won't fit together.
+      The solution is a <strong>blueprint</strong> &mdash; a structured JSON contract that every agent
+      must follow.
+    </p>
+
+    <div class="card">
+      <div class="card-title">The Blueprint Pattern</div>
+      <p style="font-size:0.82rem; color: var(--dim); margin-bottom: 12px;">
+        The Lead Architect agent reads game.md and produces a blueprint JSON that defines:
+      </p>
+      <div class="pill-list">
+        <span class="pill">game.title / genre / canvas</span>
+        <span class="pill">html.elementIds[]</span>
+        <span class="pill">css.variables{}</span>
+        <span class="pill">entities[].className / properties / methods</span>
+        <span class="pill">functions.core / collision / state</span>
+        <span class="pill">input.keyboard[] / touch</span>
+        <span class="pill">audio.sounds[]</span>
+        <span class="pill">levels.type / count / dataShape</span>
+        <span class="pill">ui.hud[] / overlays[]</span>
+        <span class="pill">constants{}</span>
+      </div>
+      <p style="font-size:0.78rem; color: var(--dim); margin-top: 8px;">
+        Every agent references the same element IDs, function names, entity classes, and constants.
+        No guessing, no conflicts.
+      </p>
+    </div>
+
+    <div class="tier-label" style="color: var(--purple);">Tier 0 &mdash; Planning</div>
+    <div class="agent-grid">
+      <div class="agent-card">
+        <div class="agent-name">Lead Architect</div>
+        <div class="agent-desc">Reads game.md + tech stack. Outputs the Blueprint JSON contract that all other agents follow.</div>
+        <span class="agent-tag" style="background: rgba(139,92,246,0.15); color: var(--purple);">blueprint.js</span>
+      </div>
+    </div>
+
+    <div class="tier-label" style="color: var(--green);">Tier 1 &mdash; Departments (6 in parallel)</div>
+    <div class="agent-grid">
+      <div class="agent-card">
+        <div class="agent-name">HTML/CSS</div>
+        <div class="agent-desc">Builds the DOM skeleton: canvas, overlays, element IDs, CSS custom properties, CDN script tags.</div>
+        <span class="agent-tag" style="background: rgba(52,211,153,0.15); color: var(--green);">html-css.md</span>
+      </div>
+      <div class="agent-card">
+        <div class="agent-name">Entity</div>
+        <div class="agent-desc">Class definitions (Player, Enemy, etc.) with constructor, update(dt), draw(ctx). Self-contained.</div>
+        <span class="agent-tag" style="background: rgba(52,211,153,0.15); color: var(--green);">entity.md</span>
+      </div>
+      <div class="agent-card">
+        <div class="agent-name">Audio</div>
+        <div class="agent-desc">Web Audio API init, playSound() dispatcher, procedural SFX generators, mobile resume handling.</div>
+        <span class="agent-tag" style="background: rgba(52,211,153,0.15); color: var(--green);">audio.md</span>
+      </div>
+      <div class="agent-card">
+        <div class="agent-name">Input</div>
+        <div class="agent-desc">Keyboard/mouse/touch event listeners, input state object, touch zones mapped to keys.</div>
+        <span class="agent-tag" style="background: rgba(52,211,153,0.15); color: var(--green);">input.md</span>
+      </div>
+      <div class="agent-card">
+        <div class="agent-name">Level Designer</div>
+        <div class="agent-desc">LEVELS array, getLevelData(), spawn configs, difficulty curves, infinite scaling fallback.</div>
+        <span class="agent-tag" style="background: rgba(52,211,153,0.15); color: var(--green);">level-designer.md</span>
+      </div>
+      <div class="agent-card">
+        <div class="agent-name">UI Overlay</div>
+        <div class="agent-desc">showStartScreen(), showGameOver(), updateHUD(), pause menus. Uses blueprint element IDs.</div>
+        <span class="agent-tag" style="background: rgba(52,211,153,0.15); color: var(--green);">ui-overlay.md</span>
+      </div>
+    </div>
+
+    <div class="tier-label" style="color: var(--blue);">Tier 2 &mdash; Integration</div>
+    <div class="agent-grid">
+      <div class="agent-card">
+        <div class="agent-name">Core Engine</div>
+        <div class="agent-desc">Receives ALL Tier 1 outputs. Writes init(), gameLoop(), update(), render(), collision detection, state management. The glue.</div>
+        <span class="agent-tag" style="background: rgba(96,165,250,0.15); color: var(--blue);">core-engine.md</span>
+      </div>
+    </div>
+
+    <div class="tier-label" style="color: var(--red);">Tier 3 &mdash; Quality Gate</div>
+    <div class="agent-grid">
+      <div class="agent-card">
+        <div class="agent-name">QA Validator</div>
+        <div class="agent-desc">Two-pass validation: static analysis (regex checks for structure, loops, collision) + AI review (Claude Haiku rates the code).</div>
+        <span class="agent-tag" style="background: rgba(248,113,113,0.15); color: var(--red);">qa-validator.js</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. GAME ONTOLOGY -->
+  <div class="section">
+    <div class="section-num">05 &mdash; Game Ontology</div>
+    <h2>How game type drives everything</h2>
+    <p>
+      Not all games need the same tools. A puzzle game doesn't need physics. A platformer doesn't
+      need multiplayer. The ontology system classifies games across six dimensions &mdash; visual style,
+      multiplayer, mechanics, content scope, audio, and narrative &mdash; and maps each configuration
+      to the right agents and tech stack.
+    </p>
+
+    <div class="card">
+      <div class="card-title">Ontology &rarr; Tech Stack Example</div>
+      <div class="code-block" style="border: none; margin: 0; padding: 12px 0 0;">
+<pre><span class="comment">// ontology.js &mdash; selectStack()</span>
+<span class="keyword">if</span> (design.renderingNeeds === <span class="string">'3d'</span>) {
+  stack.rendering = <span class="string">'three'</span>;    <span class="comment">// Three.js r134</span>
+  stack.physics   = <span class="string">'cannon'</span>;   <span class="comment">// Cannon.js 0.6</span>
+} <span class="keyword">else if</span> (design.genre === <span class="string">'platformer'</span>) {
+  stack.physics   = <span class="string">'matter'</span>;   <span class="comment">// Matter.js 0.19</span>
+}
+<span class="keyword">if</span> (design.multiplayerType === <span class="string">'realtime'</span>) {
+  stack.multiplayer = <span class="string">'colyseus'</span>; <span class="comment">// Colyseus 0.15</span>
+}
+<span class="keyword">if</span> (design.audioNeeds === <span class="string">'music'</span>) {
+  stack.audio = <span class="string">'tone'</span>;          <span class="comment">// Tone.js 14.7</span>
+}</pre>
+      </div>
+    </div>
+
+    <p>
+      The selected stack gets injected into the blueprint as CDN script tags with 2-second load
+      timeouts. Agents receive this context and write code against the chosen libraries.
+    </p>
+    <p>
+      <a href="/agent-ontology/">Explore the full ontology &rarr; agent mapping &rarr;</a>
+    </p>
+  </div>
+
+  <!-- 6. ASSEMBLY -->
+  <div class="section">
+    <div class="section-num">06 &mdash; Assembly</div>
+    <h2>Concatenating agent outputs</h2>
+    <p>
+      After all agents complete, the assembler (<code>assembler.js</code>) concatenates their outputs
+      in a fixed order. This order matters &mdash; entities must be defined before the engine references
+      them, audio must be initialized before sounds are played.
+    </p>
+
+    <div class="code-block">
+<pre><span class="comment">// Assembly order (assembler.js)</span>
+<span class="type">1.</span> HTML/CSS       <span class="comment">// DOCTYPE through opening &lt;script&gt;</span>
+<span class="type">2.</span> Audio system   <span class="comment">// AudioContext, playSound()</span>
+<span class="type">3.</span> Entities       <span class="comment">// class Player, class Enemy, etc.</span>
+<span class="type">4.</span> Level data     <span class="comment">// LEVELS array, getLevelData()</span>
+<span class="type">5.</span> Input handlers <span class="comment">// keyboard, touch, mouse listeners</span>
+<span class="type">6.</span> UI overlays    <span class="comment">// showStartScreen(), updateHUD()</span>
+<span class="type">7.</span> Core engine    <span class="comment">// init(), gameLoop(), collision, state</span>
+<span class="type">8.</span> Closing tags   <span class="comment">// &lt;/script&gt; + recorder.js + rating.js</span></pre>
+    </div>
+
+    <p>
+      The result is a single self-contained <code>index.html</code> file. No build step, no bundler,
+      no dependencies beyond optional CDN libraries. It runs instantly in any browser.
+    </p>
+  </div>
+
+  <!-- 7. QA -->
+  <div class="section">
+    <div class="section-num">07 &mdash; Quality Gates</div>
+    <h2>Two-tier validation</h2>
+    <p>
+      Every generated game passes through two quality checks before the user sees it.
+    </p>
+
+    <div class="card">
+      <div class="card-title">Tier 1 &mdash; Static Analysis (instant)</div>
+      <p style="font-size:0.82rem; color: var(--dim);">
+        Regex-based checks, no API calls. Validates structure (DOCTYPE, canvas, overlays),
+        game loop (init, gameLoop, requestAnimationFrame), rendering functions, collision detection,
+        input listeners, audio system, and completeness (no TODO comments, all blueprint element IDs present).
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Tier 2 &mdash; AI Review (Claude Haiku)</div>
+      <p style="font-size:0.82rem; color: var(--dim);">
+        Claude Haiku reads the assembled code and checks for runtime bugs, blueprint compliance, and
+        gameplay issues. Each finding is classified as critical, major, warning, or minor. If critical
+        issues are found, the system attempts an auto-fix via Claude and re-validates.
+      </p>
+    </div>
+
+    <p>
+      Pass = zero critical + zero major issues. The combined score from both tiers determines if the
+      game ships or gets another fix attempt.
+    </p>
+  </div>
+
+  <!-- 8. ITERATION LOOP -->
+  <div class="section">
+    <div class="section-num">08 &mdash; The Iteration Loop</div>
+    <h2>Post-generation patching</h2>
+    <p>
+      After a game is generated, users can iterate by chatting: "make the player faster," "change the
+      background to blue," "add a third enemy type." The patcher (<code>patcher.js</code>) classifies
+      each instruction and picks the cheapest fix strategy.
+    </p>
+
+    <div class="patch-grid">
+      <div class="patch-card">
+        <h4 style="color: var(--green);">CSS Inject</h4>
+        <p>Color, font, opacity, border changes. Injected directly into the iframe &mdash; no rebuild.</p>
+        <div class="speed" style="color: var(--green);">&lt; 1 second</div>
+      </div>
+      <div class="patch-card">
+        <h4 style="color: var(--yellow);">Fast Rebuild</h4>
+        <p>Speed constants, spawn rates, scoring rules. Claude rewrites the full HTML with targeted changes.</p>
+        <div class="speed" style="color: var(--yellow);">5&ndash;15 seconds</div>
+      </div>
+      <div class="patch-card">
+        <h4 style="color: var(--red);">Full Rebuild</h4>
+        <p>New mechanics, new entity types, architecture changes. Triggers the entire multi-agent pipeline.</p>
+        <div class="speed" style="color: var(--red);">30&ndash;60 seconds</div>
+      </div>
+    </div>
+
+    <p>
+      Each patch updates the game's <code>game.md</code> changelog, so future iterations have full
+      context of what changed and why.
+    </p>
+  </div>
+
+  <!-- 9. KNOWLEDGE BASE -->
+  <div class="section">
+    <div class="section-num">09 &mdash; Knowledge Base</div>
+    <h2>The system that gets smarter</h2>
+    <p>
+      The knowledge index (<code>knowledge-index.js</code>) provides contextual references during both
+      the design chat and code generation. It indexes four source directories:
+    </p>
+
+    <div class="pill-list">
+      <span class="pill" style="border-color: rgba(139,92,246,0.4); color: var(--purple);">game-types/ &mdash; Genre guides (50KB+ per genre)</span>
+      <span class="pill" style="border-color: rgba(251,146,60,0.4); color: var(--orange);">ontologies/ &mdash; Agent selection rules</span>
+      <span class="pill" style="border-color: rgba(96,165,250,0.4); color: var(--blue);">visual-design/ &mdash; 190+ visual reference sets</span>
+      <span class="pill" style="border-color: rgba(52,211,153,0.4); color: var(--green);">level-design/ &mdash; 187+ level design examples</span>
+    </div>
+
+    <p>
+      Files are parsed into chunks by <code>##</code> headings, keywords are extracted, and an inverted
+      index enables fast search with prefix matching and genre/type boosting. The index watches
+      for file changes and hot-reloads &mdash; as new genre guides and visual references are added,
+      they're immediately available to the next build.
+    </p>
+  </div>
+
+  <!-- 10. TECH STACK -->
+  <div class="section">
+    <div class="section-num">10 &mdash; Tech Stack</div>
+    <h2>What's under the hood</h2>
+
+    <div class="card">
+      <div class="card-title">Server</div>
+      <div class="pill-list">
+        <span class="pill">Node.js + Express</span>
+        <span class="pill">Claude Sonnet (design + code gen)</span>
+        <span class="pill">Claude Haiku (QA review)</span>
+        <span class="pill">Grok (concept art via xAI)</span>
+        <span class="pill">SSE streaming</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Generated Games</div>
+      <div class="pill-list">
+        <span class="pill">Canvas 2D (default)</span>
+        <span class="pill">Three.js (3D)</span>
+        <span class="pill">Matter.js (platformer physics)</span>
+        <span class="pill">Tone.js (music synthesis)</span>
+        <span class="pill">Howler.js (audio playback)</span>
+        <span class="pill">Web Audio API (procedural SFX)</span>
+        <span class="pill">Colyseus (multiplayer)</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Front End</div>
+      <div class="pill-list">
+        <span class="pill">Vanilla JS (no framework)</span>
+        <span class="pill">CSS custom properties</span>
+        <span class="pill">SSE for real-time progress</span>
+        <span class="pill">iframe sandbox for game preview</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 11. LESSONS -->
+  <div class="section">
+    <div class="section-num">11 &mdash; Lessons & Open Questions</div>
+    <h2>What works, what breaks</h2>
+
+    <div class="card">
+      <div class="card-title">What works</div>
+      <p style="font-size:0.82rem; color: var(--dim); line-height: 1.7;">
+        <strong style="color: var(--green);">The blueprint pattern</strong> is the single most important
+        design decision. Without it, multi-agent code generation produces unusable conflicts. With it,
+        6 agents can write independent code sections that assemble cleanly.<br><br>
+        <strong style="color: var(--green);">Tiered generation</strong> &mdash; planning before coding,
+        departments before integration &mdash; mirrors how real teams work and produces better results
+        than having one monolithic agent write everything.<br><br>
+        <strong style="color: var(--green);">Genre knowledge</strong> dramatically improves output quality.
+        An AI that knows what "coyote time" means in a platformer or what a "difficulty curve" looks like
+        in a roguelike writes fundamentally better game code.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">What breaks</div>
+      <p style="font-size:0.82rem; color: var(--dim); line-height: 1.7;">
+        <strong style="color: var(--orange);">Game balance</strong> is the hardest problem. An AI can
+        write the code for a scoring system, but tuning it to feel fun requires playtesting feedback
+        loops that don't exist yet in the pipeline.<br><br>
+        <strong style="color: var(--orange);">Emergent bugs</strong> &mdash; physics interactions,
+        edge-case collisions, timing-dependent state &mdash; are hard to catch with static analysis.
+        The QA validator catches structural issues but misses "the player clips through the floor
+        if they jump in the corner."<br><br>
+        <strong style="color: var(--orange);">Visual consistency</strong> across procedural SFX,
+        concept art, and code-drawn graphics is imperfect. Each system makes independent aesthetic
+        choices.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Open Questions</div>
+      <p style="font-size:0.82rem; color: var(--dim); line-height: 1.7;">
+        Can a headless browser playtester detect "fun"? Can balance tuning be automated with
+        Monte Carlo simulations? Can visual coherence be enforced by a VLM scoring each frame?
+        These are active research directions.
+      </p>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div style="text-align: center; padding: 40px 0; border-top: 1px solid var(--border);">
+    <p style="font-size: 0.85rem; color: var(--dim); margin-bottom: 20px;">
+      Want to see it in action?
+    </p>
+    <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+      <a href="/game-builder/" style="
+        display: inline-block;
+        padding: 12px 28px;
+        background: var(--purple);
+        color: white;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: box-shadow 0.2s;
+      ">Build a Game</a>
+      <a href="/pipeline/" style="
+        display: inline-block;
+        padding: 12px 28px;
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: border-color 0.2s;
+      ">View Pipeline</a>
+      <a href="/agent-ontology/" style="
+        display: inline-block;
+        padding: 12px 28px;
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: border-color 0.2s;
+      ">Agent Ontology</a>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenArcade Pipeline</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0a0a14;
+    --surface:  #12121f;
+    --surface2: #1a1a2e;
+    --accent:   #0ff;
+    --accent2:  #8b5cf6;
+    --success:  #0f8;
+    --warn:     #fa0;
+    --danger:   #f55;
+    --text:     #e0e0e0;
+    --text-dim: #666;
+    --border:   #2a2a3e;
+    --font:     "Courier New", monospace;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  .site-header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 24px; padding: 0 24px; height: 52px;
+  }
+  .site-header .logo {
+    font-size: 15px; font-weight: bold; color: var(--accent);
+    letter-spacing: 1px; white-space: nowrap;
+  }
+  .site-header .logo span { color: var(--accent2); }
+  .site-header nav { display: flex; gap: 10px; margin-left: auto; }
+  .site-header nav a {
+    color: var(--text-dim); text-decoration: none; font-size: 11px;
+    border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px;
+    transition: color .15s, border-color .15s;
+  }
+  .site-header nav a:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ── Tabs ────────────────────────────────────────────────── */
+  .tab-bar {
+    position: fixed; top: 52px; left: 0; right: 0; z-index: 99;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 0; padding: 0 24px;
+  }
+  .tab-btn {
+    background: none; border: none; color: var(--text-dim);
+    font-family: var(--font); font-size: 11px; cursor: pointer;
+    padding: 10px 20px; border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Content Area ────────────────────────────────────────── */
+  main { margin-top: 100px; padding: 24px; min-height: calc(100vh - 100px); }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* ── Loading / Error States ──────────────────────────────── */
+  .state-loading, .state-error {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 260px; gap: 16px; color: var(--text-dim);
+  }
+  .spinner {
+    width: 30px; height: 30px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .state-error { color: var(--danger); }
+  .state-error .err-ico { font-size: 28px; }
+
+  /* ── Cards ───────────────────────────────────────────────── */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px;
+    transition: border-color .15s;
+  }
+  .card:hover { border-color: #383860; }
+
+  /* ── Pills ───────────────────────────────────────────────── */
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; line-height: 1.7; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .p-cyan   { background: rgba(0,255,255,.1);   color: var(--accent); border-color: rgba(0,255,255,.2); }
+  .p-purple { background: rgba(139,92,246,.12); color: #a78bfa;       border-color: rgba(139,92,246,.25); }
+  .p-green  { background: rgba(0,255,136,.1);   color: var(--success); border-color: rgba(0,255,136,.2); }
+  .p-red    { background: rgba(245,85,85,.1);   color: var(--danger); border-color: rgba(245,85,85,.2); }
+  .p-orange { background: rgba(250,160,0,.1);   color: var(--warn);   border-color: rgba(250,160,0,.2); }
+  .p-blue   { background: rgba(59,130,246,.12); color: #60a5fa;       border-color: rgba(59,130,246,.25); }
+  .p-dim    { background: rgba(255,255,255,.04); color: var(--text-dim); border-color: var(--border); }
+
+  /* ── Section headers ─────────────────────────────────────── */
+  .sh {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--text-dim); margin-bottom: 16px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sh::before { content: '//'; color: var(--accent2); }
+  .sh .badge {
+    display: inline-flex; align-items: center; padding: 1px 7px;
+    border-radius: 10px; font-size: 10px; font-weight: bold;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     TAB 1 — ONTOLOGY
+  ═══════════════════════════════════════════════════════════ */
+  #pane-ontology .dim-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px;
+  }
+  .dim-card .dim-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+  }
+  .dim-icon { font-size: 20px; }
+  .dim-label { font-size: 14px; font-weight: bold; }
+  .dim-values { display: flex; flex-direction: column; gap: 8px; }
+  .dv-row {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 9px 12px;
+  }
+  .dv-name { font-size: 12px; color: var(--text); margin-bottom: 5px; font-weight: bold; }
+  .dv-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+
+  /* ═══════════════════════════════════════════════════════════
+     TAB 2 — ARCHETYPES
+  ═══════════════════════════════════════════════════════════ */
+  #pane-archetypes .arch-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;
+  }
+  .arch-card { display: flex; flex-direction: column; }
+  .arch-name { font-size: 15px; font-weight: bold; color: var(--accent); margin-bottom: 8px; }
+  .arch-desc { font-size: 11px; color: var(--text-dim); line-height: 1.55; margin-bottom: 12px; }
+  .arch-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .arch-ont-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 5px; }
+  .arch-ont-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+  .arch-examples { font-size: 11px; color: var(--text-dim); margin-bottom: 14px; }
+  .arch-examples span { color: var(--text); }
+  .arch-cta {
+    margin-top: auto;
+    display: inline-block; text-decoration: none; color: var(--accent);
+    border: 1px solid rgba(0,255,255,.3); padding: 5px 14px; border-radius: 4px;
+    font-size: 11px; transition: background .15s;
+  }
+  .arch-cta:hover { background: rgba(0,255,255,.07); }
+
+  /* ═══════════════════════════════════════════════════════════
+     TAB 3 — AGENT ROSTER
+  ═══════════════════════════════════════════════════════════ */
+  #pane-agents .cat-section { margin-bottom: 30px; }
+  #pane-agents .ag-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;
+  }
+  .ag-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px; cursor: pointer;
+    transition: border-color .15s, background .15s;
+    position: relative;
+  }
+  .ag-card:hover { border-color: #383860; background: #141428; }
+  .ag-card.open  { border-color: var(--accent); }
+  .ag-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .ag-name { font-size: 13px; font-weight: bold; flex: 1; }
+  .ag-tier { font-size: 10px; color: var(--text-dim); }
+  .ag-pills { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
+  .ag-cond { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .ag-cond strong { color: var(--text); }
+  .expand-btn {
+    position: absolute; top: 10px; right: 10px;
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    font-size: 12px; cursor: pointer; padding: 2px 7px; border-radius: 3px;
+    transition: color .15s, border-color .15s; font-family: var(--font);
+  }
+  .expand-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .ag-md {
+    display: none; margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .ag-md.vis { display: block; }
+  .ag-md pre {
+    font-family: var(--font); font-size: 10px; color: var(--text-dim);
+    white-space: pre-wrap; word-break: break-word; line-height: 1.6;
+    max-height: 380px; overflow-y: auto;
+  }
+  .ag-md pre::-webkit-scrollbar { width: 4px; }
+  .ag-md pre::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .md-spinner { color: var(--text-dim); font-size: 11px; padding: 8px 0; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { to { opacity: 0; } }
+
+  /* ═══════════════════════════════════════════════════════════
+     TAB 4 — DECISION FLOW
+  ═══════════════════════════════════════════════════════════ */
+  #pane-flow .flow-wrap { max-width: 720px; margin: 0 auto; }
+
+  .flow-q {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 14px; overflow: hidden;
+  }
+  .flow-q-hd {
+    padding: 13px 18px; border-bottom: 1px solid var(--border);
+    font-size: 12px; display: flex; align-items: center; gap: 10px;
+  }
+  .flow-q-num {
+    width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+    background: var(--accent2); color: #fff; font-size: 10px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .flow-branches { padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+  .flow-br {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 9px 13px; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .flow-br:hover  { border-color: #404070; background: #1c1c36; }
+  .flow-br.sel    { border-color: var(--accent); background: rgba(0,255,255,.05); }
+  .flow-br-label  { font-size: 12px; font-weight: bold; color: var(--text); margin-bottom: 5px; }
+  .flow-br-pills  { display: flex; flex-wrap: wrap; gap: 4px; }
+  .flow-br-detail {
+    display: none; margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,.05);
+    font-size: 11px; color: var(--text-dim); line-height: 1.6;
+  }
+  .flow-br.sel .flow-br-detail { display: block; }
+
+  .flow-arrow {
+    display: flex; justify-content: center; color: var(--text-dim);
+    font-size: 18px; margin: -5px 0 5px;
+  }
+
+  /* Running total */
+  .flow-total {
+    background: var(--surface); border: 1px solid var(--accent);
+    border-radius: 8px; padding: 18px 20px; margin-top: 24px;
+  }
+  .flow-total h3 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--accent); margin-bottom: 14px;
+  }
+  .ft-row { display: flex; gap: 12px; margin-bottom: 10px; align-items: flex-start; }
+  .ft-key { font-size: 11px; color: var(--text-dim); width: 110px; flex-shrink: 0; padding-top: 3px; }
+  .ft-val { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ft-time { font-size: 13px; font-weight: bold; color: var(--accent); }
+  .flow-open-btn {
+    display: inline-block; margin-top: 14px; padding: 7px 18px;
+    background: rgba(0,255,255,.08); border: 1px solid var(--accent);
+    color: var(--accent); font-family: var(--font); font-size: 11px;
+    border-radius: 4px; cursor: pointer; text-decoration: none;
+    transition: background .15s;
+  }
+  .flow-open-btn:hover { background: rgba(0,255,255,.15); }
+
+  /* ── Scrollbars ──────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: #2a2a40; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a3a60; }
+</style>
+</head>
+<body>
+
+<!-- ── Fixed Header ──────────────────────────────────────────── -->
+<header class="site-header">
+  <div class="logo">Open<span>Arcade</span> Pipeline</div>
+  <nav>
+    <a href="/" target="_blank">Game Library &#8599;</a>
+    <a href="/game-builder/" target="_blank">Game Builder &#8599;</a>
+  </nav>
+</header>
+
+<!-- ── Tab Bar ───────────────────────────────────────────────── -->
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="ontology">Ontology</button>
+  <button class="tab-btn" data-tab="archetypes">Archetypes</button>
+  <button class="tab-btn" data-tab="agents">Agent Roster</button>
+  <button class="tab-btn" data-tab="flow">Decision Flow</button>
+</div>
+
+<!-- ── Content ───────────────────────────────────────────────── -->
+<main>
+
+  <!-- TAB 1: ONTOLOGY -->
+  <div id="pane-ontology" class="tab-pane active">
+    <div id="ont-loading" class="state-loading">
+      <div class="spinner"></div><div>Loading ontology...</div>
+    </div>
+    <div id="ont-error" class="state-error" style="display:none">
+      <div class="err-ico">&#9888;</div>
+      <div id="ont-err-msg">Could not reach /game-builder-api/api/ontology</div>
+    </div>
+    <div id="ont-body" style="display:none">
+      <div class="sh">6 Ontology Dimensions</div>
+      <div class="dim-grid" id="ont-grid"></div>
+    </div>
+  </div>
+
+  <!-- TAB 2: ARCHETYPES -->
+  <div id="pane-archetypes" class="tab-pane">
+    <div id="arch-loading" class="state-loading">
+      <div class="spinner"></div><div>Loading archetypes...</div>
+    </div>
+    <div id="arch-error" class="state-error" style="display:none">
+      <div class="err-ico">&#9888;</div>
+      <div id="arch-err-msg">Failed to load archetypes</div>
+    </div>
+    <div id="arch-body" style="display:none">
+      <div class="sh">8 Game Archetypes</div>
+      <div class="arch-grid" id="arch-grid"></div>
+    </div>
+  </div>
+
+  <!-- TAB 3: AGENT ROSTER -->
+  <div id="pane-agents" class="tab-pane">
+    <div id="ag-loading" class="state-loading">
+      <div class="spinner"></div><div>Loading agents...</div>
+    </div>
+    <div id="ag-error" class="state-error" style="display:none">
+      <div class="err-ico">&#9888;</div>
+      <div id="ag-err-msg">Failed to load agents</div>
+    </div>
+    <div id="ag-body" style="display:none"></div>
+  </div>
+
+  <!-- TAB 4: DECISION FLOW -->
+  <div id="pane-flow" class="tab-pane">
+    <div id="flow-loading" class="state-loading">
+      <div class="spinner"></div><div>Loading decision flow...</div>
+    </div>
+    <div id="flow-error" class="state-error" style="display:none">
+      <div class="err-ico">&#9888;</div>
+      <div id="flow-err-msg">Failed to load flow</div>
+    </div>
+    <div id="flow-body" style="display:none">
+      <div class="sh">5-Question Branching Flow</div>
+      <div class="flow-wrap">
+        <div id="flow-qs"></div>
+        <div class="flow-total">
+          <h3>// Running Total</h3>
+          <div class="ft-row">
+            <div class="ft-key">Est. Build Time</div>
+            <div class="ft-val"><span class="ft-time" id="ft-time">~30s base</span></div>
+          </div>
+          <div class="ft-row">
+            <div class="ft-key">Agents Active</div>
+            <div class="ft-val" id="ft-agents"><span class="pill p-dim">Select options above</span></div>
+          </div>
+          <div class="ft-row">
+            <div class="ft-key">Libraries</div>
+            <div class="ft-val" id="ft-libs"><span class="pill p-dim">none</span></div>
+          </div>
+          <a href="#" class="flow-open-btn" id="flow-open-btn" target="_blank">Open in Builder &rarr;</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Config ─────────────────────────────────────────────────
+  const API = '/game-builder-api';
+
+  const BASE_AGENTS = [
+    'lead-architect','html-css','entity','input',
+    'level-designer','ui-overlay','core-engine','qa-validator'
+  ];
+
+  const CAT_PILL = {
+    code:    'p-cyan',   audio:   'p-orange',
+    assets:  'p-purple', design:  'p-orange',
+    qa:      'p-red',    backend: 'p-blue',
+  };
+  const CAT_LABEL = {
+    code: 'Code', audio: 'Audio', assets: 'Assets',
+    design: 'Design', qa: 'QA', backend: 'Backend',
+  };
+  const DIM_ICON = {
+    'visual-style':   '&#127912;',
+    'multiplayer':    '&#128101;',
+    'core-mechanics': '&#9881;&#65039;',
+    'content-scope':  '&#128506;&#65039;',
+    'audio':          '&#128266;',
+    'narrative':      '&#128214;',
+  };
+
+  // ── State ──────────────────────────────────────────────────
+  let ontCache    = null;
+  let agentCache  = null;
+  let agentMdCache = {};
+  let flowSel     = {};        // questionId → branchId
+  let rendered    = {};        // which panes have been built
+
+  // ── Tab routing ────────────────────────────────────────────
+  const tabs   = document.querySelectorAll('.tab-btn');
+  const panes  = document.querySelectorAll('.tab-pane');
+
+  function switchTab(name) {
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    panes.forEach(p => p.classList.toggle('active', p.id === `pane-${name}`));
+    history.replaceState(null, '', `#${name}`);
+    boot(name);
+  }
+
+  tabs.forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+  // ── Fetch helpers ──────────────────────────────────────────
+  async function getOntology() {
+    if (ontCache) return ontCache;
+    const r = await fetch(`${API}/api/ontology`);
+    if (!r.ok) throw new Error(`HTTP ${r.status} — ${r.statusText}`);
+    ontCache = await r.json();
+    return ontCache;
+  }
+
+  async function getAgents() {
+    if (agentCache) return agentCache;
+    const r = await fetch(`${API}/api/agents`);
+    if (!r.ok) throw new Error(`HTTP ${r.status} — ${r.statusText}`);
+    agentCache = await r.json();
+    return agentCache;
+  }
+
+  async function getAgentMd(name) {
+    if (agentMdCache[name] !== undefined) return agentMdCache[name];
+    const r = await fetch(`${API}/api/agents/${encodeURIComponent(name)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    agentMdCache[name] = d.content || '';
+    return agentMdCache[name];
+  }
+
+  // ── Tab bootstrap ──────────────────────────────────────────
+  async function boot(name) {
+    if (rendered[name]) return;
+
+    if (name === 'ontology' || name === 'archetypes' || name === 'flow') {
+      let data;
+      try { data = await getOntology(); }
+      catch (e) { showErr(name, e.message); return; }
+      if (name === 'ontology')   buildOntology(data);
+      if (name === 'archetypes') buildArchetypes(data);
+      if (name === 'flow')       buildFlow(data);
+    }
+    if (name === 'agents') {
+      let data;
+      try { data = await getAgents(); }
+      catch (e) { showErr('agents', e.message); return; }
+      buildAgents(data);
+    }
+
+    rendered[name] = true;
+  }
+
+  function showErr(tab, msg) {
+    hide(`${sfx(tab)}-loading`);
+    show(`${sfx(tab)}-error`);
+    const el = document.getElementById(`${sfx(tab)}-err-msg`);
+    if (el) el.textContent = msg || 'Unknown error';
+  }
+
+  function sfx(tab) {
+    if (tab === 'ontology')   return 'ont';
+    if (tab === 'archetypes') return 'arch';
+    if (tab === 'agents')     return 'ag';
+    if (tab === 'flow')       return 'flow';
+    return tab;
+  }
+
+  function showBody(tab) {
+    hide(`${sfx(tab)}-loading`);
+    show(`${sfx(tab)}-body`);
+  }
+
+  function hide(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+  function show(id, mode) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = mode || 'block';
+  }
+
+  // ── Utility ────────────────────────────────────────────────
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function pill(text, cls) {
+    return `<span class="pill ${cls}">${text}</span>`;
+  }
+  function fmtAgent(slug) {
+    return slug.replace(/-/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  TAB 1 — ONTOLOGY
+  // ══════════════════════════════════════════════════════════
+  function buildOntology(data) {
+    const grid = document.getElementById('ont-grid');
+    if (grid.children.length > 0) { showBody('ontology'); return; }
+
+    const dims = data.dimensions || {};
+    for (const [dimId, dim] of Object.entries(dims)) {
+      const icon = DIM_ICON[dimId] || '&#128312;';
+
+      const rows = (dim.values || []).map(v => {
+        const plus  = (v.agents || []).map(a => pill('+'+esc(a), 'p-green')).join('');
+        const minus = (v.skip   || []).map(a => pill('&#8722;'+esc(a), 'p-dim')).join('');
+        const libs  = (v.libs   || []).map(l => pill(esc(l), 'p-blue')).join('');
+        const empty = !plus && !minus && !libs ? pill('base only', 'p-dim') : '';
+        return `<div class="dv-row">
+          <div class="dv-name">${esc(v.label)}</div>
+          <div class="dv-pills">${plus}${minus}${libs}${empty}</div>
+        </div>`;
+      }).join('');
+
+      const card = document.createElement('div');
+      card.className = 'card dim-card';
+      card.innerHTML = `
+        <div class="dim-head">
+          <span class="dim-icon">${icon}</span>
+          <span class="dim-label">${esc(dim.label || dimId)}</span>
+        </div>
+        <div class="dim-values">${rows}</div>`;
+      grid.appendChild(card);
+    }
+    showBody('ontology');
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  TAB 2 — ARCHETYPES
+  // ══════════════════════════════════════════════════════════
+  function buildArchetypes(data) {
+    const grid = document.getElementById('arch-grid');
+    if (grid.children.length > 0) { showBody('archetypes'); return; }
+
+    const archs = data.archetypes || {};
+    const dims  = data.dimensions || {};
+
+    for (const [key, arch] of Object.entries(archs)) {
+      const ontPills = Object.entries(arch.ontology || {}).map(([dimId, valId]) => {
+        const dim = dims[dimId];
+        const val = dim ? dim.values.find(v => v.id === valId) : null;
+        return pill(esc(val ? val.label : valId), 'p-dim');
+      }).join('');
+
+      const secs    = arch.estimatedTime || 30;
+      const timeStr = secs < 60 ? `~${secs}s` : `~${Math.ceil(secs/60)}m`;
+      const examples = (arch.examples || []).join(', ');
+
+      const card = document.createElement('div');
+      card.className = 'card arch-card';
+      card.innerHTML = `
+        <div class="arch-name">${esc(arch.label || key)}</div>
+        <div class="arch-desc">${esc(arch.description || '')}</div>
+        <div class="arch-meta">
+          ${pill((arch.agentCount || '?')+' agents', 'p-cyan')}
+          ${pill('Build: '+timeStr, 'p-purple')}
+        </div>
+        <div class="arch-ont-label">Ontology Values</div>
+        <div class="arch-ont-pills">${ontPills}</div>
+        ${examples ? `<div class="arch-examples">Examples: <span>${esc(examples)}</span></div>` : ''}
+        <a class="arch-cta" href="/game-builder/?archetype=${encodeURIComponent(key)}">
+          Build this type &rarr;
+        </a>`;
+      grid.appendChild(card);
+    }
+    showBody('archetypes');
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  TAB 3 — AGENT ROSTER
+  // ══════════════════════════════════════════════════════════
+  function buildAgents(data) {
+    const body = document.getElementById('ag-body');
+    if (body.children.length > 0) { showBody('agents'); return; }
+
+    const agents = data.agents || [];
+
+    // Group by category
+    const groups = {};
+    for (const a of agents) {
+      const cat = a.category || 'code';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(a);
+    }
+
+    const catOrder = ['design','code','assets','audio','backend','qa'];
+    const cats = Object.keys(groups).sort((a,b) => {
+      const ia = catOrder.indexOf(a), ib = catOrder.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+
+    for (const cat of cats) {
+      const list = groups[cat].sort((a,b) => (a.assemblyOrder||50)-(b.assemblyOrder||50));
+      const cls  = CAT_PILL[cat] || 'p-dim';
+
+      const sec = document.createElement('div');
+      sec.className = 'cat-section';
+      sec.innerHTML = `
+        <div class="sh">
+          ${esc(CAT_LABEL[cat] || cat)} Category
+          <span class="badge ${cls}">${list.length}</span>
+        </div>
+        <div class="ag-grid" id="ag-grid-${esc(cat)}"></div>`;
+      body.appendChild(sec);
+
+      const grid = sec.querySelector('.ag-grid');
+      for (const a of list) grid.appendChild(makeAgentCard(a, cls));
+    }
+    showBody('agents');
+  }
+
+  function makeAgentCard(a, catCls) {
+    const card  = document.createElement('div');
+    card.className = 'ag-card';
+    const isBase = BASE_AGENTS.includes(a.name);
+    const conds  = (a.activatedBy || []).join(', ') || (isBase ? 'always active' : '—');
+    const catCls2 = CAT_PILL[a.category] || 'p-dim';
+
+    card.innerHTML = `
+      <div class="ag-head">
+        <div class="ag-name">${esc(fmtAgent(a.name))}</div>
+        <div class="ag-tier">T${a.tier !== undefined ? a.tier : '?'}</div>
+        <button class="expand-btn">[+]</button>
+      </div>
+      <div class="ag-pills">
+        ${pill(esc(CAT_LABEL[a.category]||a.category||'code'), catCls2)}
+        ${pill('order: '+(a.assemblyOrder !== undefined ? a.assemblyOrder : '?'), 'p-dim')}
+        ${isBase ? pill('base', 'p-green') : ''}
+      </div>
+      <div class="ag-cond"><strong>Activated by:</strong> ${esc(conds)}</div>
+      <div class="ag-md" id="ag-md-${esc(a.name)}">
+        <div class="md-spinner">Loading spec...</div>
+      </div>`;
+
+    card.querySelector('.expand-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      toggleAgent(a.name, card);
+    });
+    return card;
+  }
+
+  async function toggleAgent(name, card) {
+    const md  = card.querySelector('.ag-md');
+    const btn = card.querySelector('.expand-btn');
+    const open = md.classList.contains('vis');
+    if (open) {
+      md.classList.remove('vis');
+      card.classList.remove('open');
+      btn.textContent = '[+]';
+      return;
+    }
+    md.classList.add('vis');
+    card.classList.add('open');
+    btn.textContent = '[-]';
+
+    if (md.querySelector('pre')) return; // already loaded
+    try {
+      const content = await getAgentMd(name);
+      md.innerHTML = `<pre>${esc(content)}</pre>`;
+    } catch (e) {
+      md.innerHTML = `<div style="color:var(--danger);font-size:11px">Failed: ${esc(e.message)}</div>`;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  TAB 4 — DECISION FLOW
+  // ══════════════════════════════════════════════════════════
+  function buildFlow(data) {
+    const qs = document.getElementById('flow-qs');
+    if (qs.children.length > 0) { showBody('flow'); return; }
+
+    const flow = data.flow || [];
+    flow.forEach((q, idx) => {
+      if (idx > 0) {
+        const arr = document.createElement('div');
+        arr.className = 'flow-arrow';
+        arr.innerHTML = '&#8595;';
+        qs.appendChild(arr);
+      }
+
+      const qEl = document.createElement('div');
+      qEl.className = 'flow-q';
+      qEl.dataset.qid = q.id;
+
+      const branches = (q.branches || []).map(b => {
+        const plus  = (b.agentsAdded   || []).map(a => pill('+'+esc(a), 'p-green')).join('');
+        const minus = (b.agentsSkipped || []).map(a => pill('&#8722;'+esc(a), 'p-dim')).join('');
+        const libs  = (b.libsAdded     || []).map(l => pill(esc(l), 'p-blue')).join('');
+        const time  = b.estimatedTimeImpact > 0 ? pill('+'+b.estimatedTimeImpact+'s', 'p-orange') : '';
+        const detParts = [];
+        if (b.agentsAdded?.length)   detParts.push('Adds: '+b.agentsAdded.join(', '));
+        if (b.agentsSkipped?.length) detParts.push('Skips: '+b.agentsSkipped.join(', '));
+        if (b.libsAdded?.length)     detParts.push('Libs: '+b.libsAdded.join(', '));
+        if (b.estimatedTimeImpact > 0) detParts.push('Time impact: +'+b.estimatedTimeImpact+'s');
+        return `<div class="flow-br" data-qid="${esc(q.id)}" data-bid="${esc(b.id)}">
+          <div class="flow-br-label">${esc(b.label)}</div>
+          <div class="flow-br-pills">${plus}${minus}${libs}${time}</div>
+          <div class="flow-br-detail">${detParts.map(s=>`<div>${esc(s)}</div>`).join('')}</div>
+        </div>`;
+      }).join('');
+
+      qEl.innerHTML = `
+        <div class="flow-q-hd">
+          <div class="flow-q-num">${idx+1}</div>
+          <div>${esc(q.question)}</div>
+        </div>
+        <div class="flow-branches">${branches}</div>`;
+
+      qEl.querySelectorAll('.flow-br').forEach(br => {
+        br.addEventListener('click', () => {
+          qEl.querySelectorAll('.flow-br').forEach(b => b.classList.remove('sel'));
+          br.classList.add('sel');
+          flowSel[br.dataset.qid] = br.dataset.bid;
+          updateTotal(flow);
+        });
+      });
+
+      qs.appendChild(qEl);
+    });
+
+    updateTotal(flow);
+    showBody('flow');
+  }
+
+  function updateTotal(flow) {
+    const agents  = new Set(BASE_AGENTS);
+    const skipped = new Set();
+    const libs    = new Set();
+    let time = 30;
+
+    for (const q of flow) {
+      const bid = flowSel[q.id];
+      if (!bid) continue;
+      const b = (q.branches || []).find(b => b.id === bid);
+      if (!b) continue;
+      (b.agentsAdded   || []).forEach(a => agents.add(a));
+      (b.agentsSkipped || []).forEach(s => skipped.add(s));
+      (b.libsAdded     || []).forEach(l => libs.add(l));
+      time += b.estimatedTimeImpact || 0;
+    }
+    for (const s of skipped) {
+      if (!BASE_AGENTS.includes(s)) agents.delete(s);
+    }
+    agents.add('visual-qa');
+
+    // Update time
+    document.getElementById('ft-time').textContent =
+      time < 60 ? `~${time}s` : `~${Math.ceil(time/60)} min`;
+
+    // Update agents
+    document.getElementById('ft-agents').innerHTML =
+      [...agents].map(a =>
+        pill(esc(fmtAgent(a)), BASE_AGENTS.includes(a) ? 'p-green' : 'p-cyan')
+      ).join('');
+
+    // Update libs
+    document.getElementById('ft-libs').innerHTML = libs.size
+      ? [...libs].map(l => pill(esc(l), 'p-blue')).join('')
+      : pill('none', 'p-dim');
+
+    // Update Builder URL
+    const p = new URLSearchParams();
+    for (const [q, b] of Object.entries(flowSel)) p.set(q, b);
+    document.getElementById('flow-open-btn').href =
+      `/game-builder/?${p.toString()}`;
+  }
+
+  // ── Init ───────────────────────────────────────────────────
+  async function init() {
+    // Hash routing
+    const hash = location.hash.replace('#','');
+    const validTabs = ['ontology','archetypes','agents','flow'];
+    const startTab  = validTabs.includes(hash) ? hash : 'ontology';
+
+    // Pre-fetch data regardless of starting tab
+    try { await getOntology(); } catch (_) {}
+    getAgents().catch(() => {});
+
+    switchTab(startTab);
+
+    // Listen for hash changes (back/forward)
+    window.addEventListener('hashchange', () => {
+      const h = location.hash.replace('#','');
+      if (validTabs.includes(h)) switchTab(h);
+    });
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

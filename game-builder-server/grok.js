@@ -116,4 +116,97 @@ async function generateQuickPreview(prompt, outputDir) {
   return '/' + filepath.replace(repoPath, '').replace(/^\//, '');
 }
 
-module.exports = { generateConceptArt, generateQuickPreview };
+/**
+ * Generate game art during parallel generation (non-blocking).
+ * Produces 1-2 images: a game screenshot mockup and optionally a character sheet.
+ * @param {string} gameMd - game.md spec content
+ * @param {string} outputDir - directory to save images
+ * @returns {Promise<string[]>} array of saved file paths (relative to repo)
+ */
+async function generateGameArt(gameMd, outputDir) {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) return []; // Silently skip if no API key
+
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  // Build a concise prompt from game.md
+  const lines = gameMd.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2)).join(', ');
+  const titleMatch = /^# Game:\s*(.+)/m.exec(gameMd);
+  const title = titleMatch ? titleMatch[1].trim() : 'game';
+  const prompt = `${title}: ${lines}`.slice(0, 500);
+
+  const results = [];
+
+  try {
+    // Generate one screenshot mockup
+    const response = await fetch(GROK_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'grok-2-image-1212',
+        prompt: `Game screenshot mockup: ${prompt}. Pixel art style, vibrant colors, HUD visible, gameplay action scene.`,
+        n: 1,
+        response_format: 'b64_json',
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const b64 = data.data?.[0]?.b64_json;
+      if (b64) {
+        const filepath = path.join(outputDir, 'game-art-1.png');
+        fs.writeFileSync(filepath, Buffer.from(b64, 'base64'));
+        const repoPath = process.env.OPENARCADE_REPO_PATH || '/ssd/openarcade';
+        results.push('/' + filepath.replace(repoPath, '').replace(/^\//, ''));
+      }
+    }
+  } catch (e) {
+    console.warn('Game art generation failed (non-fatal):', e.message);
+  }
+
+  return results;
+}
+
+/**
+ * Generate an image for a knowledge base entry.
+ * @param {string} prompt - image generation prompt
+ * @param {string} outputPath - full path to save the image
+ * @returns {Promise<boolean>} success
+ */
+async function generateKnowledgeImage(prompt, outputPath) {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error('XAI_API_KEY not set');
+
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+  const response = await fetch(GROK_API_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'grok-2-image-1212',
+      prompt: `Game reference image: ${prompt}. Clean digital art style, game UI elements visible.`,
+      n: 1,
+      response_format: 'b64_json',
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Grok API error ${response.status}: ${errText}`);
+  }
+
+  const data = await response.json();
+  const b64 = data.data?.[0]?.b64_json;
+  if (!b64) throw new Error('No image data in Grok response');
+
+  fs.writeFileSync(outputPath, Buffer.from(b64, 'base64'));
+  return true;
+}
+
+module.exports = { generateConceptArt, generateQuickPreview, generateGameArt, generateKnowledgeImage };

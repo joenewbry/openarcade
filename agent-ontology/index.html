@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Ontology &rarr; Agent Mapping &mdash; OpenArcade</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='12' fill='%238b5cf6'/><text x='50' y='70' font-size='55' font-family='Arial,sans-serif' font-weight='bold' fill='white' text-anchor='middle'>G</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #08090c;
+  --surface: #0f1117;
+  --surface2: #161922;
+  --surface3: #1d2030;
+  --border: #252838;
+  --border-hi: #3a3f55;
+  --text: #d8dae5;
+  --text-dim: #6b7094;
+  --text-mute: #454a66;
+  --green: #22dd88;
+  --green-dim: rgba(34,221,136,0.12);
+  --blue: #4499ff;
+  --blue-dim: rgba(68,153,255,0.12);
+  --orange: #ff8844;
+  --orange-dim: rgba(255,136,68,0.12);
+  --pink: #ee4488;
+  --pink-dim: rgba(238,68,136,0.12);
+  --purple: #8866ff;
+  --purple-dim: rgba(136,102,255,0.12);
+  --cyan: #22ccdd;
+  --cyan-dim: rgba(34,204,221,0.12);
+  --yellow: #ddbb22;
+  --yellow-dim: rgba(221,187,34,0.12);
+  --red: #ee4444;
+  --red-dim: rgba(238,68,68,0.12);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'Sora',sans-serif; overflow-x:hidden; }
+
+.noise {
+  position:fixed; inset:0; pointer-events:none; z-index:9999; opacity:0.025;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── OpenArcade Header ── */
+.oa-header {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+}
+.oa-logo {
+  color: #0ff;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.9rem;
+  letter-spacing: 2px;
+  text-decoration: none;
+  font-weight: bold;
+}
+.oa-logo:hover { text-shadow: 0 0 12px rgba(0,255,255,0.6); }
+.oa-sep { color: var(--text-dim); font-size: 0.8rem; font-family: 'DM Mono', monospace; }
+.oa-nav { display: flex; gap: 8px; margin-left: auto; }
+.oa-nav a {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: color 0.2s, border-color 0.2s;
+}
+.oa-nav a:hover { color: var(--cyan); border-color: var(--cyan); }
+
+header {
+  padding:30px 24px 10px;
+  text-align:center;
+  position:relative;
+}
+header::before {
+  content:'';
+  position:absolute;
+  top:-100px; left:50%; transform:translateX(-50%);
+  width:800px; height:500px;
+  background:radial-gradient(ellipse, rgba(68,153,255,0.06) 0%, transparent 65%);
+  pointer-events:none;
+}
+h1 {
+  font-size:clamp(2rem,4.5vw,3.2rem);
+  font-weight:800;
+  letter-spacing:-1.5px;
+  background:linear-gradient(135deg, var(--blue), var(--green));
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.sub {
+  font-family:'DM Mono',monospace;
+  font-size:0.78rem;
+  color:var(--text-dim);
+  margin-top:6px;
+  letter-spacing:1px;
+}
+
+/* === NAV TABS === */
+.nav {
+  display:flex; justify-content:center; gap:3px;
+  margin:32px auto 28px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:3px;
+  width:fit-content;
+}
+.nav button {
+  padding:10px 22px;
+  border:none;
+  border-radius:8px;
+  background:transparent;
+  color:var(--text-dim);
+  font-family:'DM Mono',monospace;
+  font-size:0.75rem;
+  cursor:pointer;
+  transition:all 0.25s;
+}
+.nav button:hover { color:var(--text); }
+.nav button.on { background:var(--blue); color:var(--bg); font-weight:500; }
+
+/* === VIEWS === */
+.view { display:none; max-width:1500px; margin:0 auto; padding:0 20px 80px; }
+.view.on { display:block; }
+
+/* === VIEW 1: ONTOLOGY TREE === */
+.ontology-intro {
+  text-align:center;
+  max-width:700px;
+  margin:0 auto 36px;
+  color:var(--text-dim);
+  font-size:0.85rem;
+  line-height:1.7;
+}
+
+.dimension-section { margin-bottom:36px; }
+.dim-header {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-bottom:14px;
+  padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+}
+.dim-icon {
+  width:36px; height:36px;
+  border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:1rem;
+  flex-shrink:0;
+}
+.dim-title {
+  font-weight:700;
+  font-size:1rem;
+}
+.dim-desc {
+  font-size:0.75rem;
+  color:var(--text-dim);
+  font-family:'DM Mono',monospace;
+}
+
+.axis-row {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:10px;
+}
+.axis-label {
+  font-family:'DM Mono',monospace;
+  font-size:0.68rem;
+  color:var(--text-mute);
+  letter-spacing:1px;
+  text-transform:uppercase;
+  min-width:110px;
+  padding-top:6px;
+}
+.tags { display:flex; flex-wrap:wrap; gap:5px; }
+.tag {
+  padding:5px 11px;
+  border-radius:5px;
+  font-size:0.73rem;
+  border:1px solid var(--border);
+  background:var(--surface);
+  cursor:default;
+  transition:all 0.2s;
+  white-space:nowrap;
+}
+.tag:hover { border-color:var(--blue); background:var(--blue-dim); }
+
+/* === VIEW 2: ARCHETYPE CARDS === */
+.archetype-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(340px, 1fr));
+  gap:14px;
+}
+.archetype {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:12px;
+  overflow:hidden;
+  transition:all 0.3s;
+  cursor:pointer;
+  position:relative;
+}
+.archetype:hover { border-color:var(--border-hi); transform:translateY(-2px); }
+.archetype.expanded { grid-column:1/-1; }
+.archetype.expanded .arch-details { display:block; }
+
+.arch-top {
+  padding:16px 18px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.arch-icon {
+  width:40px; height:40px;
+  border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:1.1rem;
+  flex-shrink:0;
+}
+.arch-info { flex:1; }
+.arch-name { font-weight:700; font-size:0.95rem; }
+.arch-sub { font-size:0.72rem; color:var(--text-dim); margin-top:2px; }
+.arch-complexity {
+  font-family:'DM Mono',monospace;
+  font-size:0.65rem;
+  padding:3px 8px;
+  border-radius:4px;
+}
+
+.arch-agents {
+  padding:0 18px 14px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+.agent-pill {
+  font-family:'DM Mono',monospace;
+  font-size:0.62rem;
+  padding:3px 8px;
+  border-radius:3px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.agent-pill .count {
+  font-weight:600;
+}
+
+.arch-details {
+  display:none;
+  padding:0 18px 18px;
+  border-top:1px solid var(--border);
+  margin-top:4px;
+  padding-top:14px;
+}
+.detail-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
+  gap:10px;
+}
+.detail-block h4 {
+  font-family:'DM Mono',monospace;
+  font-size:0.65rem;
+  color:var(--text-mute);
+  letter-spacing:1px;
+  text-transform:uppercase;
+  margin-bottom:6px;
+}
+.detail-block ul {
+  list-style:none;
+  padding:0;
+}
+.detail-block li {
+  font-size:0.76rem;
+  color:var(--text-dim);
+  padding:2px 0;
+  padding-left:14px;
+  position:relative;
+}
+.detail-block li::before {
+  content:'\2192';
+  position:absolute;
+  left:0;
+  color:var(--text-mute);
+  font-size:0.65rem;
+}
+
+/* === VIEW 3: AGENT ROSTER === */
+.roster-intro {
+  text-align:center;
+  max-width:650px;
+  margin:0 auto 30px;
+  font-size:0.85rem;
+  color:var(--text-dim);
+  line-height:1.7;
+}
+.roster-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));
+  gap:12px;
+}
+.roster-card {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:16px 18px;
+  transition:all 0.25s;
+}
+.roster-card:hover { border-color:var(--border-hi); }
+.roster-top {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:10px;
+}
+.roster-icon {
+  width:32px; height:32px;
+  border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:0.9rem;
+  flex-shrink:0;
+}
+.roster-name { font-weight:600; font-size:0.88rem; }
+.roster-type {
+  font-family:'DM Mono',monospace;
+  font-size:0.62rem;
+  color:var(--text-mute);
+}
+.roster-desc {
+  font-size:0.76rem;
+  color:var(--text-dim);
+  margin-bottom:10px;
+  line-height:1.5;
+}
+.roster-when {
+  font-family:'DM Mono',monospace;
+  font-size:0.65rem;
+  color:var(--text-mute);
+  letter-spacing:0.5px;
+  margin-bottom:6px;
+}
+.roster-games {
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+.roster-game {
+  font-size:0.62rem;
+  padding:2px 7px;
+  border-radius:3px;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  color:var(--text-dim);
+}
+
+/* === VIEW 4: DECISION FLOW === */
+.flow-container { max-width:900px; margin:0 auto; }
+.flow-node {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;
+  margin-bottom:0;
+  overflow:hidden;
+  animation:fadeIn 0.4s ease both;
+}
+.flow-node:nth-child(odd) { animation-delay:0.05s; }
+.flow-node:nth-child(even) { animation-delay:0.1s; }
+
+@keyframes fadeIn {
+  from { opacity:0; transform:translateY(12px); }
+  to { opacity:1; transform:translateY(0); }
+}
+
+.flow-q {
+  padding:16px 20px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-weight:600;
+  font-size:0.9rem;
+}
+.flow-q-num {
+  font-family:'DM Mono',monospace;
+  font-size:0.65rem;
+  color:var(--blue);
+  background:var(--blue-dim);
+  padding:4px 8px;
+  border-radius:4px;
+  flex-shrink:0;
+}
+.flow-branches {
+  padding:0 20px 16px;
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));
+  gap:6px;
+}
+.flow-branch {
+  padding:10px 14px;
+  border-radius:8px;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  transition:all 0.2s;
+  cursor:default;
+}
+.flow-branch:hover { border-color:var(--border-hi); }
+.flow-branch-label {
+  font-weight:600;
+  font-size:0.8rem;
+  margin-bottom:4px;
+}
+.flow-branch-result {
+  font-family:'DM Mono',monospace;
+  font-size:0.62rem;
+  color:var(--text-dim);
+  line-height:1.5;
+}
+
+.flow-arrow {
+  text-align:center;
+  padding:8px 0;
+  color:var(--text-mute);
+  font-size:0.9rem;
+}
+
+/* responsive */
+@media (max-width:768px) {
+  .archetype-grid { grid-template-columns:1fr; }
+  .roster-grid { grid-template-columns:1fr; }
+  .flow-branches { grid-template-columns:1fr; }
+  .oa-nav { gap: 4px; }
+  .oa-nav a { font-size: 0.6rem; padding: 3px 6px; }
+}
+</style>
+</head>
+<body>
+<div class="noise"></div>
+
+<!-- ── OpenArcade Header ── -->
+<div class="oa-header">
+  <a href="/" class="oa-logo">ARCADE</a>
+  <span class="oa-sep">/ Agent Ontology</span>
+  <nav class="oa-nav">
+    <a href="/how-it-works/">How It's Made</a>
+    <a href="/pipeline/">Pipeline</a>
+    <a href="/game-builder/">Game Builder</a>
+  </nav>
+</div>
+
+<header>
+  <h1>Game Ontology &rarr; Agent Mapping</h1>
+  <p class="sub">What kind of game? &rarr; Which agents? &rarr; How orchestrated?</p>
+</header>
+
+<div class="nav">
+  <button class="on" onclick="show('ontology')">Ontology</button>
+  <button onclick="show('archetypes')">Archetypes</button>
+  <button onclick="show('roster')">Agent Roster</button>
+  <button onclick="show('flow')">Decision Flow</button>
+</div>
+
+<!-- ==================== VIEW 1: ONTOLOGY ==================== -->
+<div class="view on" id="ontology">
+  <p class="ontology-intro">
+    Every game can be decomposed along these dimensions. Each dimension drives which agents are needed,
+    how many instances to spawn, and what quality gates apply. The orchestrator reads these axes to generate
+    an agent execution plan.
+  </p>
+
+  <div class="dimension-section">
+    <div class="dim-header">
+      <div class="dim-icon" style="background:var(--purple-dim); color:var(--purple);">&#x1F3A8;</div>
+      <div>
+        <div class="dim-title">Visual Style</div>
+        <div class="dim-desc">Determines asset gen model, texture resolution, shader complexity</div>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Fidelity</span>
+      <div class="tags">
+        <span class="tag">Pixel art (8/16/32px)</span>
+        <span class="tag">Low-poly flat</span>
+        <span class="tag">Stylized/toon</span>
+        <span class="tag">PBR realistic</span>
+        <span class="tag">Voxel</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Perspective</span>
+      <div class="tags">
+        <span class="tag">Top-down 2D</span>
+        <span class="tag">Side-scroll 2D</span>
+        <span class="tag">Isometric 2.5D</span>
+        <span class="tag">Third-person 3D</span>
+        <span class="tag">First-person 3D</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Agent impact</span>
+      <div class="tags">
+        <span class="tag" style="border-color:var(--purple); background:var(--purple-dim);">Pixel &rarr; skip 3D agents, use sprite gen</span>
+        <span class="tag" style="border-color:var(--purple); background:var(--purple-dim);">3D &rarr; full mesh + texture + rig pipeline</span>
+        <span class="tag" style="border-color:var(--purple); background:var(--purple-dim);">Voxel &rarr; use MagicaVoxel agent</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dimension-section">
+    <div class="dim-header">
+      <div class="dim-icon" style="background:var(--cyan-dim); color:var(--cyan);">&#x1F310;</div>
+      <div>
+        <div class="dim-title">Multiplayer Topology</div>
+        <div class="dim-desc">Determines backend agents, state sync, and networking stack</div>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Mode</span>
+      <div class="tags">
+        <span class="tag">Single-player only</span>
+        <span class="tag">Async (turn-based)</span>
+        <span class="tag">Co-op (2&ndash;4)</span>
+        <span class="tag">Competitive (2&ndash;8)</span>
+        <span class="tag">MMO-lite (50+)</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Authority</span>
+      <div class="tags">
+        <span class="tag">Client-only</span>
+        <span class="tag">Client-authoritative</span>
+        <span class="tag">Server-authoritative</span>
+        <span class="tag">Relay / P2P</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Agent impact</span>
+      <div class="tags">
+        <span class="tag" style="border-color:var(--cyan); background:var(--cyan-dim);">Single &rarr; no backend agents</span>
+        <span class="tag" style="border-color:var(--cyan); background:var(--cyan-dim);">Async &rarr; REST API agent only</span>
+        <span class="tag" style="border-color:var(--cyan); background:var(--cyan-dim);">Realtime &rarr; Colyseus + state sync + rollback agents</span>
+        <span class="tag" style="border-color:var(--cyan); background:var(--cyan-dim);">MMO &rarr; sharding + spatial partition agents</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dimension-section">
+    <div class="dim-header">
+      <div class="dim-icon" style="background:var(--green-dim); color:var(--green);">&#x1F3AE;</div>
+      <div>
+        <div class="dim-title">Core Mechanics</div>
+        <div class="dim-desc">Drives gameplay code agents, physics config, and AI complexity</div>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Primary loop</span>
+      <div class="tags">
+        <span class="tag">Action / combat</span>
+        <span class="tag">Puzzle / logic</span>
+        <span class="tag">Exploration / traversal</span>
+        <span class="tag">Strategy / tactics</span>
+        <span class="tag">Simulation / management</span>
+        <span class="tag">Narrative / dialogue</span>
+        <span class="tag">Rhythm / timing</span>
+        <span class="tag">Building / crafting</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Physics need</span>
+      <div class="tags">
+        <span class="tag">None (grid/tile)</span>
+        <span class="tag">Basic (AABB collisions)</span>
+        <span class="tag">Standard (rigidbody)</span>
+        <span class="tag">Advanced (ragdoll, fluid, soft body)</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Agent impact</span>
+      <div class="tags">
+        <span class="tag" style="border-color:var(--green); background:var(--green-dim);">Combat &rarr; weapon system + hitbox + animation state machine agents</span>
+        <span class="tag" style="border-color:var(--green); background:var(--green-dim);">Puzzle &rarr; constraint solver + level validation agent</span>
+        <span class="tag" style="border-color:var(--green); background:var(--green-dim);">Strategy &rarr; grid system + pathfinding + AI opponent agent</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dimension-section">
+    <div class="dim-header">
+      <div class="dim-icon" style="background:var(--orange-dim); color:var(--orange);">&#x1F4E6;</div>
+      <div>
+        <div class="dim-title">Content Scope</div>
+        <div class="dim-desc">Determines asset volume, level gen approach, and parallelism</div>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">World size</span>
+      <div class="tags">
+        <span class="tag">Single screen</span>
+        <span class="tag">Linear levels (5&ndash;20)</span>
+        <span class="tag">Hub + branches</span>
+        <span class="tag">Open world</span>
+        <span class="tag">Infinite / procedural</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Asset count</span>
+      <div class="tags">
+        <span class="tag">Minimal (&lt;50)</span>
+        <span class="tag">Moderate (50&ndash;200)</span>
+        <span class="tag">Heavy (200&ndash;1000)</span>
+        <span class="tag">Massive (1000+)</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Agent impact</span>
+      <div class="tags">
+        <span class="tag" style="border-color:var(--orange); background:var(--orange-dim);">Minimal &rarr; 1 asset agent, handcrafted levels</span>
+        <span class="tag" style="border-color:var(--orange); background:var(--orange-dim);">Procedural &rarr; proc-gen agent + seed-based level agent</span>
+        <span class="tag" style="border-color:var(--orange); background:var(--orange-dim);">Heavy &rarr; 4&ndash;8 parallel asset agents + streaming loader</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dimension-section">
+    <div class="dim-header">
+      <div class="dim-icon" style="background:var(--pink-dim); color:var(--pink);">&#x1F50A;</div>
+      <div>
+        <div class="dim-title">Audio Requirements</div>
+        <div class="dim-desc">Determines audio agent count and generation strategy</div>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Music</span>
+      <div class="tags">
+        <span class="tag">Silent / ambient only</span>
+        <span class="tag">Single loop</span>
+        <span class="tag">Adaptive layers</span>
+        <span class="tag">Full dynamic soundtrack</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Voice</span>
+      <div class="tags">
+        <span class="tag">None</span>
+        <span class="tag">Grunts / barks</span>
+        <span class="tag">Key cutscenes</span>
+        <span class="tag">Full VO</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Agent impact</span>
+      <div class="tags">
+        <span class="tag" style="border-color:var(--pink); background:var(--pink-dim);">Ambient &rarr; 1 audio agent, AudioLDM only</span>
+        <span class="tag" style="border-color:var(--pink); background:var(--pink-dim);">Full VO &rarr; TTS agent + dialogue pipeline + lip sync</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dimension-section">
+    <div class="dim-header">
+      <div class="dim-icon" style="background:var(--yellow-dim); color:var(--yellow);">&#x1F4DC;</div>
+      <div>
+        <div class="dim-title">Narrative Depth</div>
+        <div class="dim-desc">Determines narrative agent scope, dialogue system, and cutscene needs</div>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Story</span>
+      <div class="tags">
+        <span class="tag">None / emergent</span>
+        <span class="tag">Thin framing</span>
+        <span class="tag">Linear arc</span>
+        <span class="tag">Branching narrative</span>
+        <span class="tag">Systemic storytelling</span>
+      </div>
+    </div>
+    <div class="axis-row">
+      <span class="axis-label">Agent impact</span>
+      <div class="tags">
+        <span class="tag" style="border-color:var(--yellow); background:var(--yellow-dim);">None &rarr; skip narrative agent entirely</span>
+        <span class="tag" style="border-color:var(--yellow); background:var(--yellow-dim);">Branching &rarr; dialogue tree agent + state flag agent</span>
+        <span class="tag" style="border-color:var(--yellow); background:var(--yellow-dim);">Systemic &rarr; event-driven narrative agent + memory tracker</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ==================== VIEW 2: ARCHETYPES ==================== -->
+<div class="view" id="archetypes">
+  <div class="archetype-grid" id="archGrid"></div>
+</div>
+
+<!-- ==================== VIEW 3: AGENT ROSTER ==================== -->
+<div class="view" id="roster">
+  <p class="roster-intro">
+    The full menu of agents the orchestrator can choose from. Each agent is specialized, stateless,
+    and can be spawned in multiple instances for parallelism.
+  </p>
+  <div class="roster-grid" id="rosterGrid"></div>
+</div>
+
+<!-- ==================== VIEW 4: DECISION FLOW ==================== -->
+<div class="view" id="flow">
+  <div class="flow-container">
+
+    <div class="flow-node">
+      <div class="flow-q">
+        <span class="flow-q-num">Q1</span>
+        What's the visual style?
+      </div>
+      <div class="flow-branches">
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--purple);">Pixel Art</div>
+          <div class="flow-branch-result">spawn: SpriteGenAgent &times;2<br>skip: 3D mesh, rigging, LOD<br>use: PixiJS or Phaser</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--purple);">Low-Poly / Stylized</div>
+          <div class="flow-branch-result">spawn: MeshGenAgent &times;2<br>spawn: TextureAgent &times;1<br>use: Three.js, Draco glTF</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--purple);">PBR / Realistic</div>
+          <div class="flow-branch-result">spawn: MeshGenAgent &times;4<br>spawn: TextureAgent &times;2<br>spawn: ShaderAgent &times;2<br>spawn: LODAgent &times;1</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--purple);">Voxel</div>
+          <div class="flow-branch-result">spawn: VoxelGenAgent &times;2<br>skip: rigging, LOD<br>use: custom voxel renderer</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-node">
+      <div class="flow-q">
+        <span class="flow-q-num">Q2</span>
+        Single-player or multiplayer?
+      </div>
+      <div class="flow-branches">
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--cyan);">Single-player</div>
+          <div class="flow-branch-result">skip: all backend agents<br>state: client-only (Zustand)<br>save: localStorage / IndexedDB</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--cyan);">Async / Turn-based</div>
+          <div class="flow-branch-result">spawn: RESTApiAgent &times;1<br>spawn: DBSchemaAgent &times;1<br>use: Cloudflare Workers + D1</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--cyan);">Realtime Multiplayer</div>
+          <div class="flow-branch-result">spawn: GameServerAgent &times;1<br>spawn: StateSyncAgent &times;1<br>spawn: NetCodeAgent &times;1<br>use: Colyseus + WebSocket</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-node">
+      <div class="flow-q">
+        <span class="flow-q-num">Q3</span>
+        What's the core mechanic?
+      </div>
+      <div class="flow-branches">
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--green);">Action / Combat</div>
+          <div class="flow-branch-result">spawn: CombatSystemAgent &times;1<br>spawn: AnimStateMachine &times;1<br>spawn: PhysicsAgent (Rapier)<br>eval: hitbox coverage test</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--green);">Puzzle / Logic</div>
+          <div class="flow-branch-result">spawn: PuzzleDesignAgent &times;1<br>spawn: LevelValidatorAgent &times;1<br>skip: physics (use grid)<br>eval: solvability proof</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--green);">Strategy / Tactics</div>
+          <div class="flow-branch-result">spawn: GridSystemAgent &times;1<br>spawn: AIOpponentAgent &times;1<br>spawn: BalanceAgent &times;1<br>eval: winrate symmetry</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--green);">Sim / Management</div>
+          <div class="flow-branch-result">spawn: EconomyAgent &times;1<br>spawn: SystemsIntegAgent &times;1<br>spawn: UIComplexAgent &times;1<br>eval: bankruptcy test</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-node">
+      <div class="flow-q">
+        <span class="flow-q-num">Q4</span>
+        How much content?
+      </div>
+      <div class="flow-branches">
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--orange);">Minimal (arcade)</div>
+          <div class="flow-branch-result">spawn: AssetAgent &times;1<br>levels: 1&ndash;3 handcrafted<br>budget: &lt;2MB total</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--orange);">Linear Levels</div>
+          <div class="flow-branch-result">spawn: AssetAgent &times;2<br>spawn: LevelDesignAgent &times;1<br>eval: pacing curve test</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--orange);">Procedural / Infinite</div>
+          <div class="flow-branch-result">spawn: ProcGenAgent &times;2<br>spawn: AssetAgent &times;3<br>spawn: StreamLoaderAgent &times;1<br>eval: seed variety test</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-node">
+      <div class="flow-q">
+        <span class="flow-q-num">Q5</span>
+        Audio & narrative?
+      </div>
+      <div class="flow-branches">
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--pink);">Minimal audio, no story</div>
+          <div class="flow-branch-result">spawn: SFXAgent &times;1<br>spawn: MusicAgent &times;1<br>skip: narrative, VO</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--pink);">Moderate</div>
+          <div class="flow-branch-result">spawn: SFXAgent &times;1<br>spawn: MusicAgent &times;1<br>spawn: NarrativeAgent &times;1<br>use: text-only dialogue</div>
+        </div>
+        <div class="flow-branch">
+          <div class="flow-branch-label" style="color:var(--pink);">Full production</div>
+          <div class="flow-branch-result">spawn: AudioAgent &times;2<br>spawn: VOAgent &times;1<br>spawn: NarrativeAgent &times;1<br>spawn: DialogueTreeAgent &times;1<br>eval: coherence check</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-node" style="border-color:var(--blue); background:linear-gradient(135deg, var(--blue-dim), var(--surface));">
+      <div class="flow-q">
+        <span class="flow-q-num" style="background:var(--green-dim); color:var(--green);">OUT</span>
+        Orchestrator compiles execution plan
+      </div>
+      <div class="flow-branches">
+        <div class="flow-branch" style="background:var(--surface); border-color:var(--border-hi);">
+          <div class="flow-branch-label" style="color:var(--green);">Agent manifest generated</div>
+          <div class="flow-branch-result">Total agents: 8&ndash;25 based on answers<br>Parallel lanes: 3&ndash;7<br>Quality gates: 4&ndash;8 evals<br>Target: 60s wall-clock</div>
+        </div>
+        <div class="flow-branch" style="background:var(--surface); border-color:var(--border-hi);">
+          <div class="flow-branch-label" style="color:var(--green);">Dependency graph built</div>
+          <div class="flow-branch-result">Design agent &rarr; all others<br>Asset agents &parallel; Code agents<br>Audio agents &parallel; Level agents<br>Integration agent waits for all</div>
+        </div>
+        <div class="flow-branch" style="background:var(--surface); border-color:var(--border-hi);">
+          <div class="flow-branch-label" style="color:var(--green);">Deploy pipeline set</div>
+          <div class="flow-branch-result">Vite bundle &rarr; R2 CDN<br>Game server &rarr; edge region<br>Live URL generated<br>Monitoring started</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const archetypes = [
+  {
+    name: "Arcade / Casual",
+    icon: "\u{1F579}\u{FE0F}",
+    color: "--green",
+    examples: "Flappy Bird, Breakout, Snake, 2048",
+    complexity: "Low",
+    agents: [
+      { name:"Design", count:1, color:"var(--purple)" },
+      { name:"Code", count:2, color:"var(--green)" },
+      { name:"Sprite", count:1, color:"var(--orange)" },
+      { name:"SFX", count:1, color:"var(--pink)" },
+    ],
+    details: {
+      "Visual": ["2D sprites or simple shapes","Canvas2D or PixiJS","Minimal textures"],
+      "Backend": ["None \u2014 client only","localStorage for high scores"],
+      "Mechanics": ["Single input (tap/click)","Score-based loop","Increasing difficulty"],
+      "Eval gates": ["Playable within 5s of load","Core loop feels responsive","Difficulty ramp test"],
+    }
+  },
+  {
+    name: "Platformer",
+    icon: "\u{1F3C3}",
+    color: "--blue",
+    examples: "Mario-like, Celeste-like, Hollow Knight-like",
+    complexity: "Medium",
+    agents: [
+      { name:"Design", count:1, color:"var(--purple)" },
+      { name:"Code", count:3, color:"var(--green)" },
+      { name:"Sprite/Mesh", count:2, color:"var(--orange)" },
+      { name:"LevelGen", count:2, color:"var(--cyan)" },
+      { name:"Audio", count:1, color:"var(--pink)" },
+      { name:"Physics", count:1, color:"var(--blue)" },
+    ],
+    details: {
+      "Visual": ["Sprite sheets OR low-poly 3D","Parallax backgrounds","Animated character states (idle, run, jump, fall)"],
+      "Backend": ["Optional async leaderboard","Single-player core"],
+      "Mechanics": ["Tight movement feel","Collision detection (AABB/SAT)","Level-based progression","Enemies with patrol AI"],
+      "Eval gates": ["Jump arc feels right (coyote time)","Every level completable","No stuck states","FPS > 60 on mobile"],
+    }
+  },
+  {
+    name: "Multiplayer Arena",
+    icon: "\u2694\uFE0F",
+    color: "--red",
+    examples: "Agar.io, Slither.io, Diep.io, Surviv.io",
+    complexity: "High",
+    agents: [
+      { name:"Design", count:1, color:"var(--purple)" },
+      { name:"Code", count:4, color:"var(--green)" },
+      { name:"Backend", count:3, color:"var(--cyan)" },
+      { name:"Assets", count:2, color:"var(--orange)" },
+      { name:"Audio", count:1, color:"var(--pink)" },
+      { name:"Balance", count:1, color:"var(--yellow)" },
+    ],
+    details: {
+      "Visual": ["Simple but readable at distance","Player differentiation (colors/skins)","Smooth interpolation"],
+      "Backend": ["Colyseus authoritative server","Delta state sync","Anti-cheat validation","Matchmaking + lobby"],
+      "Mechanics": ["Real-time combat/collection","Leaderboard-driven","Power-ups / progression","Respawn system"],
+      "Eval gates": ["< 100ms perceived latency","State desync test","Load test (50 concurrent)","Fair spawn positions"],
+    }
+  },
+  {
+    name: "Turn-Based Strategy",
+    icon: "\u265F\uFE0F",
+    color: "--yellow",
+    examples: "Chess-like, Into the Breach-like, Civilization-lite",
+    complexity: "Medium-High",
+    agents: [
+      { name:"Design", count:1, color:"var(--purple)" },
+      { name:"Code", count:3, color:"var(--green)" },
+      { name:"AI Opponent", count:1, color:"var(--blue)" },
+      { name:"Assets", count:2, color:"var(--orange)" },
+      { name:"Balance", count:1, color:"var(--yellow)" },
+      { name:"Backend", count:1, color:"var(--cyan)" },
+      { name:"Narrative", count:1, color:"var(--yellow)" },
+    ],
+    details: {
+      "Visual": ["Grid-based map","Unit sprites/models","Clear UI for stats, moves","Fog of war system"],
+      "Backend": ["Async turn submission (REST)","Game state in DB","Optional real-time spectating"],
+      "Mechanics": ["Grid movement + attack ranges","Unit abilities + counters","Resource management","AI opponent (minimax/MCTS)"],
+      "Eval gates": ["AI doesn't cheat or stall","Win/loss reachable","No softlock board states","Balance: no dominant strategy"],
+    }
+  },
+  {
+    name: "Roguelike / Dungeon Crawler",
+    icon: "\u{1F5E1}\uFE0F",
+    color: "--orange",
+    examples: "Hades-like, Binding of Isaac-like, Slay the Spire-like",
+    complexity: "High",
+    agents: [
+      { name:"Design", count:1, color:"var(--purple)" },
+      { name:"Code", count:4, color:"var(--green)" },
+      { name:"ProcGen", count:2, color:"var(--cyan)" },
+      { name:"Assets", count:3, color:"var(--orange)" },
+      { name:"Audio", count:2, color:"var(--pink)" },
+      { name:"Narrative", count:1, color:"var(--yellow)" },
+      { name:"Balance", count:1, color:"var(--yellow)" },
+    ],
+    details: {
+      "Visual": ["Tile-based or free-form rooms","Many enemy types","Item icons + effects","Particle VFX"],
+      "Backend": ["Single-player, optional leaderboard","Run seed sharing"],
+      "Mechanics": ["Procedural level generation","Item/build synergies","Permadeath + meta-progression","Boss encounters"],
+      "Eval gates": ["Every room escapable","Item combos don't crash","Difficulty curve per floor","Run variety (seed test)"],
+    }
+  },
+  {
+    name: "Simulation / Tycoon",
+    icon: "\u{1F3D7}\uFE0F",
+    color: "--cyan",
+    examples: "SimCity-lite, Game Dev Tycoon-like, Factorio-lite",
+    complexity: "High",
+    agents: [
+      { name:"Design", count:1, color:"var(--purple)" },
+      { name:"Code", count:5, color:"var(--green)" },
+      { name:"UI Agent", count:2, color:"var(--blue)" },
+      { name:"Economy", count:1, color:"var(--yellow)" },
+      { name:"Assets", count:2, color:"var(--orange)" },
+      { name:"Audio", count:1, color:"var(--pink)" },
+    ],
+    details: {
+      "Visual": ["Isometric or top-down","Many building/entity types","Dense information UI","Tooltips + overlays"],
+      "Backend": ["Cloud save optional","Single-player simulation tick"],
+      "Mechanics": ["Resource loops (input\u2192output)","Building placement grid","Time simulation (speed controls)","Complex interconnected systems"],
+      "Eval gates": ["Economy doesn't collapse or inflate","UI readable at all zoom levels","Simulation deterministic","No deadlock states"],
+    }
+  },
+  {
+    name: "Narrative / Visual Novel",
+    icon: "\u{1F4D6}",
+    color: "--pink",
+    examples: "Doki Doki-like, Phoenix Wright-like, Disco Elysium-lite",
+    complexity: "Medium",
+    agents: [
+      { name:"Design", count:1, color:"var(--purple)" },
+      { name:"Narrative", count:2, color:"var(--yellow)" },
+      { name:"Code", count:2, color:"var(--green)" },
+      { name:"Portrait", count:2, color:"var(--orange)" },
+      { name:"Music", count:1, color:"var(--pink)" },
+      { name:"VO Agent", count:1, color:"var(--pink)" },
+    ],
+    details: {
+      "Visual": ["Character portraits + expressions","Backgrounds per scene","Text box UI","Transition effects"],
+      "Backend": ["Save state (choice flags)","Optional cloud sync"],
+      "Mechanics": ["Branching dialogue trees","Choice \u2192 consequence tracking","Inventory / evidence system","Multiple endings"],
+      "Eval gates": ["All paths reachable","No dead-end branches","Consistent character voice","Ending coherence"],
+    }
+  },
+  {
+    name: "3D Open World",
+    icon: "\u{1F30D}",
+    color: "--purple",
+    examples: "Minecraft-lite, exploration sandbox, adventure",
+    complexity: "Very High",
+    agents: [
+      { name:"Design", count:1, color:"var(--purple)" },
+      { name:"Code", count:6, color:"var(--green)" },
+      { name:"3D Assets", count:4, color:"var(--orange)" },
+      { name:"LevelGen", count:3, color:"var(--cyan)" },
+      { name:"Backend", count:2, color:"var(--cyan)" },
+      { name:"Audio", count:2, color:"var(--pink)" },
+      { name:"Narrative", count:1, color:"var(--yellow)" },
+      { name:"Shader", count:2, color:"var(--purple)" },
+      { name:"Streaming", count:1, color:"var(--blue)" },
+    ],
+    details: {
+      "Visual": ["Full 3D world with LOD","Dynamic lighting + day/night","Terrain + vegetation + water","Many unique assets"],
+      "Backend": ["Multiplayer optional","Chunk streaming server","Persistent world state"],
+      "Mechanics": ["Free movement + physics","Inventory + crafting","NPC interaction","Quest system"],
+      "Eval gates": ["Steady 60fps (LOD switching)","Bundle < 10MB initial load","Chunk load < 200ms","No visible pop-in"],
+    }
+  },
+];
+
+const agentRoster = [
+  { name:"Game Design Agent", icon:"\u{1F9E0}", color:"--purple", type:"Singleton", desc:"Generates the GDD from a text prompt. Outputs structured spec consumed by all other agents.", when:"Always \u2014 first agent to run", games:["All types"] },
+  { name:"Orchestrator Agent", icon:"\u26A1", color:"--blue", type:"Singleton", desc:"Routes tasks, manages dependency graph, handles retries, spawns/kills agent instances based on plan.", when:"Always \u2014 runs entire session", games:["All types"] },
+  { name:"Gameplay Code Agent", icon:"\u2699\uFE0F", color:"--green", type:"Pool (1\u20136)", desc:"Writes core gameplay systems: ECS components, game loop, state machines, input handling.", when:"Always", games:["All types"] },
+  { name:"Physics Agent", icon:"\u{1F3AF}", color:"--green", type:"Pool (0\u20132)", desc:"Configures Rapier WASM: rigidbodies, colliders, raycasting, joints. Tunes gravity/friction.", when:"Action, platformer, 3D games", games:["Platformer","Arena","Roguelike","3D Open World"] },
+  { name:"UI/HUD Agent", icon:"\u{1F5A5}\uFE0F", color:"--blue", type:"Pool (1\u20132)", desc:"Builds React UI layer: HUD, menus, inventory screens, tooltips, settings. Zustand state.", when:"Always (complexity varies)", games:["All types"] },
+  { name:"NPC AI Agent", icon:"\u{1F916}", color:"--blue", type:"Pool (0\u20132)", desc:"Writes behavior trees, patrol paths, aggro systems, dialogue triggers, boss patterns.", when:"Games with enemies or NPCs", games:["Platformer","Roguelike","3D Open World","Strategy"] },
+  { name:"AI Opponent Agent", icon:"\u265F\uFE0F", color:"--yellow", type:"Singleton", desc:"Implements minimax, MCTS, or RL-trained opponent for competitive single-player strategy.", when:"Strategy/tactics games", games:["Turn-Based Strategy"] },
+  { name:"Mesh Gen Agent", icon:"\u{1F3A8}", color:"--orange", type:"Pool (1\u20134)", desc:"Generates 3D models via Tripo/InstantMesh, optimizes topology, exports Draco glTF.", when:"3D games", games:["3D Open World","Arena","Roguelike"] },
+  { name:"Sprite Gen Agent", icon:"\u{1F58C}\uFE0F", color:"--orange", type:"Pool (1\u20132)", desc:"Generates 2D sprite sheets, pixel art tiles, character animations via SDXL + img2img.", when:"2D games", games:["Arcade","Platformer","Strategy","Narrative"] },
+  { name:"Texture Agent", icon:"\u{1F3A8}", color:"--orange", type:"Pool (1\u20132)", desc:"Generates PBR texture maps (albedo, normal, roughness) via SDXL, compresses to KTX2/Basis.", when:"3D games with PBR", games:["3D Open World","Arena"] },
+  { name:"Shader Agent", icon:"\u2728", color:"--purple", type:"Pool (0\u20132)", desc:"Writes GLSL/WGSL shaders: post-processing, water, fog, cel-shading, particle effects.", when:"Games needing custom visual effects", games:["3D Open World","Platformer","Arena"] },
+  { name:"Level Design Agent", icon:"\u{1F5FA}\uFE0F", color:"--cyan", type:"Pool (1\u20133)", desc:"Generates levels: WFC for tiles, noise for terrain, room templates for dungeons. Places spawns.", when:"Most games", games:["Platformer","Roguelike","Strategy","3D Open World"] },
+  { name:"Proc-Gen Agent", icon:"\u{1F331}", color:"--cyan", type:"Pool (0\u20132)", desc:"Seed-based infinite content: terrain chunks, dungeon floors, item rolls, encounter tables.", when:"Roguelikes, infinite runners, open world", games:["Roguelike","3D Open World","Arcade"] },
+  { name:"Music Agent", icon:"\u{1F3B5}", color:"--pink", type:"Pool (1\u20132)", desc:"Generates music tracks via MusicGen, handles looping, layered adaptive stems.", when:"Most games", games:["All types"] },
+  { name:"SFX Agent", icon:"\u{1F50A}", color:"--pink", type:"Singleton", desc:"Generates sound effects via AudioLDM, encodes to OGG sprite sheets, maps to game events.", when:"Most games", games:["All types"] },
+  { name:"Voice Agent", icon:"\u{1F5E3}\uFE0F", color:"--pink", type:"Pool (0\u20131)", desc:"Generates voice lines via XTTS v2, handles multiple characters, syncs to dialogue system.", when:"Narrative-heavy games", games:["Narrative","3D Open World","Roguelike"] },
+  { name:"Narrative Agent", icon:"\u{1F4DC}", color:"--yellow", type:"Pool (0\u20132)", desc:"Writes lore, dialogue trees (Ink/Yarn format), branching logic, item descriptions.", when:"Games with story", games:["Narrative","Roguelike","3D Open World","Strategy"] },
+  { name:"Economy/Balance Agent", icon:"\u2696\uFE0F", color:"--yellow", type:"Singleton", desc:"Tunes numbers: damage, health, costs, drop rates, XP curves. Runs Monte Carlo balance sims.", when:"Games with progression systems", games:["Roguelike","Strategy","Sim/Tycoon","Arena"] },
+  { name:"Game Server Agent", icon:"\u{1F310}", color:"--cyan", type:"Pool (1\u20133)", desc:"Builds Colyseus rooms, defines state schema, writes server-authoritative game logic.", when:"Realtime multiplayer", games:["Arena","3D Open World"] },
+  { name:"State Sync Agent", icon:"\u{1F504}", color:"--cyan", type:"Singleton", desc:"Implements delta compression, client prediction, server reconciliation, interpolation.", when:"Realtime multiplayer", games:["Arena","3D Open World"] },
+  { name:"CDN/Deploy Agent", icon:"\u{1F680}", color:"--cyan", type:"Singleton", desc:"Bundles via Vite, uploads to R2, configures Workers routing, generates live URL.", when:"Always \u2014 final agent", games:["All types"] },
+  { name:"QA Bot Agent", icon:"\u{1F9EA}", color:"--red", type:"Pool (1\u20133)", desc:"Automated playtester: headless browser, random input fuzzing, coverage mapping, crash detection.", when:"Always \u2014 continuous eval", games:["All types"] },
+  { name:"Visual QA Agent", icon:"\u{1F441}\uFE0F", color:"--red", type:"Singleton", desc:"Takes screenshots, scores via VLM for style consistency, detects Z-fighting, clipping.", when:"Games with visual output", games:["All types"] },
+];
+
+function renderArchetypes() {
+  const grid = document.getElementById('archGrid');
+  grid.innerHTML = archetypes.map((a, i) => {
+    const colorVar = a.color;
+    const totalAgents = a.agents.reduce((s,x) => s + x.count, 0);
+    return `
+    <div class="archetype" onclick="this.classList.toggle('expanded')" style="animation-delay:${i*0.04}s">
+      <div class="arch-top">
+        <div class="arch-icon" style="background:var(${colorVar}-dim); color:var(${colorVar});">${a.icon}</div>
+        <div class="arch-info">
+          <div class="arch-name">${a.name}</div>
+          <div class="arch-sub">${a.examples}</div>
+        </div>
+        <div class="arch-complexity" style="background:var(${colorVar}-dim); color:var(${colorVar});">${a.complexity} \u00B7 ${totalAgents} agents</div>
+      </div>
+      <div class="arch-agents">
+        ${a.agents.map(ag => `<span class="agent-pill" style="background:${ag.color.replace('var(','').replace(')','') === ag.color ? ag.color : `var(${ag.color.replace('var(','').replace(')','')}-dim)`}; color:${ag.color};"><span class="count">\u00D7${ag.count}</span> ${ag.name}</span>`).join('')}
+      </div>
+      <div class="arch-details">
+        <div class="detail-grid">
+          ${Object.entries(a.details).map(([k,v]) => `
+            <div class="detail-block">
+              <h4>${k}</h4>
+              <ul>${v.map(item => `<li>${item}</li>`).join('')}</ul>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderRoster() {
+  const grid = document.getElementById('rosterGrid');
+  grid.innerHTML = agentRoster.map((a, i) => `
+    <div class="roster-card" style="animation:fadeIn 0.4s ease ${i*0.03}s both;">
+      <div class="roster-top">
+        <div class="roster-icon" style="background:var(${a.color}-dim); color:var(${a.color});">${a.icon}</div>
+        <div>
+          <div class="roster-name">${a.name}</div>
+          <div class="roster-type">${a.type}</div>
+        </div>
+      </div>
+      <div class="roster-desc">${a.desc}</div>
+      <div class="roster-when">WHEN: ${a.when}</div>
+      <div class="roster-games">
+        ${a.games.map(g => `<span class="roster-game">${g}</span>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function show(id) {
+  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('on'));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  event.target.classList.add('on');
+}
+
+renderArchetypes();
+renderRoster();
+</script>
+</body>
+</html>
