@@ -39,6 +39,7 @@ let aiDecisionTimer = 0;
 let savedPlayerWins = 0;
 let savedAiWins     = 0;
 let score = 0;
+let roundEnded = false;  // track round-end phase without bypassing engine state
 
 // ─── Wizard factory ───
 function createWizard(x, facing, isAI) {
@@ -67,6 +68,7 @@ function initRound() {
   floatingTexts = [];
   roundTimer    = 0;
   aiDecisionTimer = 0;
+  roundEnded    = false;
 }
 
 function initGame(game) {
@@ -681,13 +683,13 @@ function update(game) {
     return;
   }
 
-  if (game.state === 'roundEnd') {
+  if (roundEnded) {
     for (const key of ['1','2','3','4','s','S',' ','Enter']) {
       if (input.wasPressed(key)) {
         currentRound++;
         if (roundNumEl) roundNumEl.textContent = currentRound;
         initRound();
-        game.setState('playing');
+        game.hideOverlay();
         return;
       }
     }
@@ -847,8 +849,8 @@ function endRound(game) {
       'Score: ' + score + ' | Rounds: ' + player.roundWins + '-' + ai.roundWins + ' | Press any key'
     );
   } else {
-    // Use custom state 'roundEnd' — keep overlay visible
-    game._state = 'roundEnd';
+    // Track round-end phase at game level; engine stays in 'playing'
+    roundEnded = true;
     game.showOverlay(
       playerWon ? 'Round Won!' : 'Round Lost!',
       'Round ' + currentRound + '/3 | ' + player.roundWins + '-' + ai.roundWins + ' | Press any key'
@@ -879,7 +881,7 @@ export function createGame() {
     if (player) drawWizard(renderer, text, player, 'YOU');
     if (ai)     drawWizard(renderer, text, ai,     'AI');
     drawFloatingTexts(renderer, text);
-    if (game.state === 'playing' || game._state === 'roundEnd') drawHUD(renderer, text);
+    if (game.state === 'playing') drawHUD(renderer, text);
   };
 
   game.start();
