@@ -58,6 +58,10 @@ let floatingTexts = [];
 let mouseX = 0, mouseY = 0;
 let frameCount = 0; // for wave animation
 
+// Frame-based AI delay state (replaces setTimeout)
+let aiDelayFrames = 0;    // countdown frames remaining
+let aiDelayAction = null; // function to call when countdown reaches 0
+
 // ===================== HELPERS =====================
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function totalCargo(ship) { return GOODS.reduce((s, g) => s + ship.cargo[g], 0); }
@@ -133,6 +137,8 @@ function initGame() {
   tradePort = -1;
   buyMode = true;
   currentPlayer = 0;
+  aiDelayFrames = 0;
+  aiDelayAction = null;
 
   ports = PORT_DEFS.map((pd) => ({
     name: pd.name,
@@ -208,7 +214,8 @@ function startPlayerTurn(pid) {
   }
 
   if (pid !== 0) {
-    setTimeout(() => aiTurn(pid), 250);
+    aiDelayFrames = 15; // ~250ms at 60fps
+    aiDelayAction = () => aiTurn(pid);
   }
   updateUI();
 }
@@ -425,7 +432,8 @@ function aiTurn(pid) {
   }
 
   ships = ships.filter(s => !s.sunk);
-  setTimeout(() => { updateUI(); endPlayerTurn(); }, 200);
+  aiDelayFrames = 12; // ~200ms at 60fps
+  aiDelayAction = () => { updateUI(); endPlayerTurn(); };
 }
 
 function moveShipToward(ship, tx, ty) {
@@ -1128,6 +1136,16 @@ export function createGame() {
 
   game.onUpdate = (dt) => {
     frameCount++;
+
+    // Tick frame-based AI delays (replaces setTimeout)
+    if (aiDelayFrames > 0) {
+      aiDelayFrames--;
+      if (aiDelayFrames === 0 && aiDelayAction) {
+        const action = aiDelayAction;
+        aiDelayAction = null;
+        action();
+      }
+    }
 
     // Handle game-over restart via space
     if (game.state === 'over') {
