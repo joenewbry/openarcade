@@ -16,7 +16,7 @@ export function createGame() {
   const modeLabelEl = document.getElementById('modeLabel');
 
   /* ==================== CONSTANTS ==================== */
-  const PLAYER_COLORS = ['#4488ff', '#e55', '#3b3', '#d4d', '#fa0'];
+  const PLAYER_COLORS = ['#4488ff', '#ee5555', '#33bb33', '#dd44dd', '#ffaa00'];
   const PLAYER_NAMES = ['You', 'General Krov', 'Marshal Vex', 'Duchess Nara', 'Warlord Zhin'];
   const AI_PERSONALITIES = [null, 'aggressive', 'defensive', 'diplomatic', 'opportunist'];
   const CONTINENT_COLORS = ['#443322', '#223344', '#224422', '#442244', '#444422'];
