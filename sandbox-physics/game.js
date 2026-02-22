@@ -453,30 +453,15 @@ function endTest() {
   score.p1 += challengeResult.p1;
   score.ai += challengeResult.ai;
   updateScoreBar();
-
-  setTimeout(() => {
-    challengeIndex++;
-    if (challengeIndex >= challenges.length) {
-      showFinalResults();
-    } else {
-      startChallenge();
-    }
-  }, 2500);
+  endTestDelay = 150; // ~2.5s at 60fps
 }
 
 function showFinalResults() {
   gameState = 'menu';
-  const ov = document.getElementById('overlay');
-  if (!ov) return;
-  ov.style.display = 'flex';
   const winner = score.p1 > score.ai ? 'YOU WIN!' : score.p1 < score.ai ? 'AI WINS!' : 'TIE!';
-  ov.innerHTML = `
-    <h1>${winner}</h1>
-    <h2>Final Score: You ${score.p1} - AI ${score.ai}</h2>
-    <p>5 challenges completed. ${score.p1 > score.ai ? 'Your engineering skills prevailed!' : score.p1 < score.ai ? 'The AI built better contraptions this time.' : 'Perfectly matched builders!'}</p>
-    <button id="startBtn">PLAY AGAIN</button>
-  `;
-  document.getElementById('startBtn').addEventListener('click', () => startGameFn());
+  const detail = `You ${score.p1} - AI ${score.ai}`;
+  _game.showOverlay(winner, detail);
+  _game.setState('over');
 }
 
 // ── Drawing Helpers (WebGL engine) ──
@@ -705,12 +690,17 @@ function drawChallengeSetup(ch, side, renderer, text) {
 
 // ── Main createGame export ──
 let startGameFn = null;
+let _game = null;
+let endTestDelay = 0;
 
 export function createGame() {
   const game = new Game('game');
+  _game = game;
 
   game.onInit = () => {
-    game.showOverlay('SANDBOX PHYSICS', '');
+    endTestDelay = 0;
+    gameState = 'menu';
+    game.showOverlay('SANDBOX PHYSICS', 'Click to Start');
     game.setState('waiting');
   };
 
@@ -811,7 +801,25 @@ export function createGame() {
   };
 
   game.onUpdate = (dt) => {
+    if (game.state === 'over') {
+      if (game.input.wasPressed(' ') || game.input.wasPressed('Enter')) {
+        game.onInit();
+      }
+      return;
+    }
     if (gameState !== 'playing') return;
+    if (endTestDelay > 0) {
+      endTestDelay--;
+      if (endTestDelay === 0) {
+        challengeIndex++;
+        if (challengeIndex >= challenges.length) {
+          showFinalResults();
+        } else {
+          startChallenge();
+        }
+      }
+      return;
+    }
     if (phase === 'test') {
       stepPhysics(p1Objects, p1Connections, 0, HALF);
       stepPhysics(aiObjects, aiConnections, HALF, W);
