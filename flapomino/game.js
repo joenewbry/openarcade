@@ -124,15 +124,19 @@ export function createGame() {
     score = 0; obsTimer = 0; obsSpeed = OBS_SPEED_BASE; obsCount = 0;
     scoreEl.textContent = '0';
     stackHeightEl.textContent = '0';
-    game.showOverlay('FLAPOMINO', 'Press SPACE or UP to flap');
+    game.showOverlay('FLAPOMINO', 'Press SPACE, UP, or Click to flap');
     game.setState('waiting');
   };
 
   game.setScoreFn(() => score);
 
+  let clicked = false;
+  game.canvas.addEventListener('click', () => { clicked = true; });
+
   game.onUpdate = () => {
     const input = game.input;
-    const flap = input.wasPressed(' ') || input.wasPressed('ArrowUp');
+    const flap = input.wasPressed(' ') || input.wasPressed('ArrowUp') || clicked;
+    clicked = false;
 
     if (game.state === 'waiting') {
       if (flap) { bird.vy = FLAP_VY; game.setState('playing'); }
@@ -226,7 +230,7 @@ export function createGame() {
   }
 
   function die() {
-    game.showOverlay('GAME OVER', `Score: ${score}  •  Space to restart`);
+    game.showOverlay('GAME OVER', `Score: ${score}  •  Space/Click to restart`);
     game.setState('over');
   }
 
