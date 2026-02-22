@@ -4,8 +4,8 @@ export function createGame() {
   const game = new Game('game');
   const W = 600, H = 400;
 
-  const scoreEl = document.getElementById('score');
-  const bestEl  = document.getElementById('best');
+  const scoreEl    = document.getElementById('score');
+  const cpuScoreEl = document.getElementById('best');
   const matchInfoEl = document.getElementById('matchInfo');
 
   const THEME = '#f60';
@@ -41,7 +41,7 @@ export function createGame() {
 
   // ── Game state ──
   let score = 0, aiScore = 0;
-  let timer = 0, goalTimer = 0, goalMessage = '', kickoffTimer = 0;
+  let timer = 0, goalPauseFrames = 0, goalMessage = '', kickoffTimer = 0;
   let ball, player, aiCar, particles, ballTrail, boostPads;
 
   // ── justPressed via engine input wrapped with wasPressed ──
@@ -86,7 +86,7 @@ export function createGame() {
   function resetAll() {
     score = 0; aiScore = 0;
     if (scoreEl) scoreEl.textContent = '0';
-    if (bestEl)  bestEl.textContent  = '0';
+    if (cpuScoreEl) cpuScoreEl.textContent = '0';
     timer = MATCH_SECS * 60;
     initBoostPads();
     resetPositions();
@@ -98,7 +98,7 @@ export function createGame() {
   function startMatch() {
     score = 0; aiScore = 0;
     if (scoreEl) scoreEl.textContent = '0';
-    if (bestEl)  bestEl.textContent  = '0';
+    if (cpuScoreEl) cpuScoreEl.textContent = '0';
     timer = MATCH_SECS * 60;
     initBoostPads();
     resetPositions();
@@ -396,25 +396,6 @@ export function createGame() {
     updateCar(aiCar, lr, jump, boost);
   }
 
-  // ── Goal handling ──
-  function handleGoal(who) {
-    if (who === 'player_goal') {
-      score++;
-      if (scoreEl) scoreEl.textContent = score;
-      goalMessage = 'GOAL!';
-      spawn(ARENA_R + GOAL_W / 2, (GOAL_TOP + ARENA_B) / 2, '#f60', 40, 3);
-    } else {
-      aiScore++;
-      if (bestEl) bestEl.textContent = aiScore;
-      goalMessage = 'AI SCORES!';
-      spawn(ARENA_L - GOAL_W / 2, (GOAL_TOP + ARENA_B) / 2, '#4af', 40, 3);
-    }
-    goalTimer = 120;
-    if (score >= WIN_SCORE || aiScore >= WIN_SCORE) goalTimer = 150;
-    game.setState('over'); // use 'over' for goal-scored pause; handled in onUpdate
-    // We'll use a custom goalScored flag instead
-  }
-
   // ── Rendering helpers ──
   // Build polygon points for car body shape
   function carBodyPoints(hw, hh) {
@@ -581,9 +562,6 @@ export function createGame() {
     text.drawText(c.isAI ? 'AI' : 'P1', lb.x, lb.y - 3, 7, '#ffffff', 'center');
   }
 
-  // ── Goal-scored state (not using engine state, custom flag) ──
-  let inGoalScored = false;
-
   // ── onInit ──
   game.onInit = () => {
     resetAll();
@@ -602,12 +580,12 @@ export function createGame() {
           inp.wasPressed('Enter')     || inp.wasPressed('a') ||
           inp.wasPressed('d')         || inp.wasPressed('w')) {
         startMatch();
-        inGoalScored = false;
       }
       return;
     }
 
-    if (game.state === 'over' && !inGoalScored) {
+    if (game.state === 'over') {
+      // Match ended — any key restarts
       if (inp.wasPressed('ArrowLeft') || inp.wasPressed('ArrowRight') ||
           inp.wasPressed('ArrowUp')   || inp.wasPressed(' ') ||
           inp.wasPressed('Enter')) {
@@ -616,30 +594,27 @@ export function createGame() {
       return;
     }
 
-    // Goal-scored pause
-    if (inGoalScored) {
-      goalTimer--;
+    if (game.state !== 'playing') return;
+
+    // Goal-scored pause (still in 'playing' state, just counting down)
+    if (goalPauseFrames > 0) {
+      goalPauseFrames--;
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i]; p.x += p.vx; p.y += p.vy; p.vy += 0.03; p.life--;
         if (p.life <= 0) particles.splice(i, 1);
       }
-      if (goalTimer <= 0) {
+      if (goalPauseFrames <= 0) {
         if (score >= WIN_SCORE || aiScore >= WIN_SCORE) {
           // End match
           const title = score > aiScore ? 'YOU WIN!' : (aiScore > score ? 'AI WINS!' : 'DRAW!');
           game.showOverlay(title, `Final Score: ${score} - ${aiScore}\n\nPress any key to play again`);
           game.setState('over');
-          inGoalScored = false;
         } else {
           resetPositions();
-          game.setState('playing');
-          inGoalScored = false;
         }
       }
       return;
     }
-
-    if (game.state !== 'playing') return;
 
     // Timer
     timer--;
@@ -673,13 +648,11 @@ export function createGame() {
         spawn(ARENA_R + GOAL_W / 2, (GOAL_TOP + ARENA_B) / 2, '#f60', 40, 3);
       } else {
         aiScore++;
-        if (bestEl) bestEl.textContent = aiScore;
+        if (cpuScoreEl) cpuScoreEl.textContent = aiScore;
         goalMessage = 'AI SCORES!';
         spawn(ARENA_L - GOAL_W / 2, (GOAL_TOP + ARENA_B) / 2, '#4af', 40, 3);
       }
-      goalTimer = 120;
-      if (score >= WIN_SCORE || aiScore >= WIN_SCORE) goalTimer = 150;
-      inGoalScored = true;
+      goalPauseFrames = (score >= WIN_SCORE || aiScore >= WIN_SCORE) ? 150 : 120;
       return;
     }
 
@@ -799,8 +772,8 @@ export function createGame() {
     }
 
     // Goal message
-    if (inGoalScored && goalTimer > 0) {
-      const pulse = 1 + Math.sin(goalTimer * 0.15) * 0.08;
+    if (goalPauseFrames > 0) {
+      const pulse = 1 + Math.sin(goalPauseFrames * 0.15) * 0.08;
       const msgColor = goalMessage.includes('AI') ? '#44aaff' : '#ff6600';
       renderer.setGlow(msgColor, 0.8);
       text.drawText(goalMessage, W / 2, H / 2 - 30, 40 * pulse, msgColor, 'center');
