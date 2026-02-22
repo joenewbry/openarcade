@@ -54,6 +54,9 @@ let turn, lastBattle, battleTimer;
 let message, messageTimer;
 let aiCaptured, playerCaptured;
 let aiKnownMovable;
+let _game;
+let endGameDelay = 0;
+let endGameResult = null;
 
 // Pending mouse events from canvas listeners, consumed in onUpdate
 let pendingClicks = [];
@@ -252,9 +255,9 @@ function doMove(fr, fc, tr, tc) {
   return null;
 }
 
-function endGame(result, g) {
+function endGame(result) {
   phase = 'gameover';
-  g.setState('over');
+  _game.setState('over');
   const bestScore = parseInt(localStorage.getItem('stratego-best') || '0');
   if (score > bestScore) {
     localStorage.setItem('stratego-best', score);
@@ -264,10 +267,8 @@ function endGame(result, g) {
     for (let c = 0; c < COLS; c++)
       if (board[r][c]) board[r][c].revealed = true;
 
-  setTimeout(() => {
-    g.showOverlay(result === 'win' ? 'VICTORY!' : 'DEFEAT', 'Captures: ' + score + ' | Click to play again');
-    g.setState('waiting');
-  }, 1500);
+  endGameResult = result;
+  endGameDelay = 90; // ~1.5s at 60fps
 }
 
 function hasMovesLeft(owner) {
@@ -374,7 +375,7 @@ function aiTakeTurn(g) {
   }
   if (bestMove) doMove(bestMove.fr, bestMove.fc, bestMove.tr, bestMove.tc);
   if (phase !== 'gameover') {
-    if (!hasMovesLeft(0)) { endGame('lose', g); return; }
+    if (!hasMovesLeft(0)) { endGame('lose'); return; }
     turn = 0;
     phase = 'play';
     message = 'Your turn';
@@ -638,6 +639,7 @@ function drawStatusBar(renderer, text) {
 // ── Entry point ──
 export function createGame() {
   const g = new Game('game');
+  _game = g;
 
   // Initialise state
   score = 0;
@@ -673,6 +675,8 @@ export function createGame() {
   }
 
   g.onInit = () => {
+    endGameDelay = 0;
+    endGameResult = null;
     g.showOverlay('STRATEGO DIGITAL', 'Click to Start');
     g.setState('waiting');
   };
@@ -680,6 +684,15 @@ export function createGame() {
   g.setScoreFn(() => score);
 
   g.onUpdate = () => {
+    if (endGameDelay > 0) {
+      endGameDelay--;
+      if (endGameDelay === 0) {
+        _game.showOverlay(endGameResult === 'win' ? 'VICTORY!' : 'DEFEAT', 'Captures: ' + score + ' | Click to play again');
+        _game.setState('waiting');
+        endGameResult = null;
+      }
+      return;
+    }
     if (battleTimer > 0) battleTimer--;
     if (messageTimer > 0) {
       messageTimer--;

@@ -7,13 +7,13 @@
 
 | Verdict | Count | % |
 |---------|-------|---|
-| PASS | 165 | 89.2% |
-| NEEDS_FIX | 20 | 10.8% |
+| PASS | 164 | 88.6% |
+| NEEDS_FIX | 21 | 11.4% |
 | BROKEN | 0 | 0% |
 
 ## Fix Status
 
-**18 of 20 issues fixed** and merged to main. 2 remaining are low priority (false positive, cosmetic).
+**19 of 21 issues fixed** and merged to main. 2 remaining are low priority (false positive, cosmetic).
 
 | # | Game | Fix Commit | Status |
 |---|------|-----------|--------|
@@ -37,8 +37,9 @@
 | 18 | coop-dungeon-crawler | `fa5b15e` Fix — use engine overlay API, remove setTimeout | FIXED |
 | 19 | stick-fight-online | — | NOT FIXED (difficulty unused; cosmetic only) |
 | 20 | flapomino | `8a4be6b` Fix — add overlay background, click-to-flap | FIXED |
+| 21 | stratego-digital | `9c8c15b` Fix endGame crash — use module-scoped game ref | FIXED |
 
-## Games Needing Fixes (20)
+## Games Needing Fixes (21)
 
 | Game | Category | Issue Description |
 |------|----------|-------------------|
@@ -56,6 +57,7 @@
 | restaurant-tycoon | Event Leak | Click/mousemove listeners added on every `onInit` call — duplicates accumulate on restart |
 | rocket-league-2d | State | Complex state transitions with custom `inGoalScored` flag; `bestEl` repurposed as AI score display |
 | space-trader | Crash | `endGame(game)` parameter shadows closure — called as `endGame()` so `game` is undefined; crashes at turn 30 |
+| stratego-digital | Crash | `endGame(result, g)` called without `g` from `resolveBattle` — crashes on flag capture; also uses `setTimeout` |
 | speed-typing-racer | Private API | Accesses `input._pressed` (engine private field) instead of public API; fragile |
 | stick-fight-online | Difficulty | `game.difficulty` never used — difficulty selector on game-over has no effect |
 | terraria-lite | API | `renderer.strokeLine` may not exist (should be `drawLine`); boss HP bar border won't render |
@@ -105,6 +107,6 @@
 18. **stick-fight-online** — difficulty setting has no effect
 19. **terraria-lite** — strokeLine (should be drawLine) for boss HP bar border
 
-## Clean Games (165)
+## Clean Games (164)
 
 1942, 2048, advance-wars-online, agar, air-hockey, amidar, arkanoid, asteroids, auction-house, battle-royale-2d, battleship-evolved, battlezone, bejeweled, bike-trials-mp, blokus, bomberman, boulder-dash, boxing-ring, breakout, brick-breaker, bridge-building-race, bubble-bobble, burger-time, canabalt, capture-the-flag, centipede, civilization-micro, columns, competitive-minesweeper, competitive-tetris, creep-td-versus, crossy-road, curling-simulator, deck-builder-duels, defender, dig-dug, dino, doodle-jump, dr-mario, duck-hunt, dungeon-tactician, dx-ball, elevator-action, factory-chain, factory-coop, flappy, frogger, fruit-ninja, galaga, galaxian, geometry-dash, gladiator-pit, go-baduk, golf-it, gradius, helicopter, hex-empire, ice-climber, idle-clicker-pvp, jetpack-joyride, joust, kaboom, kart-racer, kingdom-clash, klotski, lemmings, lights-out, lode-runner, lunar-lander, mahjong-competitive, mappy, mech-arena-tactics, mech-assault, mega-man, merchant-routes, micro-machines, micro-rts, minesweeper, missile-command, moon-patrol, mr-do, ms-pacman, nibbler, nidhogg-like, night-driver, nonogram, obstacle-course-race, pac-man, paperboy, peggle, phoenix, pinball, pipe-dream, pixel-fighter, plants-vs-zombies, poker-arena, pong, pool-billiards, portal-2d-coop, puyo-puyo, puzzle-bobble, puzzle-race, qbert, r-type, raiden, rally-x, rampart, real-estate-mogul, road-fighter, robotron, rocket-league-2d, sandbox-physics, settlers-online, simcity, simon, sinistar, slither, slot-racer, smash-arena, snake, snake-invaders, sniper-duel, snow-bros, soccer-heads, sokoban, space-dogfight, space-duel, space-invaders, spaceship-circuit, spelunky, splendor-online, spy-hunter, spy-vs-spy, stock-market-sim, sudoku, sumo-push, super-mario, super-sprint, survival-island, swarm-control, tactical-card-battler, tanks, tapper, tempest, temple-run, territory-control-mmo, tetris, tile-kingdoms, tower-defense, tower-of-hanoi, tower-wars, trading-card-mmo, trivia-royale, tron, volleyball-2d, warlords, wesnoth-lite, whack-a-mole, wizard-card-game, worm-pong, wrestling-physics, xcom-tactics, xevious, zombie-siege
