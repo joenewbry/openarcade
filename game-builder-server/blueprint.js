@@ -42,7 +42,7 @@ ${gameMd}`;
   if (opts.onProgress) opts.onProgress('Generating blueprint...');
 
   const msg = await claude.messages.create({
-    model: 'claude-sonnet-4-5-20250514',
+    model: 'claude-opus-4-6',
     max_tokens: 4096,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],

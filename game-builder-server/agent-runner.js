@@ -59,7 +59,7 @@ function loadAgent(agentName) {
  */
 async function runAgent(agentName, blueprint, claude, opts = {}) {
   const agent = loadAgent(agentName);
-  const model = opts.model || 'claude-sonnet-4-5-20250514';
+  const model = opts.model || 'claude-opus-4-6';
   const maxTokens = opts.maxTokens || 4096;
 
   // Build the system prompt

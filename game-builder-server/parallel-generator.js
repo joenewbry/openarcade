@@ -326,7 +326,7 @@ Output the complete fixed index.html:`;
 
   try {
     const msg = await claude.messages.create({
-      model: 'claude-sonnet-4-5-20250514',
+      model: 'claude-opus-4-6',
       max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],

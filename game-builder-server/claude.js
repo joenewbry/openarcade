@@ -67,7 +67,7 @@ BEHAVIOR RULES:
 3. Ask one question at a time. Don't barrage with multiple questions.
 4. Show genuine enthusiasm for creative ideas.
 5. When you have enough info for a section, move naturally to the next gap.
-6. After sections 1-4 are done, generate a concept art prompt and say "I think we're ready to create some concept art — want to see what this could look like?"
+6. After sections 1-4 are done, say something like "I think we're ready to create some concept art — want to see what this could look like?" and include the CONCEPT_ART_PROMPT comment. Do NOT write the image prompt text in the visible message — it goes ONLY in the hidden comment.
 7. After concept art is approved, say "Perfect — ready to generate your game? This will take about [N] seconds." where N is estimated from the tech stack.
 8. When extracting design decisions, output a JSON block at the END of your response (hidden from user) in this format:
    <!-- DESIGN_UPDATE: {"section": "visual", "field": "background", "value": "#0a0a1a"} -->
@@ -77,8 +77,9 @@ BEHAVIOR RULES:
    Valid node names: genre, theme, controls, core-loop, win-condition, progression,
    visual-style, level-design, ai-npc, economy, concept-art.
    Use one per resolved tech tree node. These drive the visual tech tree in the UI.
-10. For the concept art prompt, output at end:
+10. For the concept art prompt, output ONLY as a hidden comment at the end — NEVER include the prompt text in your visible message:
    <!-- CONCEPT_ART_PROMPT: [full Grok prompt here] -->
+   The UI automatically triggers image generation when it receives this. Just tell the user you're generating art.
 11. When design is complete and user approves generation, output at end:
    <!-- READY_TO_GENERATE: true -->
 12. When referencing a known game's design pattern from the knowledge base, output:
@@ -137,7 +138,7 @@ async function streamChat(messages, gameId, res, opts = {}) {
   }
 
   const stream = await client.messages.stream({
-    model: 'claude-opus-4-5',
+    model: 'claude-opus-4-6',
     max_tokens: 1024,
     system: systemPrompt,
     messages,
@@ -229,7 +230,7 @@ async function streamGenerationStep(system, userPrompt, res, stepName, pct) {
 
   try {
     const stream = await client.messages.stream({
-      model: 'claude-sonnet-4-5-20250514',
+      model: 'claude-opus-4-6',
       max_tokens: 4096,
       system,
       messages: [{ role: 'user', content: userPrompt }],
@@ -357,7 +358,7 @@ function extractMetadata(text) {
  * @returns {string} full generated text
  */
 async function streamAgentStep(system, userPrompt, res, agentName, opts = {}) {
-  const model = opts.model || 'claude-sonnet-4-5-20250514';
+  const model = opts.model || 'claude-opus-4-6';
   const maxTokens = opts.maxTokens || 4096;
 
   res.write(`event: agent-progress\ndata: ${JSON.stringify({ agent: agentName, status: 'running' })}\n\n`);

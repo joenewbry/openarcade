@@ -92,7 +92,7 @@ async function generateQuickPreview(prompt, outputDir) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'grok-2-image-1212',
+      model: 'grok-2-image',
       prompt: `Game screenshot mockup: ${prompt}. Digital pixel art style, UI elements visible, vibrant colors.`,
       n: 1,
       response_format: 'b64_json',
@@ -146,7 +146,7 @@ async function generateGameArt(gameMd, outputDir) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'grok-2-image-1212',
+        model: 'grok-2-image',
         prompt: `Game screenshot mockup: ${prompt}. Pixel art style, vibrant colors, HUD visible, gameplay action scene.`,
         n: 1,
         response_format: 'b64_json',
@@ -189,7 +189,7 @@ async function generateKnowledgeImage(prompt, outputPath) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'grok-2-image-1212',
+      model: 'grok-2-image',
       prompt: `Game reference image: ${prompt}. Clean digital art style, game UI elements visible.`,
       n: 1,
       response_format: 'b64_json',
