@@ -1175,7 +1175,7 @@ function render(renderer, text) {
     // HP bar
     renderer.fillRect(bx - 5, by - 14, boss.w + 10, 4, '#330000');
     renderer.fillRect(bx - 5, by - 14, (boss.w + 10) * (boss.hp / boss.maxHp), 4, '#ff0000');
-    renderer.strokeLine(bx - 5, by - 14, bx - 5 + boss.w + 10, by - 14, '#880000', 1);
+    renderer.drawLine(bx - 5, by - 14, bx - 5 + boss.w + 10, by - 14, '#880000', 1);
     text.drawText('DEMON LORD', bx + boss.w / 2, by - 22, 8, '#ff4444', 'center');
   }
 
