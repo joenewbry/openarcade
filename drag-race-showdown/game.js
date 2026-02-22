@@ -307,7 +307,7 @@ function updateParticles(dt) {
   }
 }
 
-function update(dt) {
+function update(dt, game) {
   // dt from engine is ms, convert to seconds
   const dtS = dt / 1000;
 
@@ -321,14 +321,14 @@ function update(dt) {
 
     if (!raceFinished) {
       if (player.finishTime !== null && ai.finishTime === null && !ai.falseStart) {
-        if (raceTime - player.finishTime > 3) endRace();
+        if (raceTime - player.finishTime > 3) endRace(game);
       }
       if (ai.finishTime !== null && player.finishTime === null && !player.falseStart) {
-        if (raceTime - ai.finishTime > 3) endRace();
+        if (raceTime - ai.finishTime > 3) endRace(game);
       }
       if ((player.finishTime !== null || player.falseStart) &&
           (ai.finishTime !== null || ai.falseStart)) {
-        endRace();
+        endRace(game);
       }
     }
   }
@@ -337,7 +337,7 @@ function update(dt) {
   updateParticles(dtS);
 }
 
-function endRace() {
+function endRace(game) {
   if (raceFinished) return;
   raceFinished = true;
   gameState = 'results';
@@ -369,28 +369,22 @@ function endRace() {
   }
   winsEl.textContent = wins;
 
-  setTimeout(() => {
-    let lines = [];
-    if (player.finishTime !== null && !player.falseStart) {
-      lines.push('Your time: ' + player.finishTime.toFixed(3) + 's (RT: ' + player.reactionTime.toFixed(3) + 's)');
-    }
-    if (ai.finishTime !== null && !ai.falseStart) {
-      lines.push('AI time: ' + ai.finishTime.toFixed(3) + 's (RT: ' + ai.reactionTime.toFixed(3) + 's)');
-    }
-    if (player.finishTime !== null && ai.finishTime !== null && !player.falseStart && !ai.falseStart) {
-      let diff = Math.abs(player.finishTime - ai.finishTime);
-      lines.push('Margin: ' + diff.toFixed(3) + 's');
-    }
-    lines.push('');
-    lines.push('Click for next round');
+  let lines = [];
+  if (player.finishTime !== null && !player.falseStart) {
+    lines.push('Your time: ' + player.finishTime.toFixed(3) + 's (RT: ' + player.reactionTime.toFixed(3) + 's)');
+  }
+  if (ai.finishTime !== null && !ai.falseStart) {
+    lines.push('AI time: ' + ai.finishTime.toFixed(3) + 's (RT: ' + ai.reactionTime.toFixed(3) + 's)');
+  }
+  if (player.finishTime !== null && ai.finishTime !== null && !player.falseStart && !ai.falseStart) {
+    let diff = Math.abs(player.finishTime - ai.finishTime);
+    lines.push('Margin: ' + diff.toFixed(3) + 's');
+  }
+  lines.push('');
+  lines.push('Click for next round');
 
-    const overlayTitle = document.getElementById('overlayTitle');
-    const overlayText = document.getElementById('overlayText');
-    const overlay = document.getElementById('overlay');
-    if (overlayTitle) overlayTitle.textContent = winner;
-    if (overlayText) overlayText.innerHTML = lines.map(l => '<p>' + l + '</p>').join('');
-    if (overlay) overlay.style.display = 'flex';
-  }, 1500);
+  game.setState('over');
+  game.showOverlay(winner, lines.join('\n'));
 }
 
 // ── Drawing helpers ──
@@ -866,7 +860,7 @@ export function createGame() {
       shakeY = 0;
     }
 
-    update(dt);
+    update(dt, game);
   };
 
   game.onDraw = (renderer, text) => {
