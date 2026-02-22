@@ -48,6 +48,7 @@ let animFrame = 0;
 let starField = [];
 let playerMoved = false;
 let playerTraded = false;
+let gameRef = null;
 
 // ---- HELPERS ----
 function dist(a, b) { return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2); }
@@ -398,17 +399,17 @@ function endTurn() {
   addLog(`--- Turn ${turn} ---`, 'event-system');
 }
 
-function endGame(game) {
+function endGame() {
   const rankings = players.filter(p => p.alive).map(p => ({ name: p.name, wealth: totalWealth(p) }));
   rankings.sort((a, b) => b.wealth - a.wealth);
   const rank = rankings.findIndex(r => r.name === 'You') + 1;
   score = totalWealth(players[0]);
   const lines = rankings.map((r, i) => `${i + 1}. ${r.name}: ${r.wealth} cr`).join(' | ');
   const title = rank === 1 ? 'TRADE EMPIRE!' : `RANK #${rank}`;
-  game.showOverlay(title, `Final Wealth: ${score} credits`);
+  gameRef.showOverlay(title, `Final Wealth: ${score} credits`);
   const sub = document.getElementById('overlaySub');
   if (sub) sub.textContent = lines;
-  game.setState('over');
+  gameRef.setState('over');
   updateUI();
 }
 
@@ -837,6 +838,7 @@ export function createGame() {
   }
 
   const game = new Game('game');
+  gameRef = game;
 
   game.onInit = () => {
     game.showOverlay('SPACE TRADER', 'Elite-inspired trading across the stars');
