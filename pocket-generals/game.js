@@ -826,14 +826,16 @@ export function createGame() {
 
   canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
     pendingMoves.push({ mx, my });
   });
 
   canvas.addEventListener('click', (e) => {
     const rect = canvas.getBoundingClientRect();
-    pendingClicks.push({ mx: e.clientX - rect.left, my: e.clientY - rect.top });
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    pendingClicks.push({ mx, my });
   });
 
   game.onUpdate = () => {
