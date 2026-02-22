@@ -13,6 +13,12 @@ let mapSeed, islandTiles;
 let nextFleetId;
 let buildButtons = [];
 
+// Frame-counter delay for AI turn sequencing (replaces setTimeout)
+const AI_STEP_DELAY = 18; // ~300ms at 60fps
+let turnResolveStep = 0;  // 0=idle, 1=resolvePlayer, 2=aiTurn, 3=resolveAI, 4=income
+let turnResolveTimer = 0;
+let gameRef = null; // stored reference for frame-based turn resolution
+
 // DOM HUD elements (kept in DOM for readability)
 const hudTurn    = document.getElementById('hud-turn');
 const hudGold    = document.getElementById('hud-gold');
@@ -130,6 +136,8 @@ function initGame() {
   mapSeed = Date.now() % 100000;
   nextFleetId = 2;
   buildButtons = [];
+  turnResolveStep = 0;
+  turnResolveTimer = 0;
 
   generateMap();
 
@@ -299,26 +307,21 @@ function checkGameEnd(game) {
 function showGameOver(game, pScore, aScore) {
   const won = pScore > aScore;
   const overlay = document.getElementById('overlay');
-  if (overlay) {
-    overlay.style.display = 'flex';
-    overlay.innerHTML = `
-      <h1 style="font-size:32px;color:#48c;text-shadow:0 0 16px #48c;margin-bottom:8px">${won ? 'VICTORY' : 'DEFEAT'}</h1>
-      <h2 style="font-size:18px;color:#aaa;margin-bottom:16px;font-weight:normal">${won ? 'The seas are yours!' : 'The enemy controls the waves.'}</h2>
-      <div style="font-size:14px;color:#ccc;margin:4px 0">Your Score: <span style="color:#48c;font-weight:bold">${pScore}</span></div>
-      <div style="font-size:14px;color:#ccc;margin:4px 0">Ports Held: <span style="color:#48c;font-weight:bold">${countPorts('player')}</span></div>
-      <div style="font-size:14px;color:#ccc;margin:4px 0">Ships Remaining: <span style="color:#48c;font-weight:bold">${countShips('player')}</span></div>
-      <div style="font-size:14px;color:#ccc;margin:4px 0">Enemy Score: <span style="color:#48c;font-weight:bold">${aScore}</span></div>
-      <br>
-      <button id="restart-btn" style="padding:12px 36px;font-size:16px;font-family:'Courier New',monospace;background:transparent;color:#48c;border:2px solid #48c;cursor:pointer;text-transform:uppercase;letter-spacing:2px">PLAY AGAIN</button>
-    `;
-    document.getElementById('restart-btn').addEventListener('click', () => {
-      initGame();
-      combatLog = [];
-      game.setState('playing');
-      game.hideOverlay();
-      updateHUD();
-    });
-  }
+  if (!overlay) return;
+  const h1 = overlay.querySelector('h1');
+  const h2 = overlay.querySelector('h2');
+  const info = overlay.querySelector('.info');
+  const btn = overlay.querySelector('button');
+  if (h1) h1.textContent = won ? 'VICTORY' : 'DEFEAT';
+  if (h2) h2.textContent = won ? 'The seas are yours!' : 'The enemy controls the waves.';
+  if (info) info.innerHTML =
+    `Score: <span style="color:#48c;font-weight:bold">${pScore}</span> | ` +
+    `Ports: <span style="color:#48c;font-weight:bold">${countPorts('player')}</span> | ` +
+    `Ships: <span style="color:#48c;font-weight:bold">${countShips('player')}</span><br>` +
+    `Enemy Score: <span style="color:#48c;font-weight:bold">${aScore}</span><br><br>` +
+    `Press any key or click to play again`;
+  if (btn) { btn.textContent = 'PLAY AGAIN'; btn.style.display = ''; }
+  overlay.style.display = 'flex';
 }
 
 // ── AI ──
@@ -381,24 +384,39 @@ function aiTurn() {
 function endPlayerTurn(game) {
   if (phase !== 'player') return;
   phase = 'resolve';
+  turnResolveStep = 1;
+  turnResolveTimer = AI_STEP_DELAY;
   resolveMovement('player');
-  setTimeout(() => {
+}
+
+// Called each frame from onUpdate to advance AI turn resolution
+function tickTurnResolve(game) {
+  if (turnResolveStep === 0) return;
+  if (--turnResolveTimer > 0) return;
+
+  if (turnResolveStep === 1) {
+    // Step 2: run AI decisions
     aiTurn();
-    setTimeout(() => {
-      resolveMovement('ai');
-      setTimeout(() => {
-        collectIncome();
-        checkGameEnd(game);
-        if (game.state === 'playing') {
-          turn++;
-          phase = 'player';
-          selectedFleet = null;
-          selectedPort = null;
-          updateHUD();
-        }
-      }, 300);
-    }, 300);
-  }, 300);
+    turnResolveStep = 2;
+    turnResolveTimer = AI_STEP_DELAY;
+  } else if (turnResolveStep === 2) {
+    // Step 3: resolve AI movement & combat
+    resolveMovement('ai');
+    turnResolveStep = 3;
+    turnResolveTimer = AI_STEP_DELAY;
+  } else if (turnResolveStep === 3) {
+    // Step 4: income & check game end
+    collectIncome();
+    checkGameEnd(game);
+    if (game.state === 'playing') {
+      turn++;
+      phase = 'player';
+      selectedFleet = null;
+      selectedPort = null;
+      updateHUD();
+    }
+    turnResolveStep = 0;
+  }
 }
 
 // ── HUD ──
@@ -713,9 +731,24 @@ function handleClick(mx, my, game) {
   updateHUD();
 }
 
+// ── Helper: check if any game key was pressed ──
+function anyKeyPressed(input) {
+  return input.wasPressed(' ') || input.wasPressed('Enter') ||
+         input.wasPressed('1') || input.wasPressed('2') || input.wasPressed('3');
+}
+
+function startNewGame(game) {
+  initGame();
+  combatLog = [];
+  game.setState('playing');
+  game.hideOverlay();
+  updateHUD();
+}
+
 // ── Entry point ──
 export function createGame() {
   const game = new Game('game');
+  gameRef = game;
 
   game.onInit = () => {
     game.showOverlay('NAVAL COMMANDER', 'Control the Seas');
@@ -730,34 +763,49 @@ export function createGame() {
     handleClick(e.clientX - rect.left, e.clientY - rect.top, game);
   });
 
-  // Keyboard
-  document.addEventListener('keydown', (e) => {
-    if (game.state !== 'playing') return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      endPlayerTurn(game);
-      return;
-    }
-    if (phase === 'player' && selectedPort && selectedPort.owner === 'player') {
-      if (e.key === '1') { buildShip(selectedPort, 'frigate');    updateHUD(); }
-      if (e.key === '2') { buildShip(selectedPort, 'destroyer');  updateHUD(); }
-      if (e.key === '3') { buildShip(selectedPort, 'battleship'); updateHUD(); }
-    }
-  });
-
-  // Start button (overlay)
+  // Start button (overlay) — kept as alternative to keyboard start
   const startBtn = document.getElementById('start-btn');
   if (startBtn) {
     startBtn.addEventListener('click', () => {
-      initGame();
-      combatLog = [];
-      game.setState('playing');
-      updateHUD();
+      startNewGame(game);
     });
   }
 
   game.onUpdate = () => {
+    const input = game.input;
     waveTime += 0.016; // ~60Hz, advance wave animation
+
+    // ── Waiting: any key or click starts the game ──
+    if (game.state === 'waiting') {
+      if (anyKeyPressed(input)) {
+        startNewGame(game);
+      }
+      return;
+    }
+
+    // ── Game over: any key or click restarts ──
+    if (game.state === 'over') {
+      if (anyKeyPressed(input)) {
+        startNewGame(game);
+      }
+      return;
+    }
+
+    // ── Playing: advance frame-based AI turn resolution ──
+    tickTurnResolve(game);
+
+    // ── Playing: keyboard input via engine input system ──
+    if (phase === 'player') {
+      if (input.wasPressed(' ') || input.wasPressed('Enter')) {
+        endPlayerTurn(game);
+        return;
+      }
+      if (selectedPort && selectedPort.owner === 'player') {
+        if (input.wasPressed('1')) { buildShip(selectedPort, 'frigate');    updateHUD(); }
+        if (input.wasPressed('2')) { buildShip(selectedPort, 'destroyer');  updateHUD(); }
+        if (input.wasPressed('3')) { buildShip(selectedPort, 'battleship'); updateHUD(); }
+      }
+    }
   };
 
   game.onDraw = (renderer, text) => {
