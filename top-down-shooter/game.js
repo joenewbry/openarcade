@@ -582,6 +582,15 @@ export function createGame() {
   // --- Update (fixed 60Hz) ---
   const FIXED_MS = 1000 / 60;
   game.onUpdate = (dt) => {
+    // Accept any game key to start or restart
+    if (game.state === 'waiting' || game.state === 'over') {
+      const startKeys = ['w','a','s','d','W','A','S','D','e','E','r','R',
+                         'ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '];
+      for (const key of startKeys) {
+        if (game.input.wasPressed(key)) { initGame(); return; }
+      }
+      return;
+    }
     if (game.state !== 'playing') return;
 
     // Timer
