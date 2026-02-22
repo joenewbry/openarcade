@@ -586,54 +586,54 @@ export function createGame() {
 
   const game = new Game('game');
 
-  game.onInit = () => {
-    game.showOverlay('RESTAURANT TYCOON PvP', 'Compete against AI restaurants on the same street. Set menus, hire staff, upgrade, and outprice the competition! Click to Start');
-    game.setState('waiting');
+  // Mouse click handling (registered once, outside onInit to avoid duplicates on restart)
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (W / rect.width);
+    const my = (e.clientY - rect.top)  * (H / rect.height);
 
-    // Mouse click handling
-    canvas.addEventListener('click', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = (e.clientX - rect.left) * (W / rect.width);
-      const my = (e.clientY - rect.top)  * (H / rect.height);
+    if (game.state === 'waiting') {
+      startGame();
+      return;
+    }
+    if (game.state === 'over') {
+      game.overlay.style.display = 'none';
+      game.overlay.style.pointerEvents = 'none';
+      startGame();
+      return;
+    }
 
-      if (game.state === 'waiting') {
-        startGame();
+    for (let b of buttons) {
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+        b.action();
         return;
       }
-      if (game.state === 'over') {
+    }
+  });
+
+  // Hover cursor (registered once, outside onInit to avoid duplicates on restart)
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (W / rect.width);
+    const my = (e.clientY - rect.top)  * (H / rect.height);
+    let over = buttons.some(b => mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h);
+    canvas.style.cursor = over ? 'pointer' : 'default';
+  });
+
+  // Overlay click to start (registered once, outside onInit to avoid duplicates on restart)
+  if (game.overlay) {
+    game.overlay.addEventListener('click', () => {
+      if (game.state === 'waiting' || game.state === 'over') {
         game.overlay.style.display = 'none';
         game.overlay.style.pointerEvents = 'none';
         startGame();
-        return;
-      }
-
-      for (let b of buttons) {
-        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-          b.action();
-          return;
-        }
       }
     });
+  }
 
-    // Hover cursor
-    canvas.addEventListener('mousemove', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = (e.clientX - rect.left) * (W / rect.width);
-      const my = (e.clientY - rect.top)  * (H / rect.height);
-      let over = buttons.some(b => mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h);
-      canvas.style.cursor = over ? 'pointer' : 'default';
-    });
-
-    // Overlay click to start
-    if (game.overlay) {
-      game.overlay.addEventListener('click', () => {
-        if (game.state === 'waiting' || game.state === 'over') {
-          game.overlay.style.display = 'none';
-          game.overlay.style.pointerEvents = 'none';
-          startGame();
-        }
-      });
-    }
+  game.onInit = () => {
+    game.showOverlay('RESTAURANT TYCOON PvP', 'Compete against AI restaurants on the same street. Set menus, hire staff, upgrade, and outprice the competition! Click to Start');
+    game.setState('waiting');
   };
 
   game.setScoreFn(() => score);
