@@ -439,10 +439,10 @@ export function createGame() {
     for (let i = 0; i < 24; i++) {
       const angle = (i / 24) * Math.PI * 2 + cookieRotation * 0.05;
       const r = (COOKIE_RADIUS - 2 + Math.sin(i * 3.7) * 4) * cookieScale;
-      edgePoints.push([
-        COOKIE_X + Math.cos(angle) * r,
-        COOKIE_Y + Math.sin(angle) * r
-      ]);
+      edgePoints.push({
+        x: COOKIE_X + Math.cos(angle) * r,
+        y: COOKIE_Y + Math.sin(angle) * r
+      });
     }
     renderer.strokePoly(edgePoints, '#8B6914', 3, true);
 
