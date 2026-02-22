@@ -336,15 +336,25 @@ function renderAgentBar() {
 }
 
 // ── Concept Image ────────────────────────────────────────────
+let _conceptImageInFlight = false;
+
 async function updateConceptImage() {
   if (!dom.conceptImage) return;
-  dom.conceptImage.innerHTML = '<div class="gb-concept-loading">Generating concept preview...</div>';
+  if (_conceptImageInFlight) return; // skip if one is already generating
+  if (state.messages.length < 2) return; // need at least one exchange
+
+  _conceptImageInFlight = true;
+  // Show subtle loading indicator on top of the existing image (don't flash blank)
+  const existing = dom.conceptImage.querySelector('img');
+  if (!existing) {
+    dom.conceptImage.innerHTML = '<div class="gb-concept-loading">Generating concept preview...</div>';
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/imagine-preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gameId: state.gameId }),
+      body: JSON.stringify({ gameId: state.gameId, messages: state.messages }),
     });
     if (!res.ok) throw new Error(`Preview API ${res.status}`);
     const data = await res.json();
@@ -352,8 +362,13 @@ async function updateConceptImage() {
       dom.conceptImage.innerHTML = `<img src="${data.image}" alt="Concept preview">`;
     }
   } catch (e) {
-    dom.conceptImage.innerHTML = '<div class="gb-concept-placeholder">Concept art generates as your design takes shape...</div>';
+    // Only show placeholder if we have no existing image
+    if (!dom.conceptImage.querySelector('img')) {
+      dom.conceptImage.innerHTML = '<div class="gb-concept-placeholder">Concept art generates as your design takes shape...</div>';
+    }
     console.warn('Concept image error:', e);
+  } finally {
+    _conceptImageInFlight = false;
   }
 }
 
@@ -633,8 +648,6 @@ async function sendMessage() {
     if (response.metadata) {
       if (response.metadata.designUpdates) {
         applyDesignUpdates(response.metadata.designUpdates);
-        // Maybe generate concept image every few turns
-        maybeUpdateConceptImage();
       }
       if (response.metadata.techTreeUpdates) {
         for (const u of response.metadata.techTreeUpdates) {
@@ -667,6 +680,9 @@ async function sendMessage() {
       }
     }
 
+    // Update concept preview after every AI response (non-blocking)
+    maybeUpdateConceptImage();
+
     saveSessionState();
 
   } catch (e) {
@@ -680,11 +696,7 @@ async function sendMessage() {
 }
 
 function maybeUpdateConceptImage() {
-  // Throttle: only after enough info + every 3 user turns
-  if (!state.checklist['core-concept'] || !state.checklist['visual-design']) return;
-  const turnCount = state.messages.filter(m => m.role === 'user').length;
-  if (state.lastPreviewTurn && turnCount - state.lastPreviewTurn < 3) return;
-  state.lastPreviewTurn = turnCount;
+  // Fire on every chat turn — generates a preview from conversation context
   updateConceptImage();
 }
 

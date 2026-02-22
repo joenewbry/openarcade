@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const http = require('http');
-const { streamChat } = require('./claude');
+const { streamChat, complete } = require('./claude');
 const { generateConceptArt, generateQuickPreview, generateKnowledgeImage } = require('./grok');
 const { generateGame } = require('./generator');
 const { generateGameParallel } = require('./parallel-generator');
@@ -120,26 +120,40 @@ app.post('/api/imagine', async (req, res) => {
 });
 
 // ── POST /api/imagine-preview — quick early preview image ──
+// Accepts { gameId, messages } — uses conversation context to generate a preview
 app.post('/api/imagine-preview', async (req, res) => {
-  const { gameId } = req.body;
+  const { gameId, messages } = req.body;
   if (!gameId) return res.status(400).json({ error: 'gameId required' });
 
   const gameDir = path.join(REPO_PATH, gameId);
-  const gameMdPath = path.join(gameDir, 'game.md');
 
   try {
-    // Build a prompt from the current game.md spec
-    let spec = '';
-    if (fs.existsSync(gameMdPath)) {
-      spec = fs.readFileSync(gameMdPath, 'utf8');
-    }
-    if (!spec || spec.length < 50) {
-      return res.status(400).json({ error: 'Not enough design info yet' });
+    let prompt = '';
+
+    // Prefer building prompt from conversation messages (live during design)
+    if (messages && messages.length >= 2) {
+      // Take last 10 messages for context, concat into a summary
+      const recent = messages.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n');
+      prompt = await complete(
+        'You generate concise image prompts for a game screenshot mockup. Output ONLY the image prompt, nothing else. 1-2 sentences max.',
+        `Based on this game design conversation, write a concise image prompt that captures what this game would look like as a screenshot:\n\n${recent}`,
+        200
+      );
     }
 
-    // Extract key details for a concise image prompt
-    const lines = spec.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2)).join(', ');
-    const prompt = lines.slice(0, 500); // limit prompt length
+    // Fallback to game.md on disk
+    if (!prompt) {
+      const gameMdPath = path.join(gameDir, 'game.md');
+      let spec = '';
+      if (fs.existsSync(gameMdPath)) {
+        spec = fs.readFileSync(gameMdPath, 'utf8');
+      }
+      if (!spec || spec.length < 50) {
+        return res.status(400).json({ error: 'Not enough design info yet' });
+      }
+      const lines = spec.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2)).join(', ');
+      prompt = lines.slice(0, 500);
+    }
 
     const imagePath = await generateQuickPreview(prompt, gameDir);
     res.json({ image: imagePath });
