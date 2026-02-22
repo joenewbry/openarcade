@@ -207,7 +207,7 @@ export function createGame() {
 
     scoreEl.textContent = '0';
     livesEl.textContent = lives;
-    game.showOverlay('MOON PATROL', 'Press SPACE to start -- SPACE/UP: Jump | Z: Fire forward | X: Fire up');
+    game.showOverlay('MOON PATROL', 'Press any key to start -- SPACE/UP: Jump | Z: Fire forward | X: Fire up');
     game.setState('waiting');
   };
 
@@ -217,14 +217,18 @@ export function createGame() {
     const input = game.input;
 
     if (game.state === 'waiting') {
-      if (input.wasPressed(' ') || input.wasPressed('ArrowUp')) {
+      if (input.wasPressed(' ') || input.wasPressed('ArrowUp') ||
+          input.wasPressed('ArrowDown') || input.wasPressed('ArrowLeft') ||
+          input.wasPressed('ArrowRight') || input.wasPressed('z') || input.wasPressed('x')) {
         game.setState('playing');
       }
       return;
     }
 
     if (game.state === 'over') {
-      if (input.wasPressed(' ') || input.wasPressed('ArrowUp') || input.wasPressed('z') || input.wasPressed('x')) {
+      if (input.wasPressed(' ') || input.wasPressed('ArrowUp') ||
+          input.wasPressed('ArrowDown') || input.wasPressed('ArrowLeft') ||
+          input.wasPressed('ArrowRight') || input.wasPressed('z') || input.wasPressed('x')) {
         game.onInit();
       }
       return;
