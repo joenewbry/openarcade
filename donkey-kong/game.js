@@ -598,10 +598,10 @@ function drawPlatform(renderer, plat) {
 
   // Steel girder body as polygon
   let points = [
-    [plat.x, leftY],
-    [plat.x + plat.w, rightY],
-    [plat.x + plat.w, rightY + plat.h],
-    [plat.x, leftY + plat.h]
+    { x: plat.x, y: leftY },
+    { x: plat.x + plat.w, y: rightY },
+    { x: plat.x + plat.w, y: rightY + plat.h },
+    { x: plat.x, y: leftY + plat.h }
   ];
 
   renderer.setGlow('#f44', 0.3);
@@ -733,10 +733,10 @@ function drawPrincess(renderer, text) {
 
   // Dress (trapezoid)
   let dressPoints = [
-    [p.x, p.y + p.h],
-    [p.x + p.w, p.y + p.h],
-    [p.x + p.w - 2, p.y + 10],
-    [p.x + 2, p.y + 10]
+    { x: p.x, y: p.y + p.h },
+    { x: p.x + p.w, y: p.y + p.h },
+    { x: p.x + p.w - 2, y: p.y + 10 },
+    { x: p.x + 2, y: p.y + 10 }
   ];
   renderer.fillPoly(dressPoints, '#f6a');
 
