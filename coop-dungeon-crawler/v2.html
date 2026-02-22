@@ -52,9 +52,7 @@ canvas#game {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   background: rgba(26,26,46,0.92);
   border-radius: 4px; z-index: 10;
-  transition: opacity 0.3s;
 }
-#overlay.hidden { opacity: 0; pointer-events: none; }
 #overlay h1 {
   font-size: 26px; color: #a84;
   text-shadow: 0 0 18px #a84, 0 0 40px rgba(170,136,68,0.3);
@@ -125,14 +123,14 @@ canvas#game {
 <div id="game-container">
   <canvas id="game" width="600" height="500"></canvas>
   <div id="overlay">
-    <h1>CO-OP DUNGEON CRAWLER</h1>
+    <h1 id="overlayTitle">CO-OP DUNGEON CRAWLER</h1>
     <p>Choose your class. Your AI ally picks a complementary class.<br>Clear all monsters in each room. Defeat the boss to descend deeper.</p>
     <div class="class-select" id="classSelect">
       <button class="class-btn" data-class="warrior"><span class="name">WARRIOR</span><span class="stats">HP: 150 | ATK: 18 | DEF: 8<br>Melee | Shield Bash | War Cry</span></button>
       <button class="class-btn" data-class="mage"><span class="name">MAGE</span><span class="stats">HP: 80 | ATK: 22 | DEF: 3<br>Ranged AoE | Fireball | Frost Nova</span></button>
       <button class="class-btn" data-class="rogue"><span class="name">ROGUE</span><span class="stats">HP: 100 | ATK: 20 | DEF: 5<br>Fast | Backstab | Smoke Bomb</span></button>
     </div>
-    <p id="overlayMsg"></p>
+    <p id="overlayText"></p>
     <button class="restart-btn" id="restartBtn" style="display:none;">Play Again</button>
   </div>
 </div>

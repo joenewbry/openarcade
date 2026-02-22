@@ -16,11 +16,15 @@ const roomEl = document.getElementById('roomVal');
 const lootEl = document.getElementById('lootVal');
 
 // ── State ──
-let gameState, score, totalLoot, currentFloor;
+let score, totalLoot, currentFloor;
 const MAX_FLOORS = 3;
 let dungeon, rooms, currentRoom, roomsCleared;
 let monsters, lootItems, projectiles, particles, floatingTexts;
 let player, ally, camera;
+
+// ── Frame-counter delays (replace setTimeout) ──
+let delayTimer = 0;
+let delayAction = null;
 
 // ── Class definitions ──
 const CLASS_DEFS = {
@@ -64,8 +68,8 @@ const DOOR_COLOR     = '#a84';
 let pendingClass = null;
 let pendingRestart = false;
 
-// ── Overlay refs ──
-let overlayEl, classSelectEl, overlayMsgEl, restartBtnEl, overlayH1El;
+// ── Custom overlay element refs ──
+let classSelectEl, restartBtnEl;
 
 // ============================================================
 //  HELPERS
@@ -543,16 +547,14 @@ function checkRoomClear(roomIdx) {
     if (room.isBoss) {
       score += 100 * currentFloor;
       if (currentFloor >= MAX_FLOORS) {
-        setTimeout(() => {
-          gameState = 'over';
-          showGameOverlay('VICTORY!', 'All dungeon floors cleared!\nFinal Score: ' + score, true);
-          game.setState('over');
-        }, 500);
+        // Victory — delay 30 frames (~0.5s) then show overlay
+        delayTimer = 30;
+        delayAction = 'victory';
       } else {
+        // Next floor — delay 60 frames (~1s) then descend
         spawnFloatingText(player.x, player.y - 24, 'DESCENDING...', '#a84');
-        setTimeout(() => {
-          initFloor(currentFloor + 1, player.className);
-        }, 1000);
+        delayTimer = 60;
+        delayAction = 'descend';
       }
     }
   }
@@ -618,10 +620,11 @@ function initFloor(floor, playerClass) {
 }
 
 function startGame(playerClass) {
-  gameState = 'playing';
   score = 0; totalLoot = 0; currentFloor = 1;
+  delayTimer = 0; delayAction = null;
   player = null;
   initFloor(1, playerClass);
+  game.hideOverlay();
   game.setState('playing');
 }
 
@@ -636,21 +639,20 @@ function updateHUD() {
 }
 
 // ============================================================
-//  OVERLAY MANAGEMENT (custom for this game)
+//  OVERLAY HELPERS
 // ============================================================
-function showGameOverlay(title, msg, isWin) {
-  if (!overlayEl) return;
-  overlayEl.classList.remove('hidden');
+function showGameOver(title, msg) {
   if (classSelectEl) classSelectEl.style.display = 'none';
-  if (restartBtnEl)  restartBtnEl.style.display   = 'block';
-  if (overlayH1El) {
-    overlayH1El.textContent = title;
-    overlayH1El.style.color = isWin ? '#4f4' : '#f44';
-  }
-  if (overlayMsgEl) {
-    overlayMsgEl.textContent = msg;
-    overlayMsgEl.style.whiteSpace = 'pre-line';
-  }
+  if (restartBtnEl)  restartBtnEl.style.display  = 'block';
+  game.showOverlay(title, msg);
+  game.setState('over');
+}
+
+function showClassSelect() {
+  if (classSelectEl) classSelectEl.style.display = 'flex';
+  if (restartBtnEl)  restartBtnEl.style.display  = 'none';
+  game.setState('waiting');
+  game.showOverlay('CO-OP DUNGEON CRAWLER', '');
 }
 
 // ============================================================
@@ -795,12 +797,9 @@ let game;
 export function createGame() {
   game = new Game('game');
 
-  // Grab overlay DOM elements
-  overlayEl       = document.getElementById('overlay');
+  // Grab custom overlay DOM elements (engine owns #overlay, #overlayTitle, #overlayText)
   classSelectEl   = document.getElementById('classSelect');
-  overlayMsgEl    = document.getElementById('overlayMsg');
   restartBtnEl    = document.getElementById('restartBtn');
-  overlayH1El     = overlayEl ? overlayEl.querySelector('h1') : null;
 
   // Wire up class selection buttons
   if (classSelectEl) {
@@ -819,24 +818,15 @@ export function createGame() {
   }
 
   game.onInit = () => {
-    gameState = 'waiting';
     score = 0; totalLoot = 0; currentFloor = 1;
+    delayTimer = 0; delayAction = null;
     dungeon = []; rooms = []; monsters = []; lootItems = [];
     projectiles = []; particles = []; floatingTexts = [];
     player = null; ally = null; camera = { x: 0, y: 0 };
     updateHUD();
 
-    // Show the class selection overlay
-    if (overlayEl) overlayEl.classList.remove('hidden');
-    if (classSelectEl) classSelectEl.style.display = 'flex';
-    if (restartBtnEl) restartBtnEl.style.display = 'none';
-    if (overlayH1El) {
-      overlayH1El.textContent = 'CO-OP DUNGEON CRAWLER';
-      overlayH1El.style.color = '#a84';
-    }
-    if (overlayMsgEl) overlayMsgEl.textContent = '';
-
-    game.setState('waiting');
+    // Show the class selection overlay via engine API
+    showClassSelect();
   };
 
   game.setScoreFn(() => score);
@@ -852,18 +842,26 @@ export function createGame() {
     // Handle restart
     if (pendingRestart) {
       pendingRestart = false;
-      if (overlayEl) overlayEl.classList.remove('hidden');
-      if (classSelectEl) classSelectEl.style.display = 'flex';
-      if (restartBtnEl) restartBtnEl.style.display = 'none';
-      if (overlayH1El) { overlayH1El.textContent = 'CO-OP DUNGEON CRAWLER'; overlayH1El.style.color = '#a84'; }
-      if (overlayMsgEl) overlayMsgEl.textContent = '';
-      gameState = 'waiting';
-      game.setState('waiting');
+      showClassSelect();
       return;
     }
 
-    if (gameState !== 'playing') return;
+    if (game.state !== 'playing') return;
     if (!player || !ally) return;
+
+    // Handle frame-counter delays
+    if (delayTimer > 0) {
+      delayTimer--;
+      if (delayTimer <= 0 && delayAction) {
+        if (delayAction === 'victory') {
+          showGameOver('VICTORY!', 'All dungeon floors cleared!\nFinal Score: ' + score);
+        } else if (delayAction === 'descend') {
+          initFloor(currentFloor + 1, player.className);
+        }
+        delayAction = null;
+      }
+      return;
+    }
 
     // ── Player input ──
     if (player.alive && player.stunTimer <= 0) {
@@ -1041,9 +1039,7 @@ export function createGame() {
     if (player.hp <= 0) {
       player.alive = false; player.hp = 0;
       if (!ally.alive) {
-        gameState = 'over';
-        showGameOverlay('GAME OVER', 'Both heroes fell in the dungeon.\nScore: ' + score, false);
-        game.setState('over');
+        showGameOver('GAME OVER', 'Both heroes fell in the dungeon.\nScore: ' + score);
       } else {
         spawnFloatingText(player.x, player.y - 16, 'FALLEN!', '#f44');
       }
@@ -1051,9 +1047,7 @@ export function createGame() {
     if (ally.hp <= 0) {
       ally.alive = false; ally.hp = 0;
       if (!player.alive) {
-        gameState = 'over';
-        showGameOverlay('GAME OVER', 'Both heroes fell in the dungeon.\nScore: ' + score, false);
-        game.setState('over');
+        showGameOver('GAME OVER', 'Both heroes fell in the dungeon.\nScore: ' + score);
       } else {
         spawnFloatingText(ally.x, ally.y - 16, 'ALLY DOWN!', '#f44');
       }
@@ -1072,7 +1066,7 @@ export function createGame() {
     // Background
     renderer.fillRect(0, 0, W, H, '#0e0e1a');
 
-    if (gameState !== 'playing' || !dungeon || dungeon.length === 0) {
+    if (game.state !== 'playing' || !dungeon || dungeon.length === 0) {
       // Waiting or game over — just draw background
       return;
     }
