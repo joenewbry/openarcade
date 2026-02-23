@@ -11,7 +11,7 @@ const PADDLE_H = 12;
 const PADDLE_Y = H - 40;
 const PADDLE_SPEED = 7;
 const BALL_R = 5;
-const BASE_BALL_SPEED = 4.5;
+const BASE_BALL_SPEED = 5.5;
 const BRICK_COLS = 12;
 const BRICK_ROWS = 10;
 const BRICK_W = (W - 20) / BRICK_COLS;
@@ -34,14 +34,14 @@ const BRICK_METAL = 3;
 const PU_EXPAND = 'E';
 const PU_LASER = 'L';
 const PU_MULTI = 'M';
-const PU_SLOW = 'S';
+const PU_STRONG = 'P';
 const PU_LIFE = '1';
 
 const PU_COLORS = {
   [PU_EXPAND]: '#4fb',
   [PU_LASER]: '#f44',
   [PU_MULTI]: '#88f',
-  [PU_SLOW]: '#ff0',
+  [PU_STRONG]: '#fa0',
   [PU_LIFE]: '#f0f'
 };
 
@@ -49,11 +49,11 @@ const PU_LABELS = {
   [PU_EXPAND]: 'E',
   [PU_LASER]: 'L',
   [PU_MULTI]: 'M',
-  [PU_SLOW]: 'S',
+  [PU_STRONG]: 'P',
   [PU_LIFE]: '+'
 };
 
-const PU_TYPES = [PU_EXPAND, PU_LASER, PU_MULTI, PU_SLOW, PU_LIFE];
+const PU_TYPES = [PU_EXPAND, PU_LASER, PU_MULTI, PU_STRONG, PU_LIFE];
 
 // Row colors for normal bricks
 const ROW_COLORS = ['#f44', '#f80', '#fa0', '#ff0', '#8f0', '#0f0', '#0f8', '#0ff', '#08f', '#88f'];
@@ -65,7 +65,7 @@ let balls;       // Array of {x, y, vx, vy}
 let bricks;      // 2D array of {type, hits, alive}
 let powerups;    // Array of {x, y, type}
 let lasers;      // Array of {x, y}
-let hasLaser, laserTimer, expandTimer, slowTimer;
+let hasLaser, laserTimer, expandTimer, strongTimer, laserHintTimer;
 let comboCount, lastHitFrame;
 let particles;
 let frameCount;
@@ -85,8 +85,8 @@ function generateLevel(lvl) {
     }
   }
 
-  switch ((lvl - 1) % 8) {
-    case 0: // Full grid, simple
+  switch ((lvl - 1) % 16) {
+    case 0: // Welcome Mat — simple full grid
       for (let r = 0; r < 6; r++) {
         for (let c = 0; c < BRICK_COLS; c++) {
           layout[r][c] = BRICK_NORMAL;
@@ -104,14 +104,15 @@ function generateLevel(lvl) {
       }
       break;
 
-    case 2: // Diamond with metal border
+    case 2: // Diamond — partial metal border with openings
       for (let r = 0; r < 8; r++) {
         for (let c = 0; c < BRICK_COLS; c++) {
           const cx = BRICK_COLS / 2 - 0.5;
           const cy = 4;
           const dist = Math.abs(c - cx) + Math.abs(r - cy);
           if (dist <= 5) {
-            if (dist === 5) layout[r][c] = BRICK_METAL;
+            if (dist === 5 && (c + r) % 2 === 0) layout[r][c] = BRICK_METAL;
+            else if (dist === 5) layout[r][c] = BRICK_TOUGH;
             else if (dist <= 2) layout[r][c] = BRICK_TOUGH;
             else layout[r][c] = BRICK_NORMAL;
           }
@@ -119,18 +120,10 @@ function generateLevel(lvl) {
       }
       break;
 
-    case 3: // Stripes with tough rows
+    case 3: // Stripes — alternating normal/tough rows, no metal
       for (let r = 0; r < 8; r++) {
-        if (r % 2 === 0) {
-          for (let c = 0; c < BRICK_COLS; c++) {
-            layout[r][c] = BRICK_NORMAL;
-          }
-        } else {
-          for (let c = 1; c < BRICK_COLS - 1; c++) {
-            layout[r][c] = BRICK_TOUGH;
-          }
-          layout[r][0] = BRICK_METAL;
-          layout[r][BRICK_COLS - 1] = BRICK_METAL;
+        for (let c = 0; c < BRICK_COLS; c++) {
+          layout[r][c] = r % 2 === 0 ? BRICK_NORMAL : BRICK_TOUGH;
         }
       }
       break;
@@ -144,7 +137,6 @@ function generateLevel(lvl) {
           }
         }
       }
-      // Metal corners
       layout[0][0] = BRICK_METAL;
       layout[0][BRICK_COLS - 1] = BRICK_METAL;
       break;
@@ -162,7 +154,6 @@ function generateLevel(lvl) {
           }
         }
       }
-      // Metal at the tips
       layout[0][Math.floor(BRICK_COLS / 2) - 1] = BRICK_METAL;
       layout[0][Math.floor(BRICK_COLS / 2)] = BRICK_METAL;
       break;
@@ -178,27 +169,146 @@ function generateLevel(lvl) {
       }
       break;
 
-    case 7: // Fortress
+    case 7: // Fortress — metal top + corner pillars, wide bottom gate
       for (let r = 0; r < 9; r++) {
         for (let c = 0; c < BRICK_COLS; c++) {
-          if (r === 0 || r === 8 || c === 0 || c === BRICK_COLS - 1) {
+          if (r === 0) {
             layout[r][c] = BRICK_METAL;
-          } else if (r >= 2 && r <= 6 && c >= 2 && c <= BRICK_COLS - 3) {
+          } else if (r <= 5 && (c <= 1 || c >= BRICK_COLS - 2)) {
+            layout[r][c] = BRICK_METAL;
+          } else if (r === 1 && c >= 2 && c <= BRICK_COLS - 3) {
+            layout[r][c] = BRICK_TOUGH;
+          } else if (r >= 2 && r <= 7 && c >= 2 && c <= BRICK_COLS - 3) {
             layout[r][c] = BRICK_NORMAL;
-          } else if (r >= 1 && r <= 7 && c >= 1 && c <= BRICK_COLS - 2) {
+          }
+        }
+      }
+      break;
+
+    case 8: // Corridor — vertical metal walls, normal center, tough sides
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < BRICK_COLS; c++) {
+          if (c === 4 || c === 7) {
+            layout[r][c] = BRICK_METAL;
+          } else if (c === 5 || c === 6) {
+            layout[r][c] = BRICK_NORMAL;
+          } else {
             layout[r][c] = BRICK_TOUGH;
           }
         }
       }
-      // Gate opening
-      layout[8][5] = 0;
-      layout[8][6] = 0;
       break;
+
+    case 9: { // Bullseye — concentric rings
+      const cx9 = BRICK_COLS / 2 - 0.5;
+      const cy9 = 4.5;
+      for (let r = 0; r < BRICK_ROWS; r++) {
+        for (let c = 0; c < BRICK_COLS; c++) {
+          const dist = Math.sqrt((c - cx9) * (c - cx9) + (r - cy9) * (r - cy9));
+          if (dist <= 1.5) {
+            layout[r][c] = r <= 3 ? 0 : BRICK_METAL;
+          } else if (dist <= 3) {
+            layout[r][c] = BRICK_TOUGH;
+          } else if (dist <= 5) {
+            layout[r][c] = BRICK_NORMAL;
+          }
+        }
+      }
+      break;
+    }
+
+    case 10: // Maze — metal walls with normal brick paths
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < BRICK_COLS; c++) {
+          layout[r][c] = BRICK_NORMAL;
+        }
+      }
+      for (let c = 0; c < 5; c++) layout[2][c] = BRICK_METAL;
+      for (let c = 7; c < BRICK_COLS; c++) layout[4][c] = BRICK_METAL;
+      for (let c = 0; c < 5; c++) layout[6][c] = BRICK_METAL;
+      for (let r = 0; r < 3; r++) layout[r][8] = BRICK_METAL;
+      for (let r = 4; r < 7; r++) layout[r][3] = BRICK_METAL;
+      for (let r = 6; r < 9; r++) layout[r][8] = BRICK_METAL;
+      break;
+
+    case 11: // Shields — 3 shielded groups
+      for (let g = 0; g < 3; g++) {
+        const cOff = g * 4;
+        for (let r = 5; r <= 7; r++) {
+          for (let c = cOff; c < cOff + 4; c++) {
+            layout[r][c] = BRICK_NORMAL;
+          }
+        }
+        layout[2][cOff + 1] = BRICK_TOUGH;
+        layout[2][cOff + 2] = BRICK_TOUGH;
+        for (let c = cOff; c < cOff + 4; c++) layout[3][c] = BRICK_TOUGH;
+        for (let c = cOff; c < cOff + 4; c++) layout[4][c] = BRICK_TOUGH;
+      }
+      break;
+
+    case 12: // Staircase — descending steps
+      for (let step = 0; step < 6; step++) {
+        const r = step + 1;
+        const cStart = step * 2;
+        for (let c = cStart; c < cStart + 2 && c < BRICK_COLS; c++) {
+          layout[r][c] = step < 2 ? BRICK_TOUGH : BRICK_NORMAL;
+          if (r + 1 < BRICK_ROWS) layout[r + 1][c] = BRICK_NORMAL;
+        }
+        if (cStart < BRICK_COLS) layout[r][cStart] = BRICK_METAL;
+      }
+      break;
+
+    case 13: // Honeycomb — offset hex-like pattern
+      for (let r = 0; r < 8; r++) {
+        const off = (r % 2 === 0) ? 0 : 1;
+        for (let c = off; c < BRICK_COLS; c += 2) {
+          layout[r][c] = BRICK_NORMAL;
+          if (r >= 1 && r <= 6 && c >= 2 && c <= 9 && (r + c) % 4 === 0) {
+            layout[r][c] = BRICK_TOUGH;
+          }
+        }
+      }
+      break;
+
+    case 14: // Gauntlet — dense field with metal column gap
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < BRICK_COLS; c++) {
+          if (c === 5 || c === 6) {
+            layout[r][c] = r >= 6 ? BRICK_NORMAL : 0;
+          } else if (c === 4 || c === 7) {
+            layout[r][c] = BRICK_METAL;
+          } else if (r < 4) {
+            layout[r][c] = BRICK_TOUGH;
+          } else {
+            layout[r][c] = BRICK_NORMAL;
+          }
+        }
+      }
+      break;
+
+    case 15: { // Boss — skull pattern
+      const skull = [
+        [0,0,2,2,2,2,2,2,2,2,0,0],
+        [0,2,2,2,2,2,2,2,2,2,2,0],
+        [0,2,1,3,3,1,1,3,3,1,2,0],
+        [0,2,1,1,1,1,1,1,1,1,2,0],
+        [0,0,2,1,1,2,2,1,1,2,0,0],
+        [0,0,0,1,1,1,1,1,1,0,0,0],
+        [0,0,1,1,0,1,1,0,1,1,0,0],
+        [0,0,0,1,1,1,1,1,1,0,0,0],
+      ];
+      for (let r = 0; r < skull.length; r++) {
+        for (let c = 0; c < BRICK_COLS; c++) {
+          layout[r][c] = skull[r][c];
+        }
+      }
+      break;
+    }
   }
 
-  // Add extra tough bricks for higher levels
-  if (lvl > 8) {
-    const extraTough = Math.min(lvl - 8, 10);
+  // Add extra tough bricks for higher levels (after first cycle)
+  if (lvl > 16) {
+    const extraTough = Math.min(lvl - 16, 10);
     for (let i = 0; i < extraTough; i++) {
       const r = Math.floor(Math.random() * BRICK_ROWS);
       const c = Math.floor(Math.random() * BRICK_COLS);
@@ -228,9 +338,7 @@ function initBricks(lvl) {
 }
 
 function getEffectiveBallSpeed() {
-  let speed = BASE_BALL_SPEED + (level - 1) * 0.3;
-  if (slowTimer > 0) speed *= 0.6;
-  return speed;
+  return BASE_BALL_SPEED + (level - 1) * 0.3;
 }
 
 function resetBall() {
@@ -273,12 +381,13 @@ function activatePowerup(type) {
   switch (type) {
     case PU_EXPAND:
       paddleW = PADDLE_BASE_W * 1.6;
-      expandTimer = 600; // ~10 seconds at 60fps
+      expandTimer = 600;
       break;
 
     case PU_LASER:
       hasLaser = true;
       laserTimer = 600;
+      laserHintTimer = 120;
       break;
 
     case PU_MULTI:
@@ -301,14 +410,8 @@ function activatePowerup(type) {
       }
       break;
 
-    case PU_SLOW:
-      slowTimer = 480; // ~8 seconds
-      balls.forEach(ball => {
-        const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-        const newSpeed = speed * 0.6;
-        ball.vx = (ball.vx / speed) * newSpeed;
-        ball.vy = (ball.vy / speed) * newSpeed;
-      });
+    case PU_STRONG:
+      strongTimer = 480;
       break;
 
     case PU_LIFE:
@@ -342,8 +445,7 @@ function hitBrick(r, c) {
     spawnParticles(bx, by, color, 10);
     maybeDropPowerup(bx, by);
 
-    // Combo scoring — use frame counter instead of Date.now()
-    if (frameCount - lastHitFrame < 30) { // ~500ms at 60fps
+    if (frameCount - lastHitFrame < 30) {
       comboCount++;
     } else {
       comboCount = 1;
@@ -365,6 +467,31 @@ function hitBrick(r, c) {
   }
 }
 
+function hitBrickStrong(r, c) {
+  const brick = bricks[r][c];
+  brick.alive = false;
+  const bx = 10 + c * BRICK_W + BRICK_W / 2;
+  const by = BRICK_TOP + r * BRICK_H + BRICK_H / 2;
+  const color = brick.type === BRICK_METAL ? '#fa0' : getBrickColor(r, brick.type);
+  spawnParticles(bx, by, color, 12);
+  if (brick.type !== BRICK_METAL) {
+    maybeDropPowerup(bx, by);
+  }
+
+  if (frameCount - lastHitFrame < 30) {
+    comboCount++;
+  } else {
+    comboCount = 1;
+  }
+  lastHitFrame = frameCount;
+
+  const basePoints = brick.type === BRICK_METAL ? 100 : (10 + (BRICK_ROWS - r) * 5);
+  const comboBonus = Math.min(comboCount, 10);
+  score += basePoints * comboBonus;
+  scoreEl.textContent = score;
+  if (score > best) best = score;
+}
+
 export function createGame() {
   const game = new Game('game');
 
@@ -382,7 +509,8 @@ export function createGame() {
     hasLaser = false;
     laserTimer = 0;
     expandTimer = 0;
-    slowTimer = 0;
+    strongTimer = 0;
+    laserHintTimer = 0;
     comboCount = 0;
     lastHitFrame = -999;
     frameCount = 0;
@@ -435,18 +563,11 @@ export function createGame() {
       laserTimer--;
       if (laserTimer <= 0) hasLaser = false;
     }
-    if (slowTimer > 0) {
-      slowTimer--;
-      if (slowTimer <= 0) {
-        balls.forEach(ball => {
-          const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-          const targetSpeed = getEffectiveBallSpeed();
-          if (speed > 0) {
-            ball.vx = (ball.vx / speed) * targetSpeed;
-            ball.vy = (ball.vy / speed) * targetSpeed;
-          }
-        });
-      }
+    if (strongTimer > 0) {
+      strongTimer--;
+    }
+    if (laserHintTimer > 0) {
+      laserHintTimer--;
     }
 
     // Move paddle
@@ -481,7 +602,7 @@ export function createGame() {
           ball.x >= paddleX - 2 &&
           ball.x <= paddleX + paddleW + 2) {
         ball.y = PADDLE_Y - BALL_R;
-        const hit = (ball.x - paddleX) / paddleW; // 0 to 1
+        const hit = (ball.x - paddleX) / paddleW;
         const angle = -Math.PI * (0.15 + 0.7 * (1 - hit));
         const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
         ball.vx = Math.cos(angle) * speed;
@@ -507,21 +628,26 @@ export function createGame() {
           if (ball.x + BALL_R > bx && ball.x - BALL_R < bx + bw &&
               ball.y + BALL_R > by && ball.y - BALL_R < by + bh) {
 
-            const overlapLeft = (ball.x + BALL_R) - bx;
-            const overlapRight = (bx + bw) - (ball.x - BALL_R);
-            const overlapTop = (ball.y + BALL_R) - by;
-            const overlapBottom = (by + bh) - (ball.y - BALL_R);
-            const minOverlapX = Math.min(overlapLeft, overlapRight);
-            const minOverlapY = Math.min(overlapTop, overlapBottom);
-
-            if (minOverlapX < minOverlapY) {
-              ball.vx = -ball.vx;
+            if (strongTimer > 0) {
+              // Power ball — plow through everything
+              hitBrickStrong(r, c);
             } else {
-              ball.vy = -ball.vy;
-            }
+              const overlapLeft = (ball.x + BALL_R) - bx;
+              const overlapRight = (bx + bw) - (ball.x - BALL_R);
+              const overlapTop = (ball.y + BALL_R) - by;
+              const overlapBottom = (by + bh) - (ball.y - BALL_R);
+              const minOverlapX = Math.min(overlapLeft, overlapRight);
+              const minOverlapY = Math.min(overlapTop, overlapBottom);
 
-            hitBrick(r, c);
-            break;
+              if (minOverlapX < minOverlapY) {
+                ball.vx = -ball.vx;
+              } else {
+                ball.vy = -ball.vy;
+              }
+
+              hitBrick(r, c);
+              break;
+            }
           }
         }
       }
@@ -535,7 +661,8 @@ export function createGame() {
       hasLaser = false;
       laserTimer = 0;
       expandTimer = 0;
-      slowTimer = 0;
+      strongTimer = 0;
+      laserHintTimer = 0;
       if (lives <= 0) {
         if (score > best) best = score;
         game.showOverlay('GAME OVER', `Score: ${score} -- Press SPACE to restart`);
@@ -599,7 +726,7 @@ export function createGame() {
       const p = particles[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.08; // gravity
+      p.vy += 0.08;
       p.life--;
       if (p.life <= 0) {
         particles.splice(i, 1);
@@ -636,6 +763,7 @@ export function createGame() {
       lives: lives,
       level: level,
       hasLaser: hasLaser,
+      hasStrong: strongTimer > 0,
       powerupsOnScreen: powerups.length,
       activeBricks: bricks.flat().filter(b => b.alive).length
     };
@@ -650,7 +778,7 @@ export function createGame() {
       renderer.drawLine(0, y, W, y, 'rgba(15, 52, 96, 0.3)', 0.5);
     }
 
-    // Bricks
+    // Bricks — 3D beveled
     for (let r = 0; r < BRICK_ROWS; r++) {
       for (let c = 0; c < BRICK_COLS; c++) {
         if (!bricks[r][c].alive) continue;
@@ -661,19 +789,33 @@ export function createGame() {
         const bh = BRICK_H - BRICK_PAD * 2;
 
         if (brick.type === BRICK_METAL) {
-          renderer.setGlow('#888', 0.3);
-          renderer.fillRect(bx, by, bw, bh, '#667');
-          renderer.setGlow(null);
-          // Metal cross-hatch lines
-          renderer.drawLine(bx + 2, by + bh / 2, bx + bw - 2, by + bh / 2, '#889', 1);
-          renderer.drawLine(bx + bw / 3, by + 2, bx + bw / 3, by + bh - 2, '#889', 1);
-          renderer.drawLine(bx + 2 * bw / 3, by + 2, bx + 2 * bw / 3, by + bh - 2, '#889', 1);
+          // Metal brick — darker base with 3D detail
+          renderer.fillRect(bx, by, bw, bh, '#556');
+          // Top third lighter stripe
+          renderer.fillRect(bx + 2, by, bw - 4, bh / 3, 'rgba(255, 255, 255, 0.15)');
+          // Specular highlight line
+          renderer.fillRect(bx + 4, by + 2, bw - 8, 1, 'rgba(255, 255, 255, 0.3)');
+          // Bevel edges
+          renderer.fillRect(bx, by, bw, 2, 'rgba(255, 255, 255, 0.3)');
+          renderer.fillRect(bx, by, 2, bh, 'rgba(255, 255, 255, 0.3)');
+          renderer.fillRect(bx, by + bh - 2, bw, 2, 'rgba(0, 0, 0, 0.3)');
+          renderer.fillRect(bx + bw - 2, by, 2, bh, 'rgba(0, 0, 0, 0.3)');
+          // Rivet dots at corners
+          renderer.fillCircle(bx + 4, by + 4, 1.5, 'rgba(200, 200, 220, 0.5)');
+          renderer.fillCircle(bx + bw - 4, by + 4, 1.5, 'rgba(200, 200, 220, 0.5)');
+          renderer.fillCircle(bx + 4, by + bh - 4, 1.5, 'rgba(200, 200, 220, 0.5)');
+          renderer.fillCircle(bx + bw - 4, by + bh - 4, 1.5, 'rgba(200, 200, 220, 0.5)');
         } else if (brick.type === BRICK_TOUGH) {
           const color = ROW_COLORS[r % ROW_COLORS.length];
           renderer.setGlow(color, 0.5);
           renderer.fillRect(bx, by, bw, bh, color);
           renderer.setGlow(null);
-          // Inner shine to indicate toughness
+          // Bevel edges
+          renderer.fillRect(bx, by, bw, 2, 'rgba(255, 255, 255, 0.3)');
+          renderer.fillRect(bx, by, 2, bh, 'rgba(255, 255, 255, 0.3)');
+          renderer.fillRect(bx, by + bh - 2, bw, 2, 'rgba(0, 0, 0, 0.3)');
+          renderer.fillRect(bx + bw - 2, by, 2, bh, 'rgba(0, 0, 0, 0.3)');
+          // Inner shine
           renderer.fillRect(bx + 2, by + 2, bw - 4, 4, 'rgba(255, 255, 255, 0.3)');
           renderer.fillRect(bx + 2, by + 2, 4, bh - 4, 'rgba(255, 255, 255, 0.3)');
           // Crack line if damaged
@@ -686,22 +828,43 @@ export function createGame() {
           renderer.setGlow(color, 0.4);
           renderer.fillRect(bx, by, bw, bh, color);
           renderer.setGlow(null);
-          // Subtle highlight
-          renderer.fillRect(bx + 1, by + 1, bw - 2, 3, 'rgba(255, 255, 255, 0.15)');
+          // Bevel edges
+          renderer.fillRect(bx, by, bw, 2, 'rgba(255, 255, 255, 0.3)');
+          renderer.fillRect(bx, by, 2, bh, 'rgba(255, 255, 255, 0.3)');
+          renderer.fillRect(bx, by + bh - 2, bw, 2, 'rgba(0, 0, 0, 0.3)');
+          renderer.fillRect(bx + bw - 2, by, 2, bh, 'rgba(0, 0, 0, 0.3)');
+          // Inner face highlight
+          renderer.fillRect(bx + 2, by + 2, bw - 4, (bh - 4) / 2, 'rgba(255, 255, 255, 0.1)');
         }
       }
     }
 
-    // Power-ups (rendered as filled rects with label text)
+    // Power-ups — rotating 3D capsules
     powerups.forEach(pu => {
       const puColor = PU_COLORS[pu.type];
-      const px = pu.x - POWERUP_W / 2;
-      const py = pu.y - POWERUP_H / 2;
-      renderer.setGlow(puColor, 0.7);
-      renderer.fillRect(px, py, POWERUP_W, POWERUP_H, puColor);
-      renderer.setGlow(null);
-      // Label
-      text.drawText(PU_LABELS[pu.type], pu.x, py - 2, 10, '#1a1a2e', 'center');
+      const phase = Math.sin(frameCount * 0.08 + pu.y * 0.1);
+      const visibleW = POWERUP_W * Math.abs(phase);
+
+      if (visibleW < 2) {
+        // Edge-on: thin line
+        renderer.fillRect(pu.x - 1, pu.y - POWERUP_H / 2, 2, POWERUP_H, puColor);
+      } else {
+        const px = pu.x - visibleW / 2;
+        const py = pu.y - POWERUP_H / 2;
+        renderer.setGlow(puColor, 0.7);
+        renderer.fillRect(px, py, visibleW, POWERUP_H, puColor);
+        renderer.setGlow(null);
+
+        // 3D highlight on top half
+        if (phase > 0) {
+          renderer.fillRect(px + 1, py + 1, visibleW - 2, POWERUP_H / 3, 'rgba(255, 255, 255, 0.25)');
+        }
+
+        // Label visible when capsule > 50% width
+        if (visibleW > POWERUP_W * 0.5) {
+          text.drawText(PU_LABELS[pu.type], pu.x, py - 2, 10, '#1a1a2e', 'center');
+        }
+      }
     });
 
     // Lasers
@@ -726,19 +889,32 @@ export function createGame() {
     // Paddle highlight
     renderer.fillRect(paddleX + 4, PADDLE_Y + 2, paddleW - 8, 2, 'rgba(255, 255, 255, 0.2)');
 
-    // Balls
+    // Laser hint
+    if (laserHintTimer > 0) {
+      const alpha = laserHintTimer < 30 ? laserHintTimer / 30 : 1;
+      const hintColor = `rgba(255, 68, 68, ${alpha})`;
+      text.drawText('PRESS SPACE TO FIRE', W / 2, PADDLE_Y - 30, 12, hintColor, 'center');
+    }
+
+    // Balls — glow gold when strong
     balls.forEach(ball => {
-      renderer.setGlow('#4fb', 0.8);
-      renderer.fillCircle(ball.x, ball.y, BALL_R, '#fff');
-      renderer.setGlow(null);
-      // Ball highlight (small bright dot offset)
+      if (strongTimer > 0) {
+        renderer.setGlow('#fa0', 1.0);
+        renderer.fillCircle(ball.x, ball.y, BALL_R + 2, '#fa0');
+        renderer.setGlow(null);
+        renderer.fillCircle(ball.x, ball.y, BALL_R, '#fff');
+      } else {
+        renderer.setGlow('#4fb', 0.8);
+        renderer.fillCircle(ball.x, ball.y, BALL_R, '#fff');
+        renderer.setGlow(null);
+      }
+      // Ball highlight
       renderer.fillCircle(ball.x - 1, ball.y - 1, BALL_R * 0.4, 'rgba(255, 255, 255, 0.6)');
     });
 
     // Particles
     particles.forEach(p => {
       const alpha = p.life / p.maxLife;
-      // Parse color and apply alpha — use color with reduced glow
       renderer.setGlow(p.color, alpha * 0.3);
       renderer.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size, p.color);
     });
@@ -751,6 +927,22 @@ export function createGame() {
     }
     renderer.setGlow(null);
 
+    // Power-up legend (bottom-right, above lives)
+    const legendX = W - 140;
+    const legendY = H - 55;
+    const legendItems = [
+      { color: PU_COLORS[PU_EXPAND], letter: 'E', name: 'Expand' },
+      { color: PU_COLORS[PU_LASER], letter: 'L', name: 'Laser' },
+      { color: PU_COLORS[PU_MULTI], letter: 'M', name: 'Multi' },
+      { color: PU_COLORS[PU_STRONG], letter: 'P', name: 'Power' },
+      { color: PU_COLORS[PU_LIFE], letter: '+', name: 'Life' },
+    ];
+    legendItems.forEach((item, i) => {
+      const ly = legendY + i * 10;
+      renderer.fillCircle(legendX + 3, ly, 2.5, item.color);
+      text.drawText(item.letter + ' ' + item.name, legendX + 9, ly - 5, 8, 'rgba(255, 255, 255, 0.5)', 'left');
+    });
+
     // Active power-up indicators (bottom left)
     let indicatorX = 10;
     const indicatorY = H - 12;
@@ -762,9 +954,9 @@ export function createGame() {
       text.drawText('LASER ' + Math.ceil(laserTimer / 60) + 's', indicatorX, indicatorY - 10, 10, PU_COLORS[PU_LASER], 'left');
       indicatorX += 72;
     }
-    if (slowTimer > 0) {
-      text.drawText('SLOW ' + Math.ceil(slowTimer / 60) + 's', indicatorX, indicatorY - 10, 10, PU_COLORS[PU_SLOW], 'left');
-      indicatorX += 66;
+    if (strongTimer > 0) {
+      text.drawText('POWER ' + Math.ceil(strongTimer / 60) + 's', indicatorX, indicatorY - 10, 10, PU_COLORS[PU_STRONG], 'left');
+      indicatorX += 72;
     }
 
     // Combo indicator
