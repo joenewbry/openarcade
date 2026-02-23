@@ -23,6 +23,141 @@ const ENEMY_BULLET_SPEED = 3;
 // Parallax ground scroll
 const SCROLL_SPEED = 1.5;
 
+// ── Procedural Audio System ──
+class SynthSFX {
+  constructor() {
+    this.ctx = null;
+  }
+
+  _ensureCtx() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+    return this.ctx;
+  }
+
+  _osc(freq, type, duration, gainVal, detune) {
+    const ctx = this._ensureCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || 'square';
+    osc.frequency.value = freq;
+    if (detune) osc.detune.value = detune;
+    gain.gain.setValueAtTime(gainVal || 0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration);
+  }
+
+  _noise(duration, gainVal) {
+    const ctx = this._ensureCtx();
+    const bufferSize = Math.floor(ctx.sampleRate * duration);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(gainVal || 0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(ctx.currentTime);
+  }
+
+  machineGun() {
+    this._osc(2200, 'square', 0.015, 0.08);
+  }
+
+  explosion() {
+    this._noise(0.1, 0.2);
+    this._osc(120, 'sine', 0.1, 0.12);
+  }
+
+  bossExplosion() {
+    const ctx = this._ensureCtx();
+    this._noise(0.4, 0.3);
+    this._osc(80, 'sine', 0.4, 0.15);
+    setTimeout(() => { this._noise(0.2, 0.2); }, 100);
+    setTimeout(() => { this._osc(60, 'sine', 0.3, 0.1); }, 200);
+  }
+
+  rollWhoosh() {
+    const ctx = this._ensureCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1800, ctx.currentTime + 0.1);
+    osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.2);
+  }
+
+  powerupCollect() {
+    this._osc(600, 'sine', 0.08, 0.12);
+    setTimeout(() => { this._osc(900, 'sine', 0.1, 0.12); }, 60);
+  }
+
+  playerHit() {
+    const ctx = this._ensureCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.15);
+  }
+
+  waveComplete() {
+    this._osc(440, 'triangle', 0.12, 0.1);
+    setTimeout(() => { this._osc(554, 'triangle', 0.12, 0.1); }, 100);
+    setTimeout(() => { this._osc(660, 'triangle', 0.18, 0.12); }, 200);
+  }
+
+  bossWarning() {
+    const ctx = this._ensureCtx();
+    for (let i = 0; i < 4; i++) {
+      const freq = i % 2 === 0 ? 120 : 160;
+      const t = ctx.currentTime + i * 0.125;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.12, t);
+      gain.gain.setValueAtTime(0.001, t + 0.11);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.12);
+    }
+  }
+
+  gameOver() {
+    this._osc(500, 'triangle', 0.18, 0.12);
+    setTimeout(() => { this._osc(400, 'triangle', 0.18, 0.12); }, 160);
+    setTimeout(() => { this._osc(280, 'triangle', 0.3, 0.1); }, 320);
+  }
+}
+
+const sfx = new SynthSFX();
+
 // ── State ──
 let score, best = 0;
 let player, bullets, enemies, enemyBullets, powerUps, particles, explosions;
@@ -36,10 +171,52 @@ let doubleShot, doubleShotTimer;
 let speedBoost, speedBoostTimer;
 let groundTiles = [];
 
+// Screen shake state
+let shakeAmount = 0;
+let shakeTimer = 0;
+let shakeOffsetX = 0;
+let shakeOffsetY = 0;
+
+// Boss warning state
+let bossWarningTimer = 0;
+
+// Wave text state
+let waveTextTimer = 0;
+let waveTextNumber = 0;
+
+// Engine exhaust particles
+let exhaustParticles = [];
+
+// Roll afterimage state
+let rollTrail = []; // stores [{x, y, alpha}]
+
+// Clouds for parallax
+let clouds = [];
+
+// Debris particles (tumbling rectangles from enemy deaths)
+let debrisParticles = [];
+
+// Bullet counter for sfx throttle
+let bulletsFired = 0;
+
+// Propeller animation
+let propellerAngle = 0;
+
+// Invincibility after respawn
+let invincibleTimer = 0;
+
+// Particle cap
+const MAX_PARTICLES = 250;
+
 // ── DOM refs ──
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
 const livesEl = document.getElementById('lives');
+
+function triggerShake(amount, duration) {
+  shakeAmount = Math.max(shakeAmount, amount);
+  shakeTimer = Math.max(shakeTimer, duration);
+}
 
 function initGround() {
   groundTiles = [];
@@ -51,6 +228,34 @@ function initGround() {
       h: 15 + Math.random() * 40,
       type: Math.random() < 0.3 ? 'island' : 'wave',
       shade: Math.random() * 0.3
+    });
+  }
+}
+
+function initClouds() {
+  clouds = [];
+  // Far layer (slower, more transparent, smaller)
+  for (let i = 0; i < 4; i++) {
+    clouds.push({
+      x: Math.random() * W,
+      y: Math.random() * H * 2 - H,
+      w: 30 + Math.random() * 50,
+      h: 10 + Math.random() * 15,
+      speed: 0.15 + Math.random() * 0.2,
+      alpha: 0.03 + Math.random() * 0.03,
+      layer: 0
+    });
+  }
+  // Near layer (faster, slightly more visible, larger)
+  for (let i = 0; i < 6; i++) {
+    clouds.push({
+      x: Math.random() * W,
+      y: Math.random() * H * 2 - H,
+      w: 40 + Math.random() * 80,
+      h: 16 + Math.random() * 24,
+      speed: 0.3 + Math.random() * 0.4,
+      alpha: 0.06 + Math.random() * 0.06,
+      layer: 1
     });
   }
 }
@@ -100,16 +305,26 @@ function spawnEnemy(type, x, y, pattern) {
 // ── Wave spawning ──
 function spawnWave() {
   waveNumber++;
+
+  // Wave transition text
+  waveTextTimer = 90;
+  waveTextNumber = waveNumber;
+  sfx.waveComplete();
+
   const diff = Math.min(waveNumber, 20);
 
   if (score >= bossSpawnScore && !bossActive) {
     bossActive = true;
     spawnEnemy('boss', W / 2 - 36, -60, 'boss');
     bossSpawnScore += 400 + waveNumber * 50;
+    // Boss entrance effects
+    triggerShake(5, 30);
+    bossWarningTimer = 90;
+    sfx.bossWarning();
     return;
   }
 
-  const formations = ['v', 'line', 'stagger', 'circle', 'diagonal'];
+  const formations = ['v', 'line', 'stagger', 'circle', 'diagonal', 'funnel', 'pincer', 'cascade'];
   const formation = formations[waveNumber % formations.length];
   const count = 4 + Math.min(Math.floor(diff / 2), 6);
   const types = ['fighter'];
@@ -148,6 +363,30 @@ function spawnWave() {
         ey = -40 - i * 30;
         pattern = i % 2 === 0 ? 'swoopRight' : 'swoopLeft';
         break;
+      case 'funnel':
+        // Enemies start wide and funnel to center
+        ex = (i % 2 === 0) ? 20 + i * 15 : W - 20 - i * 15;
+        ey = -40 - i * 20;
+        pattern = 'sine';
+        break;
+      case 'pincer':
+        // Two groups from left and right
+        if (i < count / 2) {
+          ex = -30;
+          ey = -40 - i * 30;
+          pattern = 'swoopRight';
+        } else {
+          ex = W + 30;
+          ey = -40 - (i - Math.floor(count / 2)) * 30;
+          pattern = 'swoopLeft';
+        }
+        break;
+      case 'cascade':
+        // Staggered diagonal waterfall
+        ex = 30 + (i * 60) % (W - 60);
+        ey = -40 - i * 40;
+        pattern = 'straight';
+        break;
     }
 
     const e = spawnEnemy(type, ex, ey, pattern);
@@ -172,6 +411,7 @@ function spawnPowerUp(x, y) {
 
 // ── Particles & Explosions ──
 function spawnParticles(x, y, count, color) {
+  if (particles.length >= MAX_PARTICLES) return;
   for (let i = 0; i < count; i++) {
     const ang = Math.random() * Math.PI * 2;
     const spd = 1 + Math.random() * 3;
@@ -185,9 +425,38 @@ function spawnParticles(x, y, count, color) {
   }
 }
 
+function spawnDebris(x, y, count, color) {
+  if (debrisParticles.length >= 60) return;
+  for (let i = 0; i < count; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const spd = 0.8 + Math.random() * 2.5;
+    debrisParticles.push({
+      x: x, y: y,
+      vx: Math.cos(ang) * spd,
+      vy: Math.sin(ang) * spd,
+      life: 20 + Math.random() * 20,
+      maxLife: 40,
+      w: 3 + Math.random() * 5,
+      h: 2 + Math.random() * 3,
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.3,
+      color: color
+    });
+  }
+}
+
 function spawnExplosion(x, y, count) {
   explosions.push({ x: x, y: y, life: 20, maxLife: 20, size: count * 2 });
   spawnParticles(x, y, count, '#f84');
+}
+
+function spawnEnhancedExplosion(x, y, count, color) {
+  // Standard explosion
+  explosions.push({ x: x, y: y, life: 20, maxLife: 20, size: count * 2 });
+  // More particles (10-12)
+  spawnParticles(x, y, Math.max(count, 10), '#f84');
+  // Debris in enemy color
+  spawnDebris(x, y, Math.floor(count * 0.6), color || '#f84');
 }
 
 function fireBullet() {
@@ -199,6 +468,11 @@ function fireBullet() {
   } else {
     bullets.push({ x: cx, y: cy });
   }
+  bulletsFired++;
+  // Throttle sfx to every 3rd bullet
+  if (bulletsFired % 3 === 1) {
+    sfx.machineGun();
+  }
 }
 
 let _game; // reference to game instance for hitPlayer/gameOver
@@ -207,15 +481,21 @@ function hitPlayer() {
   lives--;
   livesEl.textContent = lives;
   spawnExplosion(player.x + PW / 2, player.y + PH / 2, 12);
+  // Death debris
+  spawnDebris(player.x + PW / 2, player.y + PH / 2, 8, THEME);
+  triggerShake(3, 10);
+  sfx.playerHit();
   if (lives <= 0) {
     if (score > best) {
       best = score;
       bestEl.textContent = best;
     }
+    sfx.gameOver();
     _game.showOverlay('GAME OVER', `Score: ${score} — Press SPACE to restart`);
     _game.setState('over');
   } else {
     rollingTimer = 30;
+    invincibleTimer = 90; // 1.5 seconds of invincibility
     player.y = H - 80;
   }
 }
@@ -224,6 +504,29 @@ function startRoll() {
   if (rollCooldownTimer > 0 || rollingTimer > 0) return;
   rollingTimer = ROLL_DURATION;
   rollCooldownTimer = ROLL_COOLDOWN;
+  triggerShake(1, ROLL_DURATION);
+  sfx.rollWhoosh();
+  // Initialize roll trail
+  rollTrail = [];
+}
+
+// ── Engine exhaust ──
+function emitExhaust() {
+  if (exhaustParticles.length >= 40) return;
+  const cx = player.x + PW / 2;
+  const cy = player.y + PH;
+  const count = speedBoost ? 3 : 1;
+  const baseColor = speedBoost ? '#48f' : '#f84';
+  for (let i = 0; i < count; i++) {
+    exhaustParticles.push({
+      x: cx + (Math.random() - 0.5) * 6,
+      y: cy - 2 + Math.random() * 4,
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: 1 + Math.random() * 1.5,
+      life: 8 + Math.floor(Math.random() * 5),
+      color: baseColor
+    });
+  }
 }
 
 // ── Export ──
@@ -249,6 +552,19 @@ export function createGame() {
     doubleShotTimer = 0;
     speedBoost = false;
     speedBoostTimer = 0;
+    shakeAmount = 0;
+    shakeTimer = 0;
+    shakeOffsetX = 0;
+    shakeOffsetY = 0;
+    bossWarningTimer = 0;
+    waveTextTimer = 0;
+    waveTextNumber = 0;
+    bulletsFired = 0;
+    propellerAngle = 0;
+    invincibleTimer = 0;
+    rollTrail = [];
+    exhaustParticles = [];
+    debrisParticles = [];
 
     player = { x: W / 2 - PW / 2, y: H - 80 };
     bullets = [];
@@ -261,6 +577,7 @@ export function createGame() {
     scoreEl.textContent = '0';
     livesEl.textContent = '3';
     initGround();
+    initClouds();
     game.showOverlay('1942', 'Press SPACE to start');
     game.setState('waiting');
   };
@@ -288,6 +605,7 @@ export function createGame() {
     // ── Playing state ──
     tick++;
     scrollOffset = (scrollOffset + SCROLL_SPEED) % (H * 2);
+    propellerAngle += 0.6; // fast propeller spin
 
     // Cooldowns
     if (fireCooldown > 0) fireCooldown--;
@@ -301,6 +619,25 @@ export function createGame() {
       speedBoostTimer--;
       if (speedBoostTimer <= 0) speedBoost = false;
     }
+    if (invincibleTimer > 0) invincibleTimer--;
+
+    // Screen shake update
+    if (shakeTimer > 0) {
+      shakeTimer--;
+      shakeOffsetX = (Math.random() - 0.5) * 2 * shakeAmount;
+      shakeOffsetY = (Math.random() - 0.5) * 2 * shakeAmount;
+      if (shakeTimer <= 0) {
+        shakeAmount = 0;
+        shakeOffsetX = 0;
+        shakeOffsetY = 0;
+      }
+    }
+
+    // Boss warning timer
+    if (bossWarningTimer > 0) bossWarningTimer--;
+
+    // Wave text timer
+    if (waveTextTimer > 0) waveTextTimer--;
 
     // Player movement
     const spd = speedBoost ? PLAYER_SPEED * 1.6 : PLAYER_SPEED;
@@ -328,6 +665,39 @@ export function createGame() {
     if (input.isDown(' ') && fireCooldown <= 0 && rollingTimer <= 0) {
       fireBullet();
       fireCooldown = FIRE_RATE;
+    }
+
+    // Roll trail: store previous positions
+    if (rollingTimer > 0) {
+      rollTrail.unshift({ x: player.x, y: player.y });
+      if (rollTrail.length > 3) rollTrail.length = 3;
+    } else {
+      rollTrail = [];
+    }
+
+    // Engine exhaust
+    if (game.state === 'playing' && rollingTimer <= 0) {
+      emitExhaust();
+    }
+
+    // Update exhaust particles
+    for (let i = exhaustParticles.length - 1; i >= 0; i--) {
+      const ep = exhaustParticles[i];
+      ep.x += ep.vx;
+      ep.y += ep.vy;
+      ep.life--;
+      if (ep.life <= 0) exhaustParticles.splice(i, 1);
+    }
+
+    // Update debris particles
+    for (let i = debrisParticles.length - 1; i >= 0; i--) {
+      const d = debrisParticles[i];
+      d.x += d.vx;
+      d.y += d.vy;
+      d.vy += 0.04; // slight gravity
+      d.rotation += d.rotSpeed;
+      d.life--;
+      if (d.life <= 0) debrisParticles.splice(i, 1);
     }
 
     // Player bullets
@@ -433,7 +803,20 @@ export function createGame() {
             score += e.points;
             scoreEl.textContent = score;
             if (score > best) { best = score; bestEl.textContent = best; }
-            spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, e.type === 'boss' ? 20 : 8);
+            // Enhanced death effects
+            const isBoss = e.type === 'boss';
+            const deathCount = isBoss ? 20 : 10;
+            const enemyColor = e.type === 'fighter' ? '#f55' :
+                               e.type === 'bomber' ? '#e80' :
+                               e.type === 'ace' ? '#f4f' : '#f44';
+            spawnEnhancedExplosion(e.x + e.w / 2, e.y + e.h / 2, deathCount, enemyColor);
+            if (isBoss) {
+              triggerShake(5, 30);
+              sfx.bossExplosion();
+            } else {
+              triggerShake(1, 3);
+              sfx.explosion();
+            }
             spawnPowerUp(e.x + e.w / 2, e.y + e.h / 2);
           } else {
             spawnParticles(b.x, b.y, 3, '#fff');
@@ -448,13 +831,27 @@ export function createGame() {
       const b = enemyBullets[i];
       b.x += b.vx;
       b.y += b.vy;
+
+      // Boss bullet trails
+      if (b.vx !== undefined && Math.abs(b.vx) > 1) {
+        if (tick % 3 === 0 && particles.length < MAX_PARTICLES) {
+          particles.push({
+            x: b.x, y: b.y,
+            vx: (Math.random() - 0.5) * 0.3,
+            vy: (Math.random() - 0.5) * 0.3,
+            life: 6 + Math.random() * 4,
+            color: '#f44'
+          });
+        }
+      }
+
       if (b.y > H + 10 || b.y < -10 || b.x < -10 || b.x > W + 10) {
         enemyBullets.splice(i, 1);
         continue;
       }
 
-      // Hit player (not while rolling)
-      if (rollingTimer <= 0) {
+      // Hit player (not while rolling or invincible)
+      if (rollingTimer <= 0 && invincibleTimer <= 0) {
         if (b.x >= player.x + 4 && b.x <= player.x + PW - 4 &&
             b.y >= player.y + 4 && b.y <= player.y + PH - 4) {
           enemyBullets.splice(i, 1);
@@ -464,8 +861,8 @@ export function createGame() {
       }
     }
 
-    // Enemy-player collision (not while rolling)
-    if (rollingTimer <= 0) {
+    // Enemy-player collision (not while rolling or invincible)
+    if (rollingTimer <= 0 && invincibleTimer <= 0) {
       for (const e of enemies) {
         if (!e.alive) continue;
         if (player.x + 4 < e.x + e.w && player.x + PW - 4 > e.x &&
@@ -496,6 +893,7 @@ export function createGame() {
           speedBoostTimer = 480;
         }
         spawnParticles(p.x + p.w / 2, p.y + p.h / 2, 6, THEME);
+        sfx.powerupCollect();
         powerUps.splice(i, 1);
       }
     }
@@ -514,18 +912,77 @@ export function createGame() {
       p.life--;
       if (p.life <= 0) particles.splice(i, 1);
     }
+
+    // Clouds scroll
+    for (const c of clouds) {
+      c.y += c.speed;
+      if (c.y > H + c.h) {
+        c.y = -c.h - Math.random() * 100;
+        c.x = Math.random() * W;
+      }
+    }
   };
 
   game.onDraw = (renderer, text) => {
-    // Ocean background
-    renderer.fillRect(0, 0, W, H, '#0a1628');
+    // Apply screen shake offset to all drawing
+    const sx = shakeOffsetX;
+    const sy = shakeOffsetY;
 
-    // Parallax ground — islands as filled ellipse-approximated polygons,
-    // waves as short horizontal lines
+    // Ocean background — color shifts with danger level
+    const dangerT = Math.min(waveNumber / 20, 1);
+    const oceanR = Math.round(10 + dangerT * 20);
+    const oceanG = Math.round(22 - dangerT * 8);
+    const oceanB = Math.round(40 + dangerT * 15);
+    renderer.fillRect(0 + sx, 0 + sy, W, H, `rgb(${oceanR},${oceanG},${oceanB})`);
+
+    // Animated ocean ripple lines
+    for (let i = 0; i < 10; i++) {
+      const baseY = (i / 10) * H;
+      const rippleY = baseY + Math.sin(tick * 0.02 + i * 1.3) * 8;
+      const alpha = 0.08 + Math.sin(tick * 0.015 + i * 0.7) * 0.03;
+      const rippleColor = `rgba(60,100,140,${alpha.toFixed(3)})`;
+      // Wavy line: draw as several segments
+      const segs = 16;
+      for (let s = 0; s < segs; s++) {
+        const x1 = (s / segs) * W;
+        const x2 = ((s + 1) / segs) * W;
+        const y1 = rippleY + Math.sin(tick * 0.03 + s * 0.5 + i) * 3;
+        const y2 = rippleY + Math.sin(tick * 0.03 + (s + 1) * 0.5 + i) * 3;
+        renderer.drawLine(x1 + sx, y1 + sy, x2 + sx, y2 + sy, rippleColor, 1);
+      }
+    }
+
+    // Parallax clouds
+    clouds.forEach(c => {
+      const cloudColor = `rgba(180,200,220,${c.alpha.toFixed(3)})`;
+      // Draw cloud as overlapping ellipse approximations
+      const pts = [];
+      const segs = 12;
+      for (let s = 0; s < segs; s++) {
+        const a = (s / segs) * Math.PI * 2;
+        pts.push({ x: c.x + Math.cos(a) * (c.w / 2) + sx, y: c.y + Math.sin(a) * (c.h / 2) + sy });
+      }
+      renderer.fillPoly(pts, cloudColor);
+      // Second lobe offset
+      const pts2 = [];
+      for (let s = 0; s < segs; s++) {
+        const a = (s / segs) * Math.PI * 2;
+        pts2.push({ x: c.x + c.w * 0.25 + Math.cos(a) * (c.w * 0.35) + sx, y: c.y - c.h * 0.15 + Math.sin(a) * (c.h * 0.4) + sy });
+      }
+      renderer.fillPoly(pts2, cloudColor);
+      // Third lobe
+      const pts3 = [];
+      for (let s = 0; s < segs; s++) {
+        const a = (s / segs) * Math.PI * 2;
+        pts3.push({ x: c.x - c.w * 0.2 + Math.cos(a) * (c.w * 0.3) + sx, y: c.y + c.h * 0.1 + Math.sin(a) * (c.h * 0.35) + sy });
+      }
+      renderer.fillPoly(pts3, cloudColor);
+    });
+
+    // Parallax ground — islands and waves
     groundTiles.forEach(t => {
       let ty = (t.y + scrollOffset) % (H * 2) - H * 0.5;
       if (t.type === 'island') {
-        // Approximate ellipse with polygon
         const rx = t.w / 2;
         const ry = t.h / 2;
         const alpha = 0.4 + t.shade;
@@ -537,24 +994,40 @@ export function createGame() {
         const segs = 12;
         for (let s = 0; s < segs; s++) {
           const a = (s / segs) * Math.PI * 2;
-          pts.push({ x: t.x + Math.cos(a) * rx, y: ty + Math.sin(a) * ry });
+          pts.push({ x: t.x + Math.cos(a) * rx + sx, y: ty + Math.sin(a) * ry + sy });
         }
         renderer.fillPoly(pts, islandColor);
 
-        // Shore highlight
         const shoreColor = 'rgba(80,140,100,0.3)';
         const shorePts = [];
         for (let s = 0; s < segs; s++) {
           const a = (s / segs) * Math.PI * 2;
-          shorePts.push({ x: t.x + Math.cos(a) * (rx + 2), y: ty + Math.sin(a) * (ry + 2) });
+          shorePts.push({ x: t.x + Math.cos(a) * (rx + 2) + sx, y: ty + Math.sin(a) * (ry + 2) + sy });
         }
         renderer.strokePoly(shorePts, shoreColor, 1, true);
+
+        // Vegetation detail (small circles on islands)
+        const vegCount = Math.floor(t.w / 15);
+        for (let v = 0; v < vegCount; v++) {
+          const vAngle = (v / vegCount) * Math.PI * 2 + t.shade * 10;
+          const vr = rx * 0.5;
+          const vx = t.x + Math.cos(vAngle) * vr * (0.3 + Math.random() * 0.5) + sx;
+          const vy = ty + Math.sin(vAngle) * ry * 0.4 + sy;
+          const vegSize = 2 + Math.random() * 3;
+          renderer.fillCircle(vx, vy, vegSize, 'rgba(40,100,50,0.5)');
+        }
       } else {
-        // Ocean wave — simple horizontal line
         const waveAlpha = 0.15 + t.shade * 0.2;
         const waveColor = `rgba(40,80,120,${waveAlpha})`;
-        renderer.drawLine(t.x - t.w / 2, ty, t.x + t.w / 2, ty, waveColor, 1);
+        renderer.drawLine(t.x - t.w / 2 + sx, ty + sy, t.x + t.w / 2 + sx, ty + sy, waveColor, 1);
       }
+    });
+
+    // Exhaust particles (behind player)
+    exhaustParticles.forEach(ep => {
+      const alpha = Math.min(1, ep.life / 10);
+      const size = 2 + (1 - alpha) * 2;
+      renderer.fillCircle(ep.x + sx, ep.y + sy, size, applyAlpha(ep.color, alpha * 0.7));
     });
 
     // Power-ups
@@ -563,21 +1036,20 @@ export function createGame() {
       if (p.type === 'doubleShot') {
         const c = `rgba(255,200,50,${pulse})`;
         renderer.setGlow('#fc3', 0.5);
-        renderer.fillRect(p.x + 4, p.y + 2, 4, 16, c);
-        renderer.fillRect(p.x + 12, p.y + 2, 4, 16, c);
+        renderer.fillRect(p.x + 4 + sx, p.y + 2 + sy, 4, 16, c);
+        renderer.fillRect(p.x + 12 + sx, p.y + 2 + sy, 4, 16, c);
         renderer.setGlow(null);
       } else {
         const c = `rgba(100,200,255,${pulse})`;
         renderer.setGlow('#4cf', 0.5);
-        // Speed icon — arrow shape
         renderer.fillPoly([
-          { x: p.x + 10, y: p.y },
-          { x: p.x + 20, y: p.y + 10 },
-          { x: p.x + 10, y: p.y + 20 },
-          { x: p.x + 10, y: p.y + 14 },
-          { x: p.x, y: p.y + 14 },
-          { x: p.x, y: p.y + 6 },
-          { x: p.x + 10, y: p.y + 6 }
+          { x: p.x + 10 + sx, y: p.y + sy },
+          { x: p.x + 20 + sx, y: p.y + 10 + sy },
+          { x: p.x + 10 + sx, y: p.y + 20 + sy },
+          { x: p.x + 10 + sx, y: p.y + 14 + sy },
+          { x: p.x + sx, y: p.y + 14 + sy },
+          { x: p.x + sx, y: p.y + 6 + sy },
+          { x: p.x + 10 + sx, y: p.y + 6 + sy }
         ], c);
         renderer.setGlow(null);
       }
@@ -586,25 +1058,25 @@ export function createGame() {
     // Enemy bullets
     renderer.setGlow('#f44', 0.4);
     enemyBullets.forEach(b => {
-      renderer.fillCircle(b.x, b.y, 3, '#f44');
+      renderer.fillCircle(b.x + sx, b.y + sy, 3, '#f44');
     });
     renderer.setGlow(null);
 
     // Enemies
     enemies.forEach(e => {
       if (!e.alive) return;
-      drawEnemy(renderer, text, e);
+      drawEnemy(renderer, text, e, sx, sy);
     });
 
     // Player bullets
     renderer.setGlow(THEME, 0.5);
     bullets.forEach(b => {
-      renderer.fillRect(b.x - 2, b.y, 4, 10, THEME);
+      renderer.fillRect(b.x - 2 + sx, b.y + sy, 4, 10, THEME);
     });
     renderer.setGlow(null);
 
-    // Player
-    drawPlayer(renderer);
+    // Player (with roll afterimage)
+    drawPlayer(renderer, sx, sy);
 
     // Explosions
     explosions.forEach(ex => {
@@ -615,31 +1087,88 @@ export function createGame() {
       const alpha = pct * 0.7;
       const c = `rgba(255,${green},${blue},${alpha})`;
       renderer.setGlow('#f84', 0.6);
-      renderer.fillCircle(ex.x, ex.y, r, c);
+      renderer.fillCircle(ex.x + sx, ex.y + sy, r, c);
       renderer.setGlow(null);
     });
 
     // Particles
     particles.forEach(p => {
       const alpha = Math.min(1, p.life / 30);
-      // Approximate color with alpha
-      renderer.fillRect(p.x - 2, p.y - 2, 4, 4, applyAlpha(p.color, alpha));
+      renderer.fillRect(p.x - 2 + sx, p.y - 2 + sy, 4, 4, applyAlpha(p.color, alpha));
+    });
+
+    // Debris particles (tumbling rectangles)
+    debrisParticles.forEach(d => {
+      const alpha = Math.min(1, d.life / d.maxLife);
+      const cos = Math.cos(d.rotation);
+      const sin = Math.sin(d.rotation);
+      const hw = d.w / 2;
+      const hh = d.h / 2;
+      const pts = [
+        { x: d.x + (-hw * cos - -hh * sin) + sx, y: d.y + (-hw * sin + -hh * cos) + sy },
+        { x: d.x + (hw * cos - -hh * sin) + sx, y: d.y + (hw * sin + -hh * cos) + sy },
+        { x: d.x + (hw * cos - hh * sin) + sx, y: d.y + (hw * sin + hh * cos) + sy },
+        { x: d.x + (-hw * cos - hh * sin) + sx, y: d.y + (-hw * sin + hh * cos) + sy }
+      ];
+      renderer.fillPoly(pts, applyAlpha(d.color, alpha));
     });
 
     // Power-up timer bars (on-canvas HUD)
-    drawPowerUpTimers(renderer, text);
+    drawPowerUpTimers(renderer, text, sx, sy);
 
     // Roll cooldown indicator
     if (rollCooldownTimer > 0) {
       const pct = rollCooldownTimer / ROLL_COOLDOWN;
-      renderer.fillRect(W - 50, H - 14, 40 * (1 - pct), 6, 'rgba(102,221,187,0.3)');
-      // Border for roll cooldown bar
+      renderer.fillRect(W - 50 + sx, H - 14 + sy, 40 * (1 - pct), 6, 'rgba(102,221,187,0.3)');
       renderer.strokePoly([
-        { x: W - 50, y: H - 14 },
-        { x: W - 10, y: H - 14 },
-        { x: W - 10, y: H - 8 },
-        { x: W - 50, y: H - 8 }
+        { x: W - 50 + sx, y: H - 14 + sy },
+        { x: W - 10 + sx, y: H - 14 + sy },
+        { x: W - 10 + sx, y: H - 8 + sy },
+        { x: W - 50 + sx, y: H - 8 + sy }
       ], 'rgba(102,221,187,0.5)', 1, true);
+    }
+
+    // Boss warning overlay
+    if (bossWarningTimer > 0) {
+      const warningAlpha = Math.abs(Math.sin(bossWarningTimer * 0.15)) * 0.8;
+
+      // Dramatic WARNING text with glow
+      renderer.setGlow('#f00', 1.0);
+      text.drawText('WARNING', W / 2 + sx, H / 2 - 40 + sy, 40, `rgba(255,40,40,${warningAlpha.toFixed(2)})`, 'center');
+      renderer.setGlow(null);
+
+      // Sub-text
+      if (bossWarningTimer < 60) {
+        const subAlpha = Math.min(1, (60 - bossWarningTimer) / 30) * warningAlpha;
+        text.drawText('BOSS APPROACHING', W / 2 + sx, H / 2 + sy, 16, `rgba(255,100,100,${subAlpha.toFixed(2)})`, 'center');
+      }
+
+      // Red screen flash
+      renderer.fillRect(0, 0, W, H, `rgba(255,0,0,${(warningAlpha * 0.08).toFixed(3)})`);
+
+      // Red border flash
+      const borderW = 4;
+      const borderAlpha = warningAlpha * 0.3;
+      const borderColor = `rgba(255,30,30,${borderAlpha.toFixed(3)})`;
+      renderer.fillRect(0, 0, W, borderW, borderColor);
+      renderer.fillRect(0, H - borderW, W, borderW, borderColor);
+      renderer.fillRect(0, 0, borderW, H, borderColor);
+      renderer.fillRect(W - borderW, 0, borderW, H, borderColor);
+    }
+
+    // Wave transition text
+    if (waveTextTimer > 0) {
+      const glitchX = (Math.random() - 0.5) * 3;
+      const glitchY = (Math.random() - 0.5) * 3;
+      const fadeAlpha = Math.min(1, waveTextTimer / 30);
+      renderer.setGlow(THEME, 0.7);
+      text.drawText(`WAVE ${waveTextNumber}`, W / 2 + glitchX + sx, H / 2 + glitchY + sy, 28, applyAlpha(THEME, fadeAlpha), 'center');
+      // Slight glitch duplicate
+      if (waveTextTimer > 60) {
+        text.drawText(`WAVE ${waveTextNumber}`, W / 2 + glitchX + 2 + sx, H / 2 + glitchY + sy, 28, `rgba(255,100,100,${(fadeAlpha * 0.3).toFixed(2)})`, 'center');
+        text.drawText(`WAVE ${waveTextNumber}`, W / 2 + glitchX - 2 + sx, H / 2 + glitchY + sy, 28, `rgba(100,100,255,${(fadeAlpha * 0.3).toFixed(2)})`, 'center');
+      }
+      renderer.setGlow(null);
     }
   };
 
@@ -669,30 +1198,69 @@ function applyAlpha(color, alpha) {
 
 // ── Draw helpers ──
 
-function drawPlayer(renderer) {
+function drawPlayer(renderer, sx, sy) {
+  // Skip drawing every other frame when invincible (blink effect)
+  if (invincibleTimer > 0 && Math.floor(invincibleTimer / 3) % 2 === 0) return;
+
   const px = player.x, py = player.y;
   const cx = px + PW / 2, cy = py + PH / 2;
 
-  // During roll, draw with reduced width to simulate spinning
+  // During roll, draw afterimage trail and chromatic effect
   if (rollingTimer > 0) {
+    // Draw afterimages at previous positions
+    for (let i = rollTrail.length - 1; i >= 0; i--) {
+      const trail = rollTrail[i];
+      const trailCx = trail.x + PW / 2;
+      const trailCy = trail.y + PH / 2;
+      const trailAlpha = 0.15 - i * 0.04;
+      if (trailAlpha > 0) {
+        drawPlayerShapeScaled(renderer, trailCx + sx, trailCy + sy, 0.8, trailAlpha);
+      }
+    }
+
     const rollPct = rollingTimer / ROLL_DURATION;
     const scaleX = Math.cos(rollPct * Math.PI * 3);
     const absScale = Math.abs(scaleX) * 0.7 + 0.3;
     const alpha = 0.4 + Math.abs(scaleX) * 0.6;
-    // Draw a scaled version — scale the x coordinates around center
-    drawPlayerShapeScaled(renderer, cx, cy, absScale, alpha);
+
+    // Chromatic aberration effect: cyan and red offsets
+    drawPlayerShapeScaledTinted(renderer, cx - 2 + sx, cy + sy, absScale, alpha * 0.3, '#0ff');
+    drawPlayerShapeScaledTinted(renderer, cx + 2 + sx, cy + sy, absScale, alpha * 0.3, '#f00');
+    // Main ship
+    drawPlayerShapeScaled(renderer, cx + sx, cy + sy, absScale, alpha);
     return;
   }
 
-  drawPlayerShape(renderer, cx, cy);
+  drawPlayerShape(renderer, cx + sx, cy + sy);
+
+  // Double-shot swirling particles
+  if (doubleShot) {
+    for (let i = 0; i < 3; i++) {
+      const a = tick * 0.15 + i * (Math.PI * 2 / 3);
+      const orbitR = 18;
+      const dpx = player.x + PW / 2 + Math.cos(a) * orbitR + sx;
+      const dpy = player.y + PH / 2 + Math.sin(a) * orbitR + sy;
+      const dalpha = 0.4 + Math.sin(tick * 0.1 + i) * 0.2;
+      renderer.setGlow('#fc3', 0.3);
+      renderer.fillCircle(dpx, dpy, 2, `rgba(255,200,50,${dalpha.toFixed(2)})`);
+      renderer.setGlow(null);
+    }
+  }
 
   // Speed boost trail
   if (speedBoost) {
+    // Stretched exhaust trail
     renderer.fillPoly([
-      { x: px + 4, y: py + PH },
-      { x: px + PW / 2, y: py + PH + 15 },
-      { x: px + PW - 4, y: py + PH }
-    ], 'rgba(100,200,255,0.3)');
+      { x: px + 4 + sx, y: py + PH + sy },
+      { x: px + PW / 2 + sx, y: py + PH + 20 + sy },
+      { x: px + PW - 4 + sx, y: py + PH + sy }
+    ], 'rgba(100,200,255,0.35)');
+    // Motion lines
+    for (let i = 0; i < 3; i++) {
+      const lx = px + 6 + i * (PW - 12) / 2 + sx;
+      const ly = py + PH + 5 + sy;
+      renderer.drawLine(lx, ly, lx, ly + 12 + Math.random() * 8, 'rgba(100,200,255,0.25)', 1);
+    }
   }
 }
 
@@ -746,6 +1314,19 @@ function drawPlayerShape(renderer, cx, cy) {
   }
   renderer.fillPoly(cockpitPts, '#aef');
 
+  // Propeller
+  const propR = 8;
+  for (let i = 0; i < 2; i++) {
+    const a = propellerAngle + i * Math.PI;
+    const px1 = cx + Math.cos(a) * propR;
+    const py1 = (cy - PH / 2 - 2) + Math.sin(a) * 3;
+    const px2 = cx + Math.cos(a + Math.PI) * propR;
+    const py2 = (cy - PH / 2 - 2) + Math.sin(a + Math.PI) * 3;
+    renderer.drawLine(px1, py1, px2, py2, 'rgba(200,230,255,0.4)', 2);
+  }
+  // Propeller hub
+  renderer.fillCircle(cx, cy - PH / 2 - 2, 2, '#aef');
+
   // Engine glow
   renderer.setGlow('#f84', 0.5);
   const enginePts = [];
@@ -760,7 +1341,6 @@ function drawPlayerShape(renderer, cx, cy) {
 }
 
 function drawPlayerShapeScaled(renderer, cx, cy, scaleX, alpha) {
-  // Apply horizontal scale by adjusting x offsets
   const s = scaleX;
   const col = applyAlpha(THEME, alpha);
 
@@ -808,9 +1388,37 @@ function drawPlayerShapeScaled(renderer, cx, cy, scaleX, alpha) {
   renderer.setGlow(null);
 }
 
-function drawEnemy(renderer, text, e) {
-  const cx = e.x + e.w / 2;
-  const cy = e.y + e.h / 2;
+function drawPlayerShapeScaledTinted(renderer, cx, cy, scaleX, alpha, tint) {
+  const s = scaleX;
+  const col = applyAlpha(tint, alpha);
+
+  // Fuselage only for tint (simplified for performance)
+  renderer.fillPoly([
+    { x: cx, y: cy - PH / 2 },
+    { x: cx + 5 * s, y: cy - 6 },
+    { x: cx + 5 * s, y: cy + PH / 2 - 4 },
+    { x: cx - 5 * s, y: cy + PH / 2 - 4 },
+    { x: cx - 5 * s, y: cy - 6 }
+  ], col);
+
+  // Wings
+  renderer.fillPoly([
+    { x: cx - 4 * s, y: cy },
+    { x: cx - PW / 2 * s, y: cy + 8 },
+    { x: cx - PW / 2 * s, y: cy + 12 },
+    { x: cx - 4 * s, y: cy + 6 }
+  ], col);
+  renderer.fillPoly([
+    { x: cx + 4 * s, y: cy },
+    { x: cx + PW / 2 * s, y: cy + 8 },
+    { x: cx + PW / 2 * s, y: cy + 12 },
+    { x: cx + 4 * s, y: cy + 6 }
+  ], col);
+}
+
+function drawEnemy(renderer, text, e, sx, sy) {
+  const cx = e.x + e.w / 2 + sx;
+  const cy = e.y + e.h / 2 + sy;
 
   switch (e.type) {
     case 'fighter':
@@ -823,7 +1431,7 @@ function drawEnemy(renderer, text, e) {
       drawEnemyAce(renderer, cx, cy, e);
       break;
     case 'boss':
-      drawBoss(renderer, e);
+      drawBoss(renderer, e, sx, sy);
       break;
   }
 }
@@ -905,9 +1513,9 @@ function drawEnemyAce(renderer, cx, cy, e) {
   renderer.setGlow(null);
 }
 
-function drawBoss(renderer, e) {
-  const cx = e.x + e.w / 2;
-  const cy = e.y + e.h / 2;
+function drawBoss(renderer, e, sx, sy) {
+  const cx = e.x + e.w / 2 + sx;
+  const cy = e.y + e.h / 2 + sy;
 
   const pulse = Math.sin(tick * 0.06) * 0.3 + 0.7;
   const bossColor = `rgba(255,60,60,${pulse})`;
@@ -967,31 +1575,31 @@ function drawBoss(renderer, e) {
   // Health bar
   const barW = e.w + 20;
   const hpPct = e.hp / e.maxHp;
-  renderer.fillRect(cx - barW / 2, e.y - 12, barW, 6, '#400');
+  renderer.fillRect(cx - barW / 2, e.y - 12 + sy, barW, 6, '#400');
   const hpColor = hpPct > 0.5 ? '#0f0' : hpPct > 0.25 ? '#ff0' : '#f00';
-  renderer.fillRect(cx - barW / 2, e.y - 12, barW * hpPct, 6, hpColor);
+  renderer.fillRect(cx - barW / 2, e.y - 12 + sy, barW * hpPct, 6, hpColor);
   renderer.strokePoly([
-    { x: cx - barW / 2, y: e.y - 12 },
-    { x: cx + barW / 2, y: e.y - 12 },
-    { x: cx + barW / 2, y: e.y - 6 },
-    { x: cx - barW / 2, y: e.y - 6 }
+    { x: cx - barW / 2, y: e.y - 12 + sy },
+    { x: cx + barW / 2, y: e.y - 12 + sy },
+    { x: cx + barW / 2, y: e.y - 6 + sy },
+    { x: cx - barW / 2, y: e.y - 6 + sy }
   ], '#666', 1, true);
 }
 
-function drawPowerUpTimers(renderer, text) {
+function drawPowerUpTimers(renderer, text, sx, sy) {
   let yOff = 20;
   if (doubleShot) {
     const pct = doubleShotTimer / 600;
-    text.drawText('DOUBLE SHOT', 10, yOff - 10, 12, 'rgba(255,200,50,0.8)', 'left');
-    renderer.fillRect(10, yOff + 4, 80, 4, '#333');
-    renderer.fillRect(10, yOff + 4, 80 * pct, 4, '#fc3');
+    text.drawText('DOUBLE SHOT', 10 + sx, yOff - 10 + sy, 12, 'rgba(255,200,50,0.8)', 'left');
+    renderer.fillRect(10 + sx, yOff + 4 + sy, 80, 4, '#333');
+    renderer.fillRect(10 + sx, yOff + 4 + sy, 80 * pct, 4, '#fc3');
     yOff += 24;
   }
   if (speedBoost) {
     const pct = speedBoostTimer / 480;
-    text.drawText('SPEED BOOST', 10, yOff - 10, 12, 'rgba(100,200,255,0.8)', 'left');
-    renderer.fillRect(10, yOff + 4, 80, 4, '#333');
-    renderer.fillRect(10, yOff + 4, 80 * pct, 4, '#4cf');
+    text.drawText('SPEED BOOST', 10 + sx, yOff - 10 + sy, 12, 'rgba(100,200,255,0.8)', 'left');
+    renderer.fillRect(10 + sx, yOff + 4 + sy, 80, 4, '#333');
+    renderer.fillRect(10 + sx, yOff + 4 + sy, 80 * pct, 4, '#4cf');
     yOff += 24;
   }
 }
