@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background: #000;
+      background: #1a1a2e;
       color: #e0e0e0;
       font-family: 'Courier New', monospace;
       display: flex;
@@ -23,9 +23,9 @@
       margin-bottom: 16px;
       width: 480px;
     }
-    .back { color: #0f0; text-decoration: none; font-size: 1.2rem; }
-    .back:hover { text-shadow: 0 0 10px rgba(0, 255, 0, 0.5); }
-    h1 { color: #0f0; font-size: 2rem; text-shadow: 0 0 15px rgba(0, 255, 0, 0.5); }
+    .back { color: #f44; text-decoration: none; font-size: 1.2rem; }
+    .back:hover { text-shadow: 0 0 10px rgba(255, 68, 68, 0.5); }
+    h1 { color: #f44; font-size: 2rem; text-shadow: 0 0 15px rgba(255, 68, 68, 0.4); }
     .score-bar {
       display: flex;
       justify-content: space-between;
@@ -33,12 +33,11 @@
       margin-bottom: 10px;
       font-size: 1.1rem;
     }
-    .score-bar span { color: #0f0; }
+    .score-bar span { color: #f44; }
     canvas {
-      border: 2px solid #0f0;
-      box-shadow: 0 0 20px rgba(0, 255, 0, 0.25);
+      border: 2px solid #f44;
+      box-shadow: 0 0 20px rgba(255, 68, 68, 0.2);
       display: block;
-      background: #000;
     }
     .overlay {
       position: absolute;
@@ -48,11 +47,11 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: #0f0;
+      color: #f44;
       text-align: center;
       pointer-events: none;
     }
-    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; text-shadow: 0 0 12px #0f0; }
+    .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
     .overlay p { font-size: 1rem; color: #aaa; }
   </style>
 </head>
@@ -69,459 +68,14 @@
     <canvas id="game" width="480" height="480"></canvas>
     <div class="overlay" id="overlay" style="width:480px;height:480px;">
       <h2 id="overlayTitle">ASTEROIDS</h2>
-      <p id="overlayText">Press any key to start<br>LEFT/RIGHT: rotate | UP: thrust | SPACE: fire | Z: hyperspace</p>
+      <p id="overlayText">Press any key to start</p>
     </div>
   </div>
 
-  <script>
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    const scoreEl = document.getElementById('score');
-    const livesEl = document.getElementById('lives');
-    const overlay = document.getElementById('overlay');
-    const overlayTitle = document.getElementById('overlayTitle');
-    const overlayText = document.getElementById('overlayText');
-
-    const W = canvas.width;
-    const H = canvas.height;
-
-    const SHIP_SIZE = 15;
-    const TURN_SPEED = 0.07;
-    const THRUST = 0.12;
-    const FRICTION = 0.995;
-    const MAX_SPEED = 6;
-    const BULLET_SPEED = 7;
-    const BULLET_LIFE = 60;
-    const FIRE_RATE = 8;
-    const INVINCIBLE_TIME = 120;
-    const HYPERSPACE_COOLDOWN = 180;
-
-    let ship, bullets, asteroids, particles, thrustParticles;
-    let score, lives, gameState, level;
-    let fireCooldown, invincibleTimer, hyperspaceCooldown, hyperspaceFlicker;
-    let keys = {};
-
-    function createAsteroid(x, y, size) {
-      const numVerts = 8 + Math.floor(Math.random() * 5);
-      const verts = [];
-      for (let i = 0; i < numVerts; i++) {
-        const angle = (i / numVerts) * Math.PI * 2;
-        const r = size * (0.7 + Math.random() * 0.3);
-        verts.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
-      }
-      const speed = (4 - size / 15) * 0.6 + Math.random() * 0.5;
-      const dir = Math.random() * Math.PI * 2;
-      return {
-        x, y,
-        vx: Math.cos(dir) * speed,
-        vy: Math.sin(dir) * speed,
-        size,
-        verts,
-        rot: Math.random() * Math.PI * 2,
-        rotSpeed: (Math.random() - 0.5) * 0.03
-      };
-    }
-
-    function spawnAsteroids(count) {
-      for (let i = 0; i < count; i++) {
-        let x, y;
-        do {
-          x = Math.random() * W;
-          y = Math.random() * H;
-        } while (Math.hypot(x - ship.x, y - ship.y) < 120);
-        asteroids.push(createAsteroid(x, y, 40));
-      }
-    }
-
-    function init() {
-      ship = { x: W / 2, y: H / 2, vx: 0, vy: 0, angle: -Math.PI / 2, thrusting: false };
-      bullets = [];
-      asteroids = [];
-      particles = [];
-      thrustParticles = [];
-      score = 0;
-      lives = 3;
-      level = 1;
-      fireCooldown = 0;
-      invincibleTimer = INVINCIBLE_TIME;
-      hyperspaceCooldown = 0;
-      hyperspaceFlicker = 0;
-      scoreEl.textContent = '0';
-      livesEl.textContent = '3';
-      spawnAsteroids(4);
-      gameState = 'waiting';
-      overlay.style.display = 'flex';
-      overlayTitle.textContent = 'ASTEROIDS';
-      overlayText.innerHTML = 'Press any key to start<br>LEFT/RIGHT: rotate | UP: thrust | SPACE: fire | Z: hyperspace';
-      draw();
-    }
-
-    function start() {
-      gameState = 'playing';
-      overlay.style.display = 'none';
-      requestAnimationFrame(loop);
-    }
-
-    function loop() {
-      if (gameState !== 'playing') return;
-      update();
-      draw();
-      requestAnimationFrame(loop);
-    }
-
-    function wrap(obj) {
-      if (obj.x < -20) obj.x = W + 20;
-      if (obj.x > W + 20) obj.x = -20;
-      if (obj.y < -20) obj.y = H + 20;
-      if (obj.y > H + 20) obj.y = -20;
-    }
-
-    function addParticles(x, y, count, color) {
-      for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 3 + 1;
-        particles.push({
-          x, y,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed,
-          life: 20 + Math.random() * 20,
-          maxLife: 40,
-          color
-        });
-      }
-    }
-
-    function emitThrustParticles() {
-      // Emit 3-5 small squares from ship tail
-      const count = 3 + Math.floor(Math.random() * 3);
-      const tailAngle = ship.angle + Math.PI; // opposite to heading
-      for (let i = 0; i < count; i++) {
-        const spread = (Math.random() - 0.5) * 0.5;
-        const speed = Math.random() * 2 + 1;
-        const angle = tailAngle + spread;
-        thrustParticles.push({
-          x: ship.x + Math.cos(tailAngle) * SHIP_SIZE * 0.4,
-          y: ship.y + Math.sin(tailAngle) * SHIP_SIZE * 0.4,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed,
-          life: 8 + Math.floor(Math.random() * 8),
-          size: 1 + Math.random() * 1.5
-        });
-      }
-    }
-
-    function doHyperspace() {
-      if (hyperspaceCooldown > 0) return;
-      // Warp to random position away from asteroids
-      let nx, ny, attempts = 0;
-      do {
-        nx = 40 + Math.random() * (W - 80);
-        ny = 40 + Math.random() * (H - 80);
-        attempts++;
-      } while (asteroids.some(a => Math.hypot(nx - a.x, ny - a.y) < a.size + 40) && attempts < 20);
-
-      ship.x = nx;
-      ship.y = ny;
-      ship.vx = 0;
-      ship.vy = 0;
-      hyperspaceCooldown = HYPERSPACE_COOLDOWN;
-      hyperspaceFlicker = 30;
-      invincibleTimer = Math.max(invincibleTimer, 45);
-      addParticles(nx, ny, 12, '#0ff');
-    }
-
-    function update() {
-      // Ship controls
-      if (keys['ArrowLeft']) ship.angle -= TURN_SPEED;
-      if (keys['ArrowRight']) ship.angle += TURN_SPEED;
-      ship.thrusting = !!keys['ArrowUp'];
-
-      if (ship.thrusting) {
-        ship.vx += Math.cos(ship.angle) * THRUST;
-        ship.vy += Math.sin(ship.angle) * THRUST;
-        const speed = Math.hypot(ship.vx, ship.vy);
-        if (speed > MAX_SPEED) {
-          ship.vx = (ship.vx / speed) * MAX_SPEED;
-          ship.vy = (ship.vy / speed) * MAX_SPEED;
-        }
-        emitThrustParticles();
-      }
-
-      ship.vx *= FRICTION;
-      ship.vy *= FRICTION;
-      ship.x += ship.vx;
-      ship.y += ship.vy;
-      wrap(ship);
-
-      if (invincibleTimer > 0) invincibleTimer--;
-      if (hyperspaceCooldown > 0) hyperspaceCooldown--;
-      if (hyperspaceFlicker > 0) hyperspaceFlicker--;
-
-      // Fire bullets
-      if (fireCooldown > 0) fireCooldown--;
-      if (keys[' '] && fireCooldown === 0) {
-        bullets.push({
-          x: ship.x + Math.cos(ship.angle) * SHIP_SIZE,
-          y: ship.y + Math.sin(ship.angle) * SHIP_SIZE,
-          vx: Math.cos(ship.angle) * BULLET_SPEED + ship.vx * 0.3,
-          vy: Math.sin(ship.angle) * BULLET_SPEED + ship.vy * 0.3,
-          life: BULLET_LIFE
-        });
-        fireCooldown = FIRE_RATE;
-      }
-
-      // Update bullets
-      for (let i = bullets.length - 1; i >= 0; i--) {
-        bullets[i].x += bullets[i].vx;
-        bullets[i].y += bullets[i].vy;
-        wrap(bullets[i]);
-        bullets[i].life--;
-        if (bullets[i].life <= 0) bullets.splice(i, 1);
-      }
-
-      // Update asteroids
-      for (const a of asteroids) {
-        a.x += a.vx;
-        a.y += a.vy;
-        a.rot += a.rotSpeed;
-        wrap(a);
-      }
-
-      // Update particles
-      for (let i = particles.length - 1; i >= 0; i--) {
-        particles[i].x += particles[i].vx;
-        particles[i].y += particles[i].vy;
-        particles[i].life--;
-        if (particles[i].life <= 0) particles.splice(i, 1);
-      }
-
-      // Update thrust particles
-      for (let i = thrustParticles.length - 1; i >= 0; i--) {
-        thrustParticles[i].x += thrustParticles[i].vx;
-        thrustParticles[i].y += thrustParticles[i].vy;
-        thrustParticles[i].life--;
-        if (thrustParticles[i].life <= 0) thrustParticles.splice(i, 1);
-      }
-
-      // Bullet-asteroid collisions
-      for (let bi = bullets.length - 1; bi >= 0; bi--) {
-        for (let ai = asteroids.length - 1; ai >= 0; ai--) {
-          const a = asteroids[ai];
-          const b = bullets[bi];
-          if (!b || !a) continue;
-          if (Math.hypot(b.x - a.x, b.y - a.y) < a.size) {
-            addParticles(a.x, a.y, 8, '#0f0');
-            if (a.size >= 35) {
-              score += 20;
-              asteroids.push(createAsteroid(a.x, a.y, 22));
-              asteroids.push(createAsteroid(a.x, a.y, 22));
-            } else if (a.size >= 18) {
-              score += 50;
-              asteroids.push(createAsteroid(a.x, a.y, 12));
-              asteroids.push(createAsteroid(a.x, a.y, 12));
-            } else {
-              score += 100;
-            }
-            scoreEl.textContent = score;
-            asteroids.splice(ai, 1);
-            bullets.splice(bi, 1);
-            break;
-          }
-        }
-      }
-
-      // Ship-asteroid collision
-      if (invincibleTimer <= 0) {
-        for (let ai = asteroids.length - 1; ai >= 0; ai--) {
-          const a = asteroids[ai];
-          if (Math.hypot(ship.x - a.x, ship.y - a.y) < a.size + SHIP_SIZE * 0.6) {
-            addParticles(ship.x, ship.y, 15, '#0f0');
-            lives--;
-            livesEl.textContent = lives;
-            if (lives <= 0) {
-              gameState = 'over';
-              overlay.style.display = 'flex';
-              overlayTitle.textContent = 'GAME OVER';
-              overlayText.textContent = `Score: ${score} -- Press SPACE to restart`;
-              return;
-            }
-            ship.x = W / 2;
-            ship.y = H / 2;
-            ship.vx = 0;
-            ship.vy = 0;
-            ship.angle = -Math.PI / 2;
-            invincibleTimer = INVINCIBLE_TIME;
-            break;
-          }
-        }
-      }
-
-      // Next level
-      if (asteroids.length === 0) {
-        level++;
-        spawnAsteroids(3 + level);
-      }
-    }
-
-    function drawShip() {
-      // Classic delta shape: wide swept wings, narrow nose
-      ctx.beginPath();
-      ctx.moveTo(SHIP_SIZE, 0);                         // nose
-      ctx.lineTo(-SHIP_SIZE * 0.6, -SHIP_SIZE * 0.8);  // left wing tip
-      ctx.lineTo(-SHIP_SIZE * 0.35, -SHIP_SIZE * 0.25); // left tail
-      ctx.lineTo(-SHIP_SIZE * 0.35, SHIP_SIZE * 0.25);  // right tail
-      ctx.lineTo(-SHIP_SIZE * 0.6, SHIP_SIZE * 0.8);   // right wing tip
-      ctx.closePath();
-      ctx.stroke();
-    }
-
-    function draw() {
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, W, H);
-
-      // Phosphor glow settings
-      ctx.shadowColor = '#0f0';
-      ctx.shadowBlur = 12;
-
-      // Thrust particles (white squares)
-      ctx.shadowBlur = 0;
-      for (const p of thrustParticles) {
-        const alpha = p.life / 16;
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-      }
-      ctx.globalAlpha = 1;
-
-      // Explosion particles
-      ctx.shadowBlur = 6;
-      ctx.shadowColor = '#0f0';
-      for (const p of particles) {
-        ctx.globalAlpha = p.life / 40;
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
-      }
-      ctx.globalAlpha = 1;
-
-      // Asteroids — stroke only, phosphor green
-      ctx.strokeStyle = '#0f0';
-      ctx.shadowColor = '#0f0';
-      ctx.shadowBlur = 12;
-      ctx.lineWidth = 1.5;
-      for (const a of asteroids) {
-        ctx.save();
-        ctx.translate(a.x, a.y);
-        ctx.rotate(a.rot);
-        ctx.beginPath();
-        ctx.moveTo(a.verts[0].x, a.verts[0].y);
-        for (let i = 1; i < a.verts.length; i++) {
-          ctx.lineTo(a.verts[i].x, a.verts[i].y);
-        }
-        ctx.closePath();
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Ship — draw only when visible (invincible flicker)
-      if (invincibleTimer <= 0 || hyperspaceFlicker > 0 || Math.floor(invincibleTimer / 4) % 2 === 0) {
-        // Hyperspace flicker: skip every other frame during flicker
-        if (!(hyperspaceFlicker > 0 && Math.floor(hyperspaceFlicker / 3) % 2 === 0)) {
-          ctx.save();
-          ctx.translate(ship.x, ship.y);
-          ctx.rotate(ship.angle);
-          ctx.strokeStyle = '#0f0';
-          ctx.shadowColor = '#0f0';
-          ctx.shadowBlur = 14;
-          ctx.lineWidth = 2;
-          drawShip();
-
-          // Thrust flame (stroke only)
-          if (ship.thrusting) {
-            ctx.strokeStyle = '#ff8800';
-            ctx.shadowColor = '#ff8800';
-            ctx.shadowBlur = 10;
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(-SHIP_SIZE * 0.35, -SHIP_SIZE * 0.2);
-            ctx.lineTo(-SHIP_SIZE * (0.9 + Math.random() * 0.4), 0);
-            ctx.lineTo(-SHIP_SIZE * 0.35, SHIP_SIZE * 0.2);
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-      }
-      ctx.shadowBlur = 0;
-
-      // Bullets
-      ctx.fillStyle = '#0f0';
-      ctx.shadowColor = '#0f0';
-      ctx.shadowBlur = 8;
-      for (const b of bullets) {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.shadowBlur = 0;
-
-      // Lives indicator (mini ships)
-      for (let i = 0; i < lives; i++) {
-        ctx.save();
-        ctx.translate(25 + i * 25, H - 20);
-        ctx.rotate(-Math.PI / 2);
-        ctx.strokeStyle = '#0f0';
-        ctx.shadowColor = '#0f0';
-        ctx.shadowBlur = 6;
-        ctx.lineWidth = 1.5;
-        const s = 10;
-        ctx.beginPath();
-        ctx.moveTo(s, 0);
-        ctx.lineTo(-s * 0.6, -s * 0.8);
-        ctx.lineTo(-s * 0.35, -s * 0.25);
-        ctx.lineTo(-s * 0.35, s * 0.25);
-        ctx.lineTo(-s * 0.6, s * 0.8);
-        ctx.closePath();
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Hyperspace cooldown indicator
-      if (hyperspaceCooldown > 0) {
-        ctx.fillStyle = '#0f0';
-        ctx.shadowBlur = 0;
-        ctx.font = '11px "Courier New"';
-        ctx.textAlign = 'right';
-        ctx.globalAlpha = 0.5;
-        ctx.fillText(`WARP CD`, W - 10, H - 10);
-        ctx.globalAlpha = 1;
-      }
-      ctx.shadowBlur = 0;
-    }
-
-    document.addEventListener('keydown', (e) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
-      keys[e.key] = true;
-
-      if (e.key === 'z' || e.key === 'Z') {
-        if (gameState === 'playing') doHyperspace();
-      }
-
-      if (gameState === 'waiting') {
-        start();
-        return;
-      }
-      if (gameState === 'over' && e.key === ' ') {
-        init();
-        return;
-      }
-    });
-
-    document.addEventListener('keyup', (e) => {
-      keys[e.key] = false;
-    });
-
-    init();
+  <script type="module">
+    import { createGame } from './game.js';
+    createGame();
   </script>
-  <script src="../recorder.js?v=3"></script>
-<script src="../rating.js?v=2"></script>
+  <script src="../rating.js?v=2"></script>
 </body>
 </html>
