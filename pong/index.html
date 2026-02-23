@@ -26,6 +26,29 @@
     .back { color: #88f; text-decoration: none; font-size: 1.2rem; }
     .back:hover { text-shadow: 0 0 10px rgba(136, 136, 255, 0.5); }
     h1 { color: #88f; font-size: 2rem; text-shadow: 0 0 15px rgba(136, 136, 255, 0.4); }
+    .mode-selector {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .mode-btn {
+      background: #16213e;
+      color: #88f;
+      border: 1px solid #88f;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-family: inherit;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+    .mode-btn:hover {
+      background: #88f;
+      color: #1a1a2e;
+    }
+    .mode-btn.active {
+      background: #88f;
+      color: #1a1a2e;
+    }
     .score-bar {
       display: flex;
       justify-content: space-between;
@@ -53,6 +76,14 @@
     }
     .overlay h2 { font-size: 1.8rem; margin-bottom: 10px; }
     .overlay p { font-size: 1rem; color: #aaa; }
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      width: 480px;
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: #aaa;
+    }
   </style>
 </head>
 <body>
@@ -60,10 +91,14 @@
     <a href="../" class="back">&larr; Back</a>
     <h1>PONG</h1>
   </div>
+  <div class="mode-selector">
+    <button class="mode-btn active" id="vsAIBtn">vs AI</button>
+    <button class="mode-btn" id="vs2PBtn">2-Player</button>
+  </div>
   <div class="score-bar">
-    <div>Player: <span id="playerScore">0</span></div>
+    <div id="leftLabel">Player: <span id="playerScore">0</span></div>
     <div id="matchPoint" style="color:#f44;display:none;">MATCH POINT</div>
-    <div>CPU: <span id="cpuScore">0</span></div>
+    <div id="rightLabel">CPU: <span id="cpuScore">0</span></div>
   </div>
   <div style="position: relative; display: inline-block;">
     <canvas id="game" width="480" height="400"></canvas>
@@ -72,16 +107,26 @@
       <p id="overlayText">Press UP/DOWN or SPACE to start</p>
     </div>
   </div>
+  <div class="controls">
+    <div id="leftControls">Player 1: W/S</div>
+    <div id="rightControls">Player 2: UP/DOWN</div>
+  </div>
 
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const playerScoreEl = document.getElementById('playerScore');
     const cpuScoreEl = document.getElementById('cpuScore');
+    const leftLabel = document.getElementById('leftLabel');
+    const rightLabel = document.getElementById('rightLabel');
+    const leftControls = document.getElementById('leftControls');
+    const rightControls = document.getElementById('rightControls');
     const matchPointEl = document.getElementById('matchPoint');
     const overlay = document.getElementById('overlay');
     const overlayTitle = document.getElementById('overlayTitle');
     const overlayText = document.getElementById('overlayText');
+    const vsAIBtn = document.getElementById('vsAIBtn');
+    const vs2PBtn = document.getElementById('vs2PBtn');
 
     const W = canvas.width;
     const H = canvas.height;
@@ -102,6 +147,44 @@
     let aiTarget;
     let ballTrail = [];
     let scoreFlash = { timer: 0, side: '' };
+    let gameMode = 'ai'; // 'ai' or '2p'
+
+    vsAIBtn.addEventListener('click', () => {
+      if (gameMode === 'ai') return;
+      gameMode = 'ai';
+      vsAIBtn.classList.add('active');
+      vs2PBtn.classList.remove('active');
+      updateUI();
+      init();
+    });
+
+    vs2PBtn.addEventListener('click', () => {
+      if (gameMode === '2p') return;
+      gameMode = '2p';
+      vs2PBtn.classList.add('active');
+      vsAIBtn.classList.remove('active');
+      updateUI();
+      init();
+    });
+
+    function updateUI() {
+      if (gameMode === 'ai') {
+        leftLabel.innerHTML = 'Player: <span id="playerScore">0</span>';
+        rightLabel.innerHTML = 'CPU: <span id="cpuScore">0</span>';
+        leftControls.textContent = 'Player: UP/DOWN';
+        rightControls.textContent = 'AI';
+        overlayText.textContent = 'Press UP/DOWN or SPACE to start';
+      } else {
+        leftLabel.innerHTML = 'Player 1: <span id="playerScore">0</span>';
+        rightLabel.innerHTML = 'Player 2: <span id="cpuScore">0</span>';
+        leftControls.textContent = 'Player 1: W/S';
+        rightControls.textContent = 'Player 2: UP/DOWN';
+        overlayText.textContent = 'Press W/S, UP/DOWN or SPACE to start';
+      }
+      // Re-get references since innerHTML changed
+      window.playerScoreEl = document.querySelector('#playerScore');
+      window.cpuScoreEl = document.querySelector('#cpuScore');
+    }
 
     function init() {
       playerY = H / 2 - PADDLE_H / 2;
@@ -111,14 +194,14 @@
       rallyCount = 0;
       ballTrail = [];
       scoreFlash = { timer: 0, side: '' };
-      playerScoreEl.textContent = '0';
-      cpuScoreEl.textContent = '0';
+      updateUI();
+      window.playerScoreEl.textContent = '0';
+      window.cpuScoreEl.textContent = '0';
       matchPointEl.style.display = 'none';
       resetBall(1);
       gameState = 'waiting';
       overlay.style.display = 'flex';
       overlayTitle.textContent = 'PONG';
-      overlayText.textContent = 'Press UP/DOWN or SPACE to start';
       draw();
     }
 
@@ -148,29 +231,42 @@
     }
 
     function update() {
-      // Player movement
-      if (keys['ArrowUp']) playerY -= PADDLE_SPEED;
-      if (keys['ArrowDown']) playerY += PADDLE_SPEED;
+      // Left paddle movement
+      if (gameMode === 'ai') {
+        if (keys['ArrowUp']) playerY -= PADDLE_SPEED;
+        if (keys['ArrowDown']) playerY += PADDLE_SPEED;
+      } else {
+        if (keys['w'] || keys['W']) playerY -= PADDLE_SPEED;
+        if (keys['s'] || keys['S']) playerY += PADDLE_SPEED;
+      }
       playerY = Math.max(0, Math.min(H - PADDLE_H, playerY));
 
-      // AI movement — lerp-based with prediction (8% per frame = beatable)
-      if (ballVX > 0) {
-        const timeToReach = (W - PADDLE_MARGIN - PADDLE_W - ballX) / Math.max(ballVX, 0.1);
-        aiTarget = ballY + ballVY * timeToReach;
-        while (aiTarget < 0 || aiTarget > H) {
-          if (aiTarget < 0) aiTarget = -aiTarget;
-          if (aiTarget > H) aiTarget = 2 * H - aiTarget;
+      // Right paddle movement
+      if (gameMode === 'ai') {
+        // AI movement — lerp-based with prediction (8% per frame = beatable)
+        if (ballVX > 0) {
+          const timeToReach = (W - PADDLE_MARGIN - PADDLE_W - ballX) / Math.max(ballVX, 0.1);
+          aiTarget = ballY + ballVY * timeToReach;
+          while (aiTarget < 0 || aiTarget > H) {
+            if (aiTarget < 0) aiTarget = -aiTarget;
+            if (aiTarget > H) aiTarget = 2 * H - aiTarget;
+          }
+        } else {
+          aiTarget = H / 2;
         }
-      } else {
-        aiTarget = H / 2;
-      }
 
-      const cpuCenter = cpuY + PADDLE_H / 2;
-      const diff = aiTarget - cpuCenter;
-      const step = diff * AI_REACTION;
-      const maxSpeed = AI_SPEED + Math.min(rallyCount * 0.1, 1.5);
-      cpuY += Math.sign(step) * Math.min(Math.abs(step), maxSpeed);
-      cpuY = Math.max(0, Math.min(H - PADDLE_H, cpuY));
+        const cpuCenter = cpuY + PADDLE_H / 2;
+        const diff = aiTarget - cpuCenter;
+        const step = diff * AI_REACTION;
+        const maxSpeed = AI_SPEED + Math.min(rallyCount * 0.1, 1.5);
+        cpuY += Math.sign(step) * Math.min(Math.abs(step), maxSpeed);
+        cpuY = Math.max(0, Math.min(H - PADDLE_H, cpuY));
+      } else {
+        // Player 2 movement
+        if (keys['ArrowUp']) cpuY -= PADDLE_SPEED;
+        if (keys['ArrowDown']) cpuY += PADDLE_SPEED;
+        cpuY = Math.max(0, Math.min(H - PADDLE_H, cpuY));
+      }
 
       // Ball trail — record before moving
       ballTrail.unshift({ x: ballX, y: ballY });
@@ -217,13 +313,13 @@
       // Scoring
       if (ballX < 0) {
         cpuScore++;
-        cpuScoreEl.textContent = cpuScore;
+        window.cpuScoreEl.textContent = cpuScore;
         scoreFlash = { timer: 20, side: 'cpu' };
         checkWin(-1);
       }
       if (ballX > W) {
         playerScore++;
-        playerScoreEl.textContent = playerScore;
+        window.playerScoreEl.textContent = playerScore;
         scoreFlash = { timer: 20, side: 'player' };
         checkWin(1);
       }
@@ -243,14 +339,14 @@
       if (playerScore >= WIN_SCORE) {
         gameState = 'over';
         overlay.style.display = 'flex';
-        overlayTitle.textContent = 'YOU WIN!';
+        overlayTitle.textContent = gameMode === 'ai' ? 'YOU WIN!' : 'PLAYER 1 WINS!';
         overlayText.textContent = `${playerScore} - ${cpuScore} -- Press SPACE to play again`;
         return;
       }
       if (cpuScore >= WIN_SCORE) {
         gameState = 'over';
         overlay.style.display = 'flex';
-        overlayTitle.textContent = 'CPU WINS';
+        overlayTitle.textContent = gameMode === 'ai' ? 'CPU WINS' : 'PLAYER 2 WINS!';
         overlayText.textContent = `${playerScore} - ${cpuScore} -- Press SPACE to play again`;
         return;
       }
@@ -342,7 +438,7 @@
     }
 
     document.addEventListener('keydown', (e) => {
-      if (['ArrowUp', 'ArrowDown', ' '].includes(e.key)) e.preventDefault();
+      if (['ArrowUp', 'ArrowDown', ' ', 'w', 'W', 's', 'S'].includes(e.key)) e.preventDefault();
       keys[e.key] = true;
 
       if (gameState === 'waiting') {
