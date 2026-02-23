@@ -221,6 +221,15 @@ function catClass(cat) {
   return 'cat-' + (cat || 'other').replace(/[^a-z_]/g, '');
 }
 
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diff = (Date.now() / 1000) - ts;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
 function renderCards(items) {
   const list = document.getElementById('feedbackList');
   document.getElementById('countBadge').textContent = `${items.length} entries`;
@@ -231,13 +240,17 @@ function renderCards(items) {
   }
 
   list.innerHTML = items.map(item => {
-    const stars = item.stars ? `<span class="stars">${renderStars(item.stars)}</span>` : '';
-    const cat = item.category
-      ? `<span class="category-badge ${catClass(item.category)}">${catLabel(item.category)}</span>`
+    const starCount = item.rating || item.stars;
+    const stars = starCount ? `<span class="stars">${renderStars(starCount)}</span>` : '';
+    const category = item.classification || item.category;
+    const cat = category
+      ? `<span class="category-badge ${catClass(category)}">${catLabel(category)}</span>`
       : '';
-    const text = item.text
-      ? `<div class="card-text">${escHtml(item.text)}</div>`
+    const feedbackText = item.feedback || item.text;
+    const text = feedbackText
+      ? `<div class="card-text">${escHtml(feedbackText)}</div>`
       : '';
+    const ago = item.ago || timeAgo(item.server_ts || item.ts);
 
     return `
       <div class="card">
@@ -245,7 +258,7 @@ function renderCards(items) {
           <span class="game-tag">${escHtml(item.game)}</span>
           ${stars}
           ${cat}
-          <span class="ago">${escHtml(item.ago)}</span>
+          <span class="ago">${escHtml(ago)}</span>
         </div>
         ${text}
       </div>
@@ -268,14 +281,14 @@ function applyFilters() {
 
   let filtered = allItems;
   if (game) filtered = filtered.filter(i => i.game === game);
-  if (stars > 0) filtered = filtered.filter(i => i.stars === stars);
-  if (cat) filtered = filtered.filter(i => i.category === cat);
+  if (stars > 0) filtered = filtered.filter(i => (i.rating || i.stars) === stars);
+  if (cat) filtered = filtered.filter(i => (i.classification || i.category) === cat);
 
   renderCards(filtered);
 }
 
 async function loadFeedback() {
-  const r = await fetch(`${API}/feedback?limit=500`);
+  const r = await fetch(`${API}/list?limit=500`);
   allItems = await r.json();
 
   // Populate game dropdown
