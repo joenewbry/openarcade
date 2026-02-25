@@ -1,0 +1,100 @@
+{
+  "generatedAt": "2026-02-25T19:38:24.594Z",
+  "model": "grok-imagine-image",
+  "api": "xAI Images API",
+  "outputDir": "1942/design/assets/highfi",
+  "styleGuide": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks",
+  "assets": [
+    {
+      "id": "campaign-coral",
+      "file": "campaign-coral.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Campaign board for NOT-Coral Front: turquoise ocean, reef channels, islands, whales and gulls, enemy lanes and bullet readability tests, boss lane at top, player lane at bottom.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "campaign-jungle",
+      "file": "campaign-jungle.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Campaign board for NOT-Jungle Spear: dense green canopy, river cuts, birds, ambush lanes, anti-air emplacements, high-contrast projectile readability over foliage.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "campaign-dust",
+      "file": "campaign-dust.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Campaign board for NOT-Dust Convoy: dunes, convoy roads, dust devils, armored columns, warm terrain with cool projectile contrast and visible route hazards.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "campaign-monsoon",
+      "file": "campaign-monsoon.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Campaign board for NOT-Iron Monsoon: storm clouds, rain bands, lightning flashes, submarine wakes, high-pressure visibility management with clear enemy bullets.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "planes-sheet",
+      "file": "planes-sheet.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Plane roster showcase with four distinct player planes (P-38 Falcon, F4U Lancer, XP-59 Specter, B7 Atlas), each labeled with special ability, plus three-frame barrel-roll dodge sequence and i-frame callout.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "player-roll-sprite-sheet",
+      "file": "player-roll-sprite-sheet.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Sprite sheet for player barrel-roll dodge animation: three to five directional frames, clean transparent-like background style, game-production pixel art, sheet layout for runtime slicing.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "enemy-sheet",
+      "file": "enemy-sheet.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Enemy compendium board with multiple enemy sizes and families: scout, torpedo bomber, raider, gunship, submarine, each with visual identity and attack archetype tags.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "enemy-sprite-sheet",
+      "file": "enemy-sprite-sheet.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Enemy sprite sheet with per-enemy 3+ animation frames and attack-state variants, organized in rows with label strips, production-ready pixel-art style.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "boss-sprite-sheet",
+      "file": "boss-sprite-sheet.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Boss sprite sheet showing large multi-section bosses with destructible components and phase variants, clearly larger than standard enemies.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "terrain-wildlife-board",
+      "file": "terrain-wildlife-board.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Terrain and wildlife showcase: reefs, islands, jungle canopy, dunes, storms, whales, birds, fish, with readability overlays demonstrating player/enemy contrast.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "powerup-sheet",
+      "file": "powerup-sheet.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Power-up board with in-game item visuals for Double Shot, Speed Boost, Shield, Repair, Bomb Pack; each shown as pickup icon and HUD icon, not abstract rectangles.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "dialogue-comic-bubbles",
+      "file": "dialogue-comic-bubbles.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. Comic-book style high-contrast black-and-white dialogue panel set for mission intro, mini-boss alert, final boss warning, campaign clear debrief.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "hud-shot",
+      "file": "hud-shot.png",
+      "prompt": "WWII-inspired top-down arcade shooter screenshot concept, authentic pixel-art sprite craft, crisp clusters, no blurry gradients, high-fidelity pixel shading with clear silhouettes and readable HUD, arcade cabinet energy with score, lives, bombs, and wave indicators, rich but readable color script, bullets and hazards clearly legible, game-ready composition, final-product feel, not wireframe blocks. In-game combat screenshot mock with full HUD: score, lives, bombs, wave, special meter, bullet-heavy action, mini-boss presence, polished arcade screen feel.",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    }
+  ]
+}

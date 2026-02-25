@@ -2,6 +2,10 @@
   "name": "openarcade-scripts",
   "private": true,
   "type": "module",
+  "scripts": {
+    "design:1942:art": "node generate-1942-art.mjs",
+    "design:docs": "node generate-design-book.mjs"
+  },
   "dependencies": {
     "puppeteer": "^24.0.0"
   }

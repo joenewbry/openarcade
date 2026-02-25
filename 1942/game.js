@@ -13,6 +13,8 @@ const ENEMY_SCALE = 3;
 const BOSS_SCALE = 4;
 const BULLET_SIZE = 4;
 const ROLL_DURATION = 30;
+const ROLL_IFRAMES = 22;
+const ROLL_SPEED = 6.1;
 const ROLL_TRAIL_MAX = 4;
 
 class Sfx {
@@ -129,6 +131,9 @@ function makePlayer(planeId) {
     specialCooldown: 0,
     specialTimer: 0,
     rollTimer: 0,
+    rollInvuln: 0,
+    rollVx: 0,
+    rollVy: -1,
     rollCooldown: 0,
     invuln: 0,
     shieldTimer: 0,
@@ -136,6 +141,8 @@ function makePlayer(planeId) {
     doubleShotTimer: 0,
     rollTrail: [],
     lastSpacePressedAt: -100,
+    lastMoveX: 0,
+    lastMoveY: -1,
   };
 }
 
@@ -358,11 +365,16 @@ function buildPowerupSprite(id) {
   return 'pickup_bomb';
 }
 
-function startRoll(player) {
+function startRoll(player, dirX, dirY) {
   if (player.rollCooldown > 0 || player.rollTimer > 0) return;
+  const mag = Math.hypot(dirX, dirY) || 1;
+  const nx = mag > 0 ? dirX / mag : 0;
+  const ny = mag > 0 ? dirY / mag : -1;
   player.rollTimer = ROLL_DURATION;
   player.rollCooldown = player.plane.rollCooldown;
-  player.invuln = Math.max(player.invuln, ROLL_DURATION - 2);
+  player.rollInvuln = ROLL_IFRAMES;
+  player.rollVx = nx;
+  player.rollVy = ny;
   sfx.roll();
 }
 
@@ -441,7 +453,7 @@ function useSpecial(state) {
 
 function damagePlayer(state) {
   const p = state.player;
-  if (p.invuln > 0 || p.shieldTimer > 0 || p.rollTimer > 0) return;
+  if (p.invuln > 0 || p.shieldTimer > 0 || p.rollInvuln > 0) return;
   p.lives -= 1;
   p.invuln = 120;
   spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#8ec5ff', 16);
@@ -496,6 +508,7 @@ function updateGame(state, game, input) {
   if (player.specialCooldown > 0) player.specialCooldown--;
   if (player.specialTimer > 0) player.specialTimer--;
   if (player.rollTimer > 0) player.rollTimer--;
+  if (player.rollInvuln > 0) player.rollInvuln--;
   if (player.rollCooldown > 0) player.rollCooldown--;
   if (player.invuln > 0) player.invuln--;
   if (player.doubleShotTimer > 0) player.doubleShotTimer--;
@@ -514,18 +527,36 @@ function updateGame(state, game, input) {
   }
 
   const speed = player.plane.speed + (player.speedBoostTimer > 0 ? 1.15 : 0);
-  if (input.isDown('ArrowLeft')) player.x -= speed;
-  if (input.isDown('ArrowRight')) player.x += speed;
-  if (input.isDown('ArrowUp')) player.y -= speed;
-  if (input.isDown('ArrowDown')) player.y += speed;
+  let mx = 0;
+  let my = 0;
+  if (input.isDown('ArrowLeft')) mx -= 1;
+  if (input.isDown('ArrowRight')) mx += 1;
+  if (input.isDown('ArrowUp')) my -= 1;
+  if (input.isDown('ArrowDown')) my += 1;
+
+  if (mx !== 0 || my !== 0) {
+    const mag = Math.hypot(mx, my) || 1;
+    player.lastMoveX = mx / mag;
+    player.lastMoveY = my / mag;
+  }
+
+  if (player.rollTimer > 0) {
+    const t = (ROLL_DURATION - player.rollTimer) / ROLL_DURATION;
+    const burst = Math.sin(Math.PI * clamp(t + 0.08, 0, 1));
+    player.x += player.rollVx * ROLL_SPEED * burst;
+    player.y += player.rollVy * (ROLL_SPEED * 0.72) * burst;
+  } else {
+    player.x += mx * speed;
+    player.y += my * speed;
+  }
 
   player.x = clamp(player.x, 12, W - player.w - 12);
   player.y = clamp(player.y, 44, H - player.h - 20);
 
-  if (input.wasPressed('Shift')) startRoll(player);
+  if (input.wasPressed('Shift')) startRoll(player, player.lastMoveX, player.lastMoveY);
 
   if (input.wasPressed(' ') && state.tick - player.lastSpacePressedAt <= 14) {
-    startRoll(player);
+    startRoll(player, player.lastMoveX, player.lastMoveY);
   }
   if (input.wasPressed(' ')) {
     player.lastSpacePressedAt = state.tick;

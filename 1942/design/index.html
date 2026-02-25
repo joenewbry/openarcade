@@ -1,213 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>1942 Design Doc</title>
-  <style>
-    :root {
-      --bg: #0b1220;
-      --panel: #111d33;
-      --panel-2: #172845;
-      --text: #eaf4ff;
-      --muted: #b8d2ef;
-      --line: #2b4d74;
-      --accent: #7ec7ff;
-      --accent-2: #ffd27b;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: radial-gradient(circle at top, #14253f 0%, var(--bg) 45%, #070b14 100%);
-      color: var(--text);
-      font-family: "SF Mono", "Menlo", "Consolas", monospace;
-      line-height: 1.45;
-    }
-    .wrap {
-      max-width: 1080px;
-      margin: 0 auto;
-      padding: 28px 20px 48px;
-    }
-    .topbar {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-    }
-    .btn {
-      display: inline-block;
-      text-decoration: none;
-      color: var(--text);
-      border: 1px solid var(--line);
-      padding: 8px 12px;
-      border-radius: 8px;
-      background: rgba(23, 40, 69, 0.7);
-      font-size: 13px;
-    }
-    .hero {
-      background: linear-gradient(160deg, rgba(22, 42, 72, 0.96), rgba(13, 25, 44, 0.96));
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 18px;
-      margin-bottom: 18px;
-    }
-    h1 { margin: 0 0 8px; font-size: 30px; }
-    h2 { margin: 0 0 10px; font-size: 22px; color: var(--accent); }
-    h3 { margin: 0 0 8px; font-size: 17px; color: #d5e9ff; }
-    .subtitle { color: var(--muted); font-size: 14px; }
-    .section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 16px;
-      margin-bottom: 14px;
-    }
-    .grid-2 {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 12px;
-    }
-    ul { margin: 8px 0 0 18px; }
-    li { margin-bottom: 5px; color: var(--muted); }
-    img {
-      width: 100%;
-      height: auto;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--panel-2);
-      display: block;
-      margin-top: 10px;
-    }
-    .comp-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 10px;
-      margin-top: 10px;
-    }
-    .comp-card {
-      background: var(--panel-2);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 10px;
-    }
-    .comp-card a {
-      color: var(--accent-2);
-      text-decoration: none;
-      font-size: 12px;
-    }
-    .kbd {
-      display: inline-block;
-      border: 1px solid #456b95;
-      border-bottom-width: 2px;
-      border-radius: 5px;
-      padding: 1px 6px;
-      font-size: 12px;
-      color: #d8ebff;
-      background: #1a2d4a;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1942 Pixel Campaigns Unified Design Doc</title>
+<style>
+:root{--bg:#0a1120;--panel:#101c33;--line:#284b78;--text:#e6f2ff;--muted:#b7d0ea;--accent:#7ec7ff;--code:#0b1628}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#162846,var(--bg) 52%);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+.shell{max-width:1320px;margin:0 auto;padding:20px;display:grid;grid-template-columns:290px 1fr;gap:14px}
+@media(max-width:980px){.shell{grid-template-columns:1fr}.toc{position:static}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.toc{padding:14px;position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto}
+.toc h3{margin:0 0 8px;font-size:14px;color:var(--accent)}
+.toc a{display:block;color:var(--muted);text-decoration:none;padding:5px 6px;border-radius:6px;font-size:13px}
+.toc a:hover{background:#173159;color:#ecf7ff}
+.toc .toc-l1{font-weight:700;color:#eaf4ff;margin-top:6px}
+.toc .toc-l2{padding-left:14px}
+.toc .toc-l3{padding-left:28px;font-size:12px}
+.main{padding:20px 24px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.toolbar a{display:inline-block;background:#132542;border:1px solid #2a4f7f;color:#e8f4ff;text-decoration:none;border-radius:8px;padding:8px 12px;font-size:13px}
+.header{margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.header h1{margin:0;font-size:30px}.header p{margin:6px 0 0;color:var(--muted)}
+.header .meta{margin-top:10px;font-size:12px;color:var(--muted)}
+h1,h2,h3,h4,h5,h6{color:#eaf4ff;scroll-margin-top:18px}
+h2{border-bottom:1px solid #234265;padding-bottom:6px;margin-top:30px}
+p,li{color:#d4e6f9;line-height:1.65}a{color:#9ed5ff}
+code{background:#1a2f4d;color:#eaf4ff;padding:1px 5px;border-radius:5px;font-size:.92em}
+pre{background:var(--code);border:1px solid #223e63;border-radius:10px;padding:12px;overflow:auto}
+pre code{background:none;padding:0}
+img{max-width:100%;height:auto;border-radius:10px;border:1px solid #2e5788;background:#132540}
+figure{margin:16px 0}figcaption{font-size:12px;color:var(--muted);margin-top:6px}
+table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border:1px solid #274870;padding:8px;text-align:left}th{background:#162b47}
+</style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <a class="btn" href="/">Back to Arcade</a>
-      <a class="btn" href="/1942/">Play 1942</a>
-      <a class="btn" href="./1942-design-book.md" target="_blank" rel="noopener">Open Markdown Book</a>
-      <a class="btn" href="./game-mechanics.md" target="_blank" rel="noopener">Open Mechanics MD</a>
-    </div>
-
-    <section class="hero">
-      <h1>1942 Pixel Campaigns Design Doc</h1>
-      <div class="subtitle">Browser view for design review: campaigns, enemies, weapons, bosses, pacing, and references.</div>
-    </section>
-
-    <section class="section">
-      <h2>Core Systems</h2>
-      <div class="grid-2">
-        <div>
-          <h3>Campaign Structure</h3>
-          <ul>
-            <li>4 long campaigns, 20 waves each</li>
-            <li>Waves 5/10/15: mini bosses</li>
-            <li>Wave 20: final boss</li>
-            <li>Enemy introduction then recombination</li>
-          </ul>
-        </div>
-        <div>
-          <h3>Controls + Weapons</h3>
-          <ul>
-            <li><span class="kbd">Space</span> primary fire</li>
-            <li><span class="kbd">X</span> special ability</li>
-            <li><span class="kbd">Shift</span> or double <span class="kbd">Space</span> barrel roll dodge</li>
-            <li><span class="kbd">B</span> bomb board-clear (clears bullets + heavy enemy damage)</li>
-          </ul>
-        </div>
-      </div>
-      <img src="./assets/campaigns-overview.svg" alt="Campaign overview board">
-    </section>
-
-    <section class="section">
-      <h2>Planes and Specials</h2>
-      <img src="./assets/planes-specials.svg" alt="Player planes and special abilities">
-    </section>
-
-    <section class="section">
-      <h2>Enemy Animation and Boss Ladder</h2>
-      <img src="./assets/enemy-roster.svg" alt="Enemy animation roster and boss escalation">
-    </section>
-
-    <section class="section">
-      <h2>Terrain, Wildlife, and Visibility</h2>
-      <img src="./assets/terrain-wildlife.svg" alt="Terrain and wildlife layer design">
-    </section>
-
-    <section class="section">
-      <h2>Power-Up Economy</h2>
-      <img src="./assets/powerups.svg" alt="Power-up cards and drop rules">
-    </section>
-
-    <section class="section">
-      <h2>Pacing and Dialogue</h2>
-      <div class="grid-2">
-        <div>
-          <img src="./assets/pacing-chart.svg" alt="Pacing pressure curve">
-        </div>
-        <div>
-          <img src="./assets/dialogue-flow.svg" alt="Dialogue bubble flow">
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <h2>Competitive Inspiration Clips</h2>
-      <div class="comp-grid">
-        <div class="comp-card">
-          <strong>1942</strong>
-          <img src="./assets/comp-1942.png" alt="1942 reference screenshot">
-          <a href="https://en.wikipedia.org/wiki/1942_(video_game)" target="_blank" rel="noopener">Source</a>
-        </div>
-        <div class="comp-card">
-          <strong>Raiden</strong>
-          <img src="./assets/comp-raiden.png" alt="Raiden reference screenshot">
-          <a href="https://en.wikipedia.org/wiki/Raiden_(video_game)" target="_blank" rel="noopener">Source</a>
-        </div>
-        <div class="comp-card">
-          <strong>Strikers 1945</strong>
-          <img src="./assets/comp-strikers-1945.png" alt="Strikers 1945 reference screenshot">
-          <a href="https://en.wikipedia.org/wiki/Strikers_1945" target="_blank" rel="noopener">Source</a>
-        </div>
-        <div class="comp-card">
-          <strong>DoDonPachi</strong>
-          <img src="./assets/comp-dodonpachi.png" alt="DoDonPachi reference screenshot">
-          <a href="https://en.wikipedia.org/wiki/DoDonPachi" target="_blank" rel="noopener">Source</a>
-        </div>
-        <div class="comp-card">
-          <strong>Xevious</strong>
-          <img src="./assets/comp-xevious.png" alt="Xevious reference screenshot">
-          <a href="https://en.wikipedia.org/wiki/Xevious" target="_blank" rel="noopener">Source</a>
-        </div>
-      </div>
-    </section>
-  </div>
+<div class="shell">
+<aside class="panel toc"><h3>Contents</h3><a class="toc-l1" href="#1942-pixel-campaigns-unified-design-doc">1942 Pixel Campaigns Unified Design Doc</a><a class="toc-l2" href="#quick-navigation">Quick Navigation</a><a class="toc-l2" href="#book">Book</a><a class="toc-l3" href="#vision">Vision</a><a class="toc-l3" href="#core-systems">Core Systems</a><a class="toc-l3" href="#campaign-structure">Campaign Structure</a><a class="toc-l3" href="#plane-roster-and-shared-roll">Plane Roster and Shared Roll</a><a class="toc-l3" href="#weapons-and-bomb-clear">Weapons and Bomb Clear</a><a class="toc-l3" href="#enemy-and-boss-visual-direction">Enemy and Boss Visual Direction</a><a class="toc-l3" href="#terrain-wildlife-and-readability">Terrain, Wildlife, and Readability</a><a class="toc-l3" href="#power-ups-and-economy">Power-Ups and Economy</a><a class="toc-l3" href="#dialogue-style">Dialogue Style</a><a class="toc-l3" href="#competitive-inspiration">Competitive Inspiration</a><a class="toc-l2" href="#mechanics">Mechanics</a><a class="toc-l3" href="#campaign-and-wave-cadence">Campaign and Wave Cadence</a><a class="toc-l3" href="#enemy-types-and-projectile-families">Enemy Types and Projectile Families</a><a class="toc-l3" href="#boss-phase-model">Boss Phase Model</a><a class="toc-l3" href="#campaign-by-campaign-enemy-progression">Campaign-by-Campaign Enemy Progression</a><a class="toc-l3" href="#upgrade-drop-scaling">Upgrade Drop Scaling</a><a class="toc-l3" href="#asset-gallery">Asset Gallery</a><a class="toc-l2" href="#ai-art-pipeline">AI Art Pipeline</a><a class="toc-l2" href="#cross-genre-design-checklist">Cross-Genre Design Checklist</a><a class="toc-l3" href="#universal-gates">Universal Gates</a><a class="toc-l3" href="#genre-modules">Genre Modules</a><a class="toc-l3" href="#output-requirement">Output Requirement</a></aside>
+<main class="panel main">
+<div class="toolbar">
+  <a href="/">Back to Arcade</a>
+  <a href="/1942/">Play 1942</a>
+  <a href="#book">Open Book</a>
+  <a href="#mechanics">Open Mechanics</a>
+  <a href="./assets/highfi/art-manifest.json">Open Art Manifest</a>
+</div>
+<div class="header"><h1>1942 Pixel Campaigns Unified Design Doc</h1><p>Single-source markdown rendered to one HTML review surface for book + mechanics + production assets.</p><div class="meta">Source: <a href="1942-design.md">1942-design.md</a></div></div>
+<h1 id="1942-pixel-campaigns-unified-design-doc">1942 Pixel Campaigns Unified Design Doc</h1>
+<h2 id="quick-navigation">Quick Navigation</h2>
+<ul><li><a href="#book">Book</a></li><li><a href="#mechanics">Mechanics</a></li><li><a href="#asset-gallery">Asset Gallery</a></li><li><a href="#ai-art-pipeline">AI Art Pipeline</a></li><li><a href="#cross-genre-design-checklist">Cross-Genre Design Checklist</a></li></ul>
+<h2 id="book">Book</h2>
+<h3 id="vision">Vision</h3>
+<p><code>1942</code> is being rewritten as a high-fidelity pixel campaign shooter. This page is the single source for visual review, gameplay mechanics, and production specs so iteration happens before implementation churn.</p>
+<p>Goals:</p>
+<ul><li>One markdown source and one browseable HTML output.</li><li>Campaign boards and content sheets that look close to final product.</li><li>Strong readability across bullets, enemies, terrain, weather, and HUD.</li><li>Four planes with unique specials and a shared roll-dodge sequence.</li></ul>
+<h3 id="core-systems">Core Systems</h3>
+<ul><li>4 campaigns, 20 waves each.</li><li>Waves 5, 10, 15: mini-bosses (3 per campaign).</li><li>Wave 20: final boss.</li><li>Inputs: <code>Space</code> fire, <code>X</code> special, <code>Shift</code> or double-<code>Space</code> roll, <code>B</code> bomb clear.</li><li>Bosses and mini-bosses always drop upgrades.</li></ul>
+<h3 id="campaign-structure">Campaign Structure</h3>
+<ol><li>New enemy family onboarding.</li><li>Enemy recombination and projectile pressure ramp.</li><li>Mini-boss escalations (three steps).</li><li>Final multi-section boss fight.</li></ol>
+<figure><img src="./assets/highfi/campaign-coral.png" alt="Campaign Board: Coral Front"><figcaption>Campaign Board: Coral Front</figcaption></figure>
+<figure><img src="./assets/highfi/campaign-jungle.png" alt="Campaign Board: Jungle Spear"><figcaption>Campaign Board: Jungle Spear</figcaption></figure>
+<figure><img src="./assets/highfi/campaign-dust.png" alt="Campaign Board: Dust Convoy"><figcaption>Campaign Board: Dust Convoy</figcaption></figure>
+<figure><img src="./assets/highfi/campaign-monsoon.png" alt="Campaign Board: Iron Monsoon"><figcaption>Campaign Board: Iron Monsoon</figcaption></figure>
+<h3 id="plane-roster-and-shared-roll">Plane Roster and Shared Roll</h3>
+<ul><li><code>P-38 Falcon</code> special: <code>Wing Burst</code> (spread surge, crowd clear).</li><li><code>F4U Lancer</code> special: <code>Rail Strafe</code> (piercing focused burst).</li><li><code>XP-59 Specter</code> special: <code>Phase Shield</code> (temporary invulnerability).</li><li><code>B7 Atlas</code> special: <code>EMP Wave</code> (enemy stun + nearby bullet erase).</li></ul>
+<p>Roll dodge requirements:</p>
+<ul><li>Fixed roll animation sequence with visible orientation shift.</li><li>Displacement arc (not only invulnerability lock).</li><li>Shared timing literacy across all planes.</li><li>Invulnerability window is shorter than full roll duration.</li></ul>
+<figure><img src="./assets/highfi/planes-sheet.png" alt="Planes and Roll Board"><figcaption>Planes and Roll Board</figcaption></figure>
+<figure><img src="./assets/highfi/player-roll-sprite-sheet.png" alt="Player Roll Sprite Sheet"><figcaption>Player Roll Sprite Sheet</figcaption></figure>
+<h3 id="weapons-and-bomb-clear">Weapons and Bomb Clear</h3>
+<p>Primary weapon model:</p>
+<ul><li>Persistent machine-gun fire lanes.</li><li>Plane-specific special cooldown skills.</li><li>Limited bomb economy.</li></ul>
+<p>Bomb clear requirements:</p>
+<ul><li>Clear all active enemy bullets.</li><li>Heavy board-wide enemy damage.</li><li>Consumes one bomb stock.</li><li>Serves as tactical pressure reset for dense phases.</li></ul>
+<h3 id="enemy-and-boss-visual-direction">Enemy and Boss Visual Direction</h3>
+<p>Enemy sizes:</p>
+<ul><li>Small: fast threat injectors.</li><li>Medium: pattern drivers and lane denial.</li><li>Large: anchor threats.</li><li>Boss: staged, screen-dominant silhouettes.</li></ul>
+<p>Boss design:</p>
+<ul><li>Multi-section destruction (turrets/engines/core).</li><li>Phase transitions after section breakpoints.</li><li>Firepower, HP, and pattern complexity increase each phase.</li></ul>
+<figure><img src="./assets/highfi/enemy-sheet.png" alt="Enemy Compendium Board"><figcaption>Enemy Compendium Board</figcaption></figure>
+<figure><img src="./assets/highfi/enemy-sprite-sheet.png" alt="Enemy Sprite Sheet"><figcaption>Enemy Sprite Sheet</figcaption></figure>
+<figure><img src="./assets/highfi/boss-sprite-sheet.png" alt="Boss Sprite Sheet"><figcaption>Boss Sprite Sheet</figcaption></figure>
+<h3 id="terrain-wildlife-and-readability">Terrain, Wildlife, and Readability</h3>
+<ul><li>Coral Front: islands, reefs, whales, gulls.</li><li>Jungle Spear: canopy layers, rivers, birds.</li><li>Dust Convoy: dunes, convoy roads, dust devils.</li><li>Iron Monsoon: rain walls, lightning flashes, storm seabirds.</li></ul>
+<p>Color/readability rules:</p>
+<ul><li>Player sprite and player bullets keep high luminance contrast.</li><li>Enemy bullets use campaign-specific but always readable palettes.</li><li>Ambient effects add atmosphere without masking hit-critical objects.</li></ul>
+<figure><img src="./assets/highfi/terrain-wildlife-board.png" alt="Terrain and Wildlife Board"><figcaption>Terrain and Wildlife Board</figcaption></figure>
+<h3 id="power-ups-and-economy">Power-Ups and Economy</h3>
+<p>Power-ups:</p>
+<ul><li><code>Double Shot</code></li><li><code>Speed Boost</code></li><li><code>Shield</code></li><li><code>Repair</code></li><li><code>Bomb Pack</code></li></ul>
+<p>Drop policy:</p>
+<ul><li>Base drop chance by enemy tier.</li><li>Progression multiplier raises drop frequency in later waves/campaigns.</li><li>Mini-boss and final-boss drops are guaranteed.</li></ul>
+<figure><img src="./assets/highfi/powerup-sheet.png" alt="Power-Up Board"><figcaption>Power-Up Board</figcaption></figure>
+<h3 id="dialogue-style">Dialogue Style</h3>
+<p>Dialogue panels should be comic-style high contrast black/white with minimal color accents for warnings and callouts.</p>
+<figure><img src="./assets/highfi/dialogue-comic-bubbles.png" alt="Dialogue Comic Board"><figcaption>Dialogue Comic Board</figcaption></figure>
+<h3 id="competitive-inspiration">Competitive Inspiration</h3>
+<ul><li><code>1942</code></li><li><code>Raiden</code></li><li><code>Strikers 1945</code></li><li><code>DoDonPachi</code></li><li><code>Xevious</code></li></ul>
+<p>Applied takeaways:</p>
+<ul><li>Preserve HUD context at all times.</li><li>Maintain silhouette clarity during projectile density spikes.</li><li>Phase bosses for spectacle and readable escalation.</li></ul>
+<figure><img src="./assets/comp-1942.png" alt="1942 Reference"><figcaption>1942 Reference</figcaption></figure>
+<figure><img src="./assets/comp-raiden.png" alt="Raiden Reference"><figcaption>Raiden Reference</figcaption></figure>
+<figure><img src="./assets/comp-strikers-1945.png" alt="Strikers 1945 Reference"><figcaption>Strikers 1945 Reference</figcaption></figure>
+<figure><img src="./assets/comp-dodonpachi.png" alt="DoDonPachi Reference"><figcaption>DoDonPachi Reference</figcaption></figure>
+<figure><img src="./assets/comp-xevious.png" alt="Xevious Reference"><figcaption>Xevious Reference</figcaption></figure>
+<h2 id="mechanics">Mechanics</h2>
+<h3 id="campaign-and-wave-cadence">Campaign and Wave Cadence</h3>
+<ul><li>Campaign count: 4.</li><li>Waves per campaign: 20.</li></ul>
+<table><thead><tr><th>Wave Range</th><th>Role</th></tr></thead><tbody><tr><td><code>1-4</code></td><td>intro and recombination</td></tr><tr><td><code>5</code></td><td>mini-boss 1</td></tr><tr><td><code>6-9</code></td><td>mixed pressure</td></tr><tr><td><code>10</code></td><td>mini-boss 2</td></tr><tr><td><code>11-14</code></td><td>mixed + terrain burden</td></tr><tr><td><code>15</code></td><td>mini-boss 3</td></tr><tr><td><code>16-19</code></td><td>high-density combinations</td></tr><tr><td><code>20</code></td><td>final boss</td></tr></tbody></table>
+<h3 id="enemy-types-and-projectile-families">Enemy Types and Projectile Families</h3>
+<table><thead><tr><th>Family</th><th>Primary Fire</th><th>Secondary Fire</th><th>Role</th></tr></thead><tbody><tr><td><code>scout_zero</code></td><td>narrow burst</td><td>snap aimed shot</td><td>early pressure</td></tr><tr><td><code>torpedo_gull</code></td><td>low arc spread</td><td>lane bomb drop</td><td>low-altitude disruption</td></tr><tr><td><code>canopy_raider</code></td><td>angled crossfire</td><td>side pincer burst</td><td>flank opener</td></tr><tr><td><code>gunship_hornet</code></td><td>sustained stream</td><td>delayed bloom burst</td><td>zone denial</td></tr><tr><td><code>dune_lancer</code></td><td>straight lance shot</td><td>high-speed dash line</td><td>convoy intercept</td></tr><tr><td><code>rail_bomber</code></td><td>heavy shell volley</td><td>rear mine trail</td><td>sustained attrition</td></tr><tr><td><code>storm_wraith</code></td><td>pulse ring</td><td>tracking drift rounds</td><td>visibility stress</td></tr><tr><td><code>sub_spear</code></td><td>surfacing torpedo fan</td><td>wake mines</td><td>low-lane control</td></tr></tbody></table>
+<h3 id="boss-phase-model">Boss Phase Model</h3>
+<p>Each final boss has 4 sections: <code>port battery</code>, <code>starboard battery</code>, <code>engine block</code>, <code>core</code>.</p>
+<p>Per-phase escalation:</p>
+<ol><li><code>Phase 1</code>: wide spread and movement intro.</li><li><code>Phase 2</code>: aimed bursts + turret crossfire.</li><li><code>Phase 3</code>: tracking rounds + lane denial.</li><li><code>Phase 4</code>: combined patterns, movement compression, short recovery windows.</li></ol>
+<h3 id="campaign-by-campaign-enemy-progression">Campaign-by-Campaign Enemy Progression</h3>
+<h4 id="campaign-1-not-coral-front">Campaign 1: NOT-Coral Front</h4>
+<ul><li>Intro family: <code>scout_zero</code> (W1).</li><li>Added family: <code>torpedo_gull</code> (W3).</li><li>Mini-boss waves: <code>reef_guardian</code> (W5/W10/W15).</li><li>Final boss: <code>coral_dreadnought</code> (W20).</li><li>Wildlife and terrain: whales, gulls, island channels.</li></ul>
+<h4 id="campaign-2-not-jungle-spear">Campaign 2: NOT-Jungle Spear</h4>
+<ul><li>Intro family: <code>canopy_raider</code> (W1).</li><li>Added family: <code>gunship_hornet</code> (W3).</li><li>Legacy mix: <code>scout_zero</code> in cross ambush formations.</li><li>Mini-boss: <code>river_bastion</code> (W5/W10/W15).</li><li>Final boss: <code>jungle_citadel</code> (W20).</li></ul>
+<h4 id="campaign-3-not-dust-convoy">Campaign 3: NOT-Dust Convoy</h4>
+<ul><li>Intro family: <code>dune_lancer</code> (W1).</li><li>Added family: <code>rail_bomber</code> (W2-W3).</li><li>Legacy mix: <code>gunship_hornet</code> for layered pressure.</li><li>Mini-boss: <code>convoy_ram</code> (W5/W10/W15).</li><li>Final boss: <code>dust_colossus</code> (W20).</li></ul>
+<h4 id="campaign-4-not-iron-monsoon">Campaign 4: NOT-Iron Monsoon</h4>
+<ul><li>Intro family: <code>storm_wraith</code> (W1).</li><li>Added family: <code>sub_spear</code> (W2).</li><li>Legacy mix: <code>dune_lancer</code> + <code>canopy_raider</code> late waves.</li><li>Mini-boss: <code>monsoon_blade</code> (W5/W10/W15).</li><li>Final boss: <code>iron_tempest</code> (W20).</li></ul>
+<h3 id="upgrade-drop-scaling">Upgrade Drop Scaling</h3>
+<table><thead><tr><th>Context</th><th>Base Chance</th><th>Progression Multiplier</th><th>Guaranteed</th></tr></thead><tbody><tr><td>Small enemy</td><td>10%</td><td>+0.4% per wave after W8</td><td>No</td></tr><tr><td>Medium enemy</td><td>14%</td><td>+0.5% per wave after W8</td><td>No</td></tr><tr><td>Large enemy</td><td>20%</td><td>+0.7% per wave after W8</td><td>No</td></tr><tr><td>Mini-boss</td><td>100%</td><td>n/a</td><td>Yes</td></tr><tr><td>Final boss</td><td>100% major drop</td><td>n/a</td><td>Yes</td></tr></tbody></table>
+<h3 id="asset-gallery">Asset Gallery</h3>
+<figure><img src="./assets/highfi/hud-shot.png" alt="HUD Combat Mock"><figcaption>HUD Combat Mock</figcaption></figure>
+<figure><img src="./assets/highfi/powerup-sheet.png" alt="Power-Up Board"><figcaption>Power-Up Board</figcaption></figure>
+<figure><img src="./assets/highfi/enemy-sheet.png" alt="Enemy Compendium Board"><figcaption>Enemy Compendium Board</figcaption></figure>
+<figure><img src="./assets/highfi/planes-sheet.png" alt="Planes and Roll Board"><figcaption>Planes and Roll Board</figcaption></figure>
+<h2 id="ai-art-pipeline">AI Art Pipeline</h2>
+<ul><li>Source model: <code>grok-imagine-image</code>.</li><li>Script: <code>scripts/generate-1942-art.mjs</code>.</li><li>Output folder: <code>1942/design/assets/highfi/</code>.</li><li>Manifest: <code>1942/design/assets/highfi/art-manifest.json</code>.</li></ul>
+<p>Expected generated assets:</p>
+<ul><li>Campaign boards per theater.</li><li>Plane roster + roll sequence board.</li><li>Enemy compendium board.</li><li>Boss sheet.</li><li>Sprite sheets (player roll, enemies, bosses).</li><li>Power-up sheet with in-game style.</li><li>Terrain/wildlife board.</li><li>Comic dialogue board.</li></ul>
+<h2 id="cross-genre-design-checklist">Cross-Genre Design Checklist</h2>
+<p>Use this when designing non-shooter projects too. Skip modules not relevant to the genre.</p>
+<h3 id="universal-gates">Universal Gates</h3>
+<ul><li>[ ] Vision, audience, session length.</li><li>[ ] Core loop and controls.</li><li>[ ] Progression and pacing curve.</li><li>[ ] Content catalog and production plan.</li><li>[ ] UX, readability, onboarding.</li><li>[ ] Technical interfaces and acceptance criteria.</li></ul>
+<h3 id="genre-modules">Genre Modules</h3>
+<ul><li>Shooter: enemy waves, projectile families, boss phases, hit readability.</li><li>Card game: deckbuilding loops, draw economy, counterplay visibility, archetype balance.</li><li>Builder/sim: resource loops, placement affordances, long-horizon pacing, fail-state softness.</li><li>FPS: weapon sandbox, map flow, spawn safety, recoil/readability tuning.</li><li>Puzzle: teachability, state legibility, solution space breadth, anti-stall design.</li><li>Strategy/RTS/Tactics: economy/micro/macro balance, faction asymmetry, intel and fog-of-war clarity.</li></ul>
+<h3 id="output-requirement">Output Requirement</h3>
+<ul><li>This markdown file is canonical and should be rendered to one HTML page for human review.</li></ul>
+</main>
+</div>
 </body>
 </html>
