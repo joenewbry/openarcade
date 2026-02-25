@@ -1,52 +1,38 @@
-// 1942/game.js — 1942 game logic as ES module for WebGL engine
-
 import { Game } from '../engine/core.js';
+import { PLANES, getPlaneById } from './content/planes.js';
+import { POWERUPS, rollPowerup } from './content/powerups.js';
+import { CAMPAIGNS, getCampaign } from './content/campaigns.js';
+import { ENEMIES, MINI_BOSSES, FINAL_BOSSES } from './content/enemies.js';
+import { getDialogue } from './content/dialogue.js';
+import { getSprite, colorForKey } from './content/sprites.js';
 
 const W = 480;
 const H = 640;
+const PLAYER_SCALE = 3;
+const ENEMY_SCALE = 3;
+const BOSS_SCALE = 4;
+const BULLET_SIZE = 4;
+const ROLL_DURATION = 30;
+const ROLL_TRAIL_MAX = 4;
 
-// Theme
-const THEME = '#6db';
-
-// Player constants
-const PW = 32, PH = 36;
-const PLAYER_SPEED = 4;
-const FIRE_RATE = 8;
-const ROLL_DURATION = 40;
-const ROLL_COOLDOWN = 90;
-const DOUBLE_TAP_WINDOW = 15;
-
-// Bullet constants
-const BULLET_SPEED = 8;
-const ENEMY_BULLET_SPEED = 3;
-
-// Parallax ground scroll
-const SCROLL_SPEED = 1.5;
-
-// ── Procedural Audio System ──
-class SynthSFX {
+class Sfx {
   constructor() {
     this.ctx = null;
   }
 
-  _ensureCtx() {
-    if (!this.ctx) {
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
-    }
+  ensure() {
+    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;
   }
 
-  _osc(freq, type, duration, gainVal, detune) {
-    const ctx = this._ensureCtx();
+  tone(freq, type, duration, gainVal = 0.08) {
+    const ctx = this.ensure();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = type || 'square';
+    osc.type = type;
     osc.frequency.value = freq;
-    if (detune) osc.detune.value = detune;
-    gain.gain.setValueAtTime(gainVal || 0.15, ctx.currentTime);
+    gain.gain.setValueAtTime(gainVal, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     osc.connect(gain);
     gain.connect(ctx.destination);
@@ -54,542 +40,791 @@ class SynthSFX {
     osc.stop(ctx.currentTime + duration);
   }
 
-  _noise(duration, gainVal) {
-    const ctx = this._ensureCtx();
-    const bufferSize = Math.floor(ctx.sampleRate * duration);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  noise(duration = 0.12, gainVal = 0.15) {
+    const ctx = this.ensure();
+    const size = Math.floor(ctx.sampleRate * duration);
+    const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
+    for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(gainVal || 0.15, ctx.currentTime);
+    gain.gain.setValueAtTime(gainVal, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-    source.connect(gain);
+    src.connect(gain);
     gain.connect(ctx.destination);
-    source.start(ctx.currentTime);
+    src.start();
   }
 
-  machineGun() {
-    this._osc(2200, 'square', 0.015, 0.08);
-  }
+  shoot() { this.tone(920, 'square', 0.05, 0.07); }
+  enemyShoot() { this.tone(420, 'sawtooth', 0.06, 0.07); }
+  hit() { this.noise(0.08, 0.12); }
+  explode() { this.noise(0.18, 0.18); this.tone(130, 'sine', 0.15, 0.1); }
+  roll() { this.tone(520, 'triangle', 0.12, 0.08); }
+  pickup() { this.tone(680, 'sine', 0.08, 0.1); setTimeout(() => this.tone(980, 'sine', 0.1, 0.09), 70); }
+  bossWarn() { this.tone(160, 'square', 0.12, 0.12); setTimeout(() => this.tone(130, 'square', 0.12, 0.1), 140); }
+}
 
-  explosion() {
-    this._noise(0.1, 0.2);
-    this._osc(120, 'sine', 0.1, 0.12);
-  }
+const sfx = new Sfx();
 
-  bossExplosion() {
-    const ctx = this._ensureCtx();
-    this._noise(0.4, 0.3);
-    this._osc(80, 'sine', 0.4, 0.15);
-    setTimeout(() => { this._noise(0.2, 0.2); }, 100);
-    setTimeout(() => { this._osc(60, 'sine', 0.3, 0.1); }, 200);
-  }
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
 
-  rollWhoosh() {
-    const ctx = this._ensureCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(400, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1800, ctx.currentTime + 0.1);
-    osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.2);
-    gain.gain.setValueAtTime(0.1, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.2);
-  }
+function rand(min, max) {
+  return min + Math.random() * (max - min);
+}
 
-  powerupCollect() {
-    this._osc(600, 'sine', 0.08, 0.12);
-    setTimeout(() => { this._osc(900, 'sine', 0.1, 0.12); }, 60);
-  }
+function rectHit(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
 
-  playerHit() {
-    const ctx = this._ensureCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(800, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.15);
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.15);
-  }
+function spriteSize(spriteId, scale) {
+  const sprite = getSprite(spriteId);
+  const h = sprite.length;
+  const w = sprite[0].length;
+  return { w: w * scale, h: h * scale };
+}
 
-  waveComplete() {
-    this._osc(440, 'triangle', 0.12, 0.1);
-    setTimeout(() => { this._osc(554, 'triangle', 0.12, 0.1); }, 100);
-    setTimeout(() => { this._osc(660, 'triangle', 0.18, 0.12); }, 200);
-  }
-
-  bossWarning() {
-    const ctx = this._ensureCtx();
-    for (let i = 0; i < 4; i++) {
-      const freq = i % 2 === 0 ? 120 : 160;
-      const t = ctx.currentTime + i * 0.125;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.12, t);
-      gain.gain.setValueAtTime(0.001, t + 0.11);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.12);
+function drawPixelSprite(renderer, spriteId, x, y, scale, tintColor, alpha = 1) {
+  const sprite = getSprite(spriteId);
+  for (let py = 0; py < sprite.length; py++) {
+    const row = sprite[py];
+    for (let px = 0; px < row.length; px++) {
+      const key = row[px];
+      if (key === '.') continue;
+      let c = colorForKey(key, tintColor);
+      if (!c) continue;
+      if (alpha < 1) {
+        c = c.startsWith('#')
+          ? hexToRgba(c, alpha)
+          : c.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+      }
+      renderer.fillRect(Math.floor(x + px * scale), Math.floor(y + py * scale), scale, scale, c);
     }
   }
-
-  gameOver() {
-    this._osc(500, 'triangle', 0.18, 0.12);
-    setTimeout(() => { this._osc(400, 'triangle', 0.18, 0.12); }, 160);
-    setTimeout(() => { this._osc(280, 'triangle', 0.3, 0.1); }, 320);
-  }
 }
 
-const sfx = new SynthSFX();
-
-// ── State ──
-let score, best = 0;
-let player, bullets, enemies, enemyBullets, powerUps, particles, explosions;
-let tick, fireCooldown;
-let lives;
-let waveTimer, waveNumber, waveEnemiesLeft;
-let bossActive, bossSpawnScore;
-let scrollOffset;
-let lastSpaceDown, rollCooldownTimer, rollingTimer;
-let doubleShot, doubleShotTimer;
-let speedBoost, speedBoostTimer;
-let groundTiles = [];
-
-// Screen shake state
-let shakeAmount = 0;
-let shakeTimer = 0;
-let shakeOffsetX = 0;
-let shakeOffsetY = 0;
-
-// Boss warning state
-let bossWarningTimer = 0;
-
-// Wave text state
-let waveTextTimer = 0;
-let waveTextNumber = 0;
-
-// Engine exhaust particles
-let exhaustParticles = [];
-
-// Roll afterimage state
-let rollTrail = []; // stores [{x, y, alpha}]
-
-// Clouds for parallax
-let clouds = [];
-
-// Debris particles (tumbling rectangles from enemy deaths)
-let debrisParticles = [];
-
-// Bullet counter for sfx throttle
-let bulletsFired = 0;
-
-// Propeller animation
-let propellerAngle = 0;
-
-// Invincibility after respawn
-let invincibleTimer = 0;
-
-// Particle cap
-const MAX_PARTICLES = 250;
-
-// ── DOM refs ──
-const scoreEl = document.getElementById('score');
-const bestEl = document.getElementById('best');
-const livesEl = document.getElementById('lives');
-
-function triggerShake(amount, duration) {
-  shakeAmount = Math.max(shakeAmount, amount);
-  shakeTimer = Math.max(shakeTimer, duration);
+function hexToRgba(hex, alpha) {
+  const c = hex.replace('#', '');
+  const r = parseInt(c.slice(0, 2), 16);
+  const g = parseInt(c.slice(2, 4), 16);
+  const b = parseInt(c.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
 }
 
-function initGround() {
-  groundTiles = [];
-  for (let i = 0; i < 30; i++) {
-    groundTiles.push({
-      x: Math.random() * W,
-      y: Math.random() * H * 2 - H,
-      w: 20 + Math.random() * 60,
-      h: 15 + Math.random() * 40,
-      type: Math.random() < 0.3 ? 'island' : 'wave',
-      shade: Math.random() * 0.3
-    });
-  }
-}
-
-function initClouds() {
-  clouds = [];
-  // Far layer (slower, more transparent, smaller)
-  for (let i = 0; i < 4; i++) {
-    clouds.push({
-      x: Math.random() * W,
-      y: Math.random() * H * 2 - H,
-      w: 30 + Math.random() * 50,
-      h: 10 + Math.random() * 15,
-      speed: 0.15 + Math.random() * 0.2,
-      alpha: 0.03 + Math.random() * 0.03,
-      layer: 0
-    });
-  }
-  // Near layer (faster, slightly more visible, larger)
-  for (let i = 0; i < 6; i++) {
-    clouds.push({
-      x: Math.random() * W,
-      y: Math.random() * H * 2 - H,
-      w: 40 + Math.random() * 80,
-      h: 16 + Math.random() * 24,
-      speed: 0.3 + Math.random() * 0.4,
-      alpha: 0.06 + Math.random() * 0.06,
-      layer: 1
-    });
-  }
-}
-
-// ── Enemy spawning ──
-function spawnEnemy(type, x, y, pattern) {
-  const e = {
-    type: type,
-    x: x, y: y,
-    w: 28, h: 24,
-    hp: 1,
-    speed: 2,
-    points: 10,
-    pattern: pattern || 'straight',
-    patternPhase: Math.random() * Math.PI * 2,
-    patternTimer: 0,
-    fireTimer: 60 + Math.floor(Math.random() * 120),
-    fireRate: 120,
-    alive: true
+function makePlayer(planeId) {
+  const plane = getPlaneById(planeId);
+  const size = spriteSize(`plane_${plane.id}`, PLAYER_SCALE);
+  return {
+    planeId: plane.id,
+    plane,
+    x: W / 2 - size.w / 2,
+    y: H - 120,
+    w: size.w,
+    h: size.h,
+    lives: 3,
+    bombs: 2,
+    fireCooldown: 0,
+    specialCooldown: 0,
+    specialTimer: 0,
+    rollTimer: 0,
+    rollCooldown: 0,
+    invuln: 0,
+    shieldTimer: 0,
+    speedBoostTimer: 0,
+    doubleShotTimer: 0,
+    rollTrail: [],
+    lastSpacePressedAt: -100,
   };
-
-  switch (type) {
-    case 'fighter':
-      e.hp = 1; e.speed = 2.5; e.points = 10; e.w = 26; e.h = 22;
-      e.fireRate = 150;
-      break;
-    case 'bomber':
-      e.hp = 2; e.speed = 1.5; e.points = 20; e.w = 32; e.h = 28;
-      e.fireRate = 80;
-      break;
-    case 'ace':
-      e.hp = 2; e.speed = 3; e.points = 30; e.w = 24; e.h = 20;
-      e.fireRate = 100;
-      break;
-    case 'boss':
-      e.hp = 25 + waveNumber * 5; e.maxHp = e.hp;
-      e.speed = 1; e.points = 200; e.w = 72; e.h = 56;
-      e.fireRate = 40; e.fireTimer = 20;
-      e.pattern = 'boss';
-      break;
-  }
-
-  enemies.push(e);
-  return e;
 }
 
-// ── Wave spawning ──
-function spawnWave() {
-  waveNumber++;
-
-  // Wave transition text
-  waveTextTimer = 90;
-  waveTextNumber = waveNumber;
-  sfx.waveComplete();
-
-  const diff = Math.min(waveNumber, 20);
-
-  if (score >= bossSpawnScore && !bossActive) {
-    bossActive = true;
-    spawnEnemy('boss', W / 2 - 36, -60, 'boss');
-    bossSpawnScore += 400 + waveNumber * 50;
-    // Boss entrance effects
-    triggerShake(5, 30);
-    bossWarningTimer = 90;
-    sfx.bossWarning();
-    return;
-  }
-
-  const formations = ['v', 'line', 'stagger', 'circle', 'diagonal', 'funnel', 'pincer', 'cascade'];
-  const formation = formations[waveNumber % formations.length];
-  const count = 4 + Math.min(Math.floor(diff / 2), 6);
-  const types = ['fighter'];
-  if (diff >= 3) types.push('bomber');
-  if (diff >= 6) types.push('ace');
-
-  const baseSpeed = 1.5 + diff * 0.1;
-
-  for (let i = 0; i < count; i++) {
-    const type = types[Math.floor(Math.random() * types.length)];
-    let ex, ey, pattern;
-
-    switch (formation) {
-      case 'v':
-        ex = W / 2 - (count / 2 - i) * 44;
-        ey = -40 - Math.abs(count / 2 - i) * 30;
-        pattern = 'straight';
-        break;
-      case 'line':
-        ex = (W / (count + 1)) * (i + 1) - 14;
-        ey = -40 - i * 8;
-        pattern = 'straight';
-        break;
-      case 'stagger':
-        ex = 40 + (i % 2 === 0 ? i * 50 : W - 80 - i * 30);
-        ey = -40 - i * 25;
-        pattern = 'sine';
-        break;
-      case 'circle':
-        ex = W / 2 + Math.cos(i / count * Math.PI * 2) * 120 - 14;
-        ey = -60 - Math.sin(i / count * Math.PI * 2) * 60 - 60;
-        pattern = 'sine';
-        break;
-      case 'diagonal':
-        ex = i % 2 === 0 ? -30 : W + 30;
-        ey = -40 - i * 30;
-        pattern = i % 2 === 0 ? 'swoopRight' : 'swoopLeft';
-        break;
-      case 'funnel':
-        // Enemies start wide and funnel to center
-        ex = (i % 2 === 0) ? 20 + i * 15 : W - 20 - i * 15;
-        ey = -40 - i * 20;
-        pattern = 'sine';
-        break;
-      case 'pincer':
-        // Two groups from left and right
-        if (i < count / 2) {
-          ex = -30;
-          ey = -40 - i * 30;
-          pattern = 'swoopRight';
-        } else {
-          ex = W + 30;
-          ey = -40 - (i - Math.floor(count / 2)) * 30;
-          pattern = 'swoopLeft';
-        }
-        break;
-      case 'cascade':
-        // Staggered diagonal waterfall
-        ex = 30 + (i * 60) % (W - 60);
-        ey = -40 - i * 40;
-        pattern = 'straight';
-        break;
-    }
-
-    const e = spawnEnemy(type, ex, ey, pattern);
-    e.speed = baseSpeed + Math.random() * 0.5;
-    e.fireRate = Math.max(40, 150 - diff * 8);
-  }
-
-  waveEnemiesLeft = count;
+function makeInitialState(planeId) {
+  return {
+    score: 0,
+    best: Number(localStorage.getItem('openarcade_1942_best') || 0),
+    tick: 0,
+    campaignIndex: 0,
+    wave: 0,
+    waveDelay: 50,
+    phase: 'campaign_intro',
+    player: makePlayer(planeId),
+    bullets: [],
+    enemyBullets: [],
+    enemies: [],
+    powerups: [],
+    particles: [],
+    ambience: [],
+    dialogue: null,
+    pendingDialogue: [],
+    flashTimer: 0,
+    shownMilestones: new Set(),
+  };
 }
 
-// ── Power-up spawning ──
-function spawnPowerUp(x, y) {
-  if (Math.random() > 0.15) return;
-  const types = ['doubleShot', 'speedBoost'];
-  powerUps.push({
-    x: x, y: y,
-    type: types[Math.floor(Math.random() * types.length)],
-    w: 20, h: 20,
-    speed: 1.5
+function createEnemy(enemyId, x, y, pattern, difficulty = 1, tier = 'normal') {
+  const def = tier === 'normal'
+    ? ENEMIES[enemyId]
+    : tier === 'mini'
+      ? MINI_BOSSES[enemyId]
+      : FINAL_BOSSES[enemyId];
+  const anim = def.anim[0];
+  const scale = tier === 'normal' ? ENEMY_SCALE : BOSS_SCALE;
+  const size = spriteSize(anim, scale);
+  return {
+    id: enemyId,
+    def,
+    tier,
+    x,
+    y,
+    w: size.w,
+    h: size.h,
+    pattern,
+    hp: Math.round(def.hp * (1 + difficulty * 0.1)),
+    maxHp: Math.round(def.hp * (1 + difficulty * 0.1)),
+    fireTimer: Math.floor(rand(12, 80)),
+    animTimer: 0,
+    frame: 0,
+    t: rand(0, 120),
+    stunned: 0,
+  };
+}
+
+function queueDialogue(state, lines, hold = 260) {
+  if (!lines || !lines.length) return;
+  state.pendingDialogue.push({
+    lines,
+    timer: hold,
+    hold,
   });
 }
 
-// ── Particles & Explosions ──
-function spawnParticles(x, y, count, color) {
-  if (particles.length >= MAX_PARTICLES) return;
+function popDialogueIfNeeded(state) {
+  if (!state.dialogue && state.pendingDialogue.length > 0) {
+    state.dialogue = state.pendingDialogue.shift();
+  }
+}
+
+function spawnPowerup(state, x, y, fixedId = null) {
+  const def = fixedId ? POWERUPS.find((p) => p.id === fixedId) : rollPowerup();
+  if (!def) return;
+  state.powerups.push({
+    id: def.id,
+    x,
+    y,
+    w: 21,
+    h: 21,
+    vy: 1.4,
+    bob: rand(0, Math.PI * 2),
+  });
+}
+
+function spawnExplosion(state, x, y, color = '#ff8f5c', count = 12) {
   for (let i = 0; i < count; i++) {
-    const ang = Math.random() * Math.PI * 2;
-    const spd = 1 + Math.random() * 3;
-    particles.push({
-      x: x, y: y,
-      vx: Math.cos(ang) * spd,
-      vy: Math.sin(ang) * spd,
-      life: 15 + Math.random() * 15,
-      color: color
+    state.particles.push({
+      x,
+      y,
+      vx: rand(-2.2, 2.2),
+      vy: rand(-2.2, 2.2),
+      life: rand(18, 36),
+      maxLife: rand(18, 36),
+      color,
+      r: rand(2, 4),
     });
   }
 }
 
-function spawnDebris(x, y, count, color) {
-  if (debrisParticles.length >= 60) return;
-  for (let i = 0; i < count; i++) {
-    const ang = Math.random() * Math.PI * 2;
-    const spd = 0.8 + Math.random() * 2.5;
-    debrisParticles.push({
-      x: x, y: y,
-      vx: Math.cos(ang) * spd,
-      vy: Math.sin(ang) * spd,
-      life: 20 + Math.random() * 20,
-      maxLife: 40,
-      w: 3 + Math.random() * 5,
-      h: 2 + Math.random() * 3,
-      rotation: Math.random() * Math.PI * 2,
-      rotSpeed: (Math.random() - 0.5) * 0.3,
-      color: color
-    });
-  }
-}
-
-function spawnExplosion(x, y, count) {
-  explosions.push({ x: x, y: y, life: 20, maxLife: 20, size: count * 2 });
-  spawnParticles(x, y, count, '#f84');
-}
-
-function spawnEnhancedExplosion(x, y, count, color) {
-  // Standard explosion
-  explosions.push({ x: x, y: y, life: 20, maxLife: 20, size: count * 2 });
-  // More particles (10-12)
-  spawnParticles(x, y, Math.max(count, 10), '#f84');
-  // Debris in enemy color
-  spawnDebris(x, y, Math.floor(count * 0.6), color || '#f84');
-}
-
-function fireBullet() {
-  const cx = player.x + PW / 2;
-  const cy = player.y;
-  if (doubleShot) {
-    bullets.push({ x: cx - 8, y: cy });
-    bullets.push({ x: cx + 8, y: cy });
-  } else {
-    bullets.push({ x: cx, y: cy });
-  }
-  bulletsFired++;
-  // Throttle sfx to every 3rd bullet
-  if (bulletsFired % 3 === 1) {
-    sfx.machineGun();
-  }
-}
-
-let _game; // reference to game instance for hitPlayer/gameOver
-
-function hitPlayer() {
-  lives--;
-  livesEl.textContent = lives;
-  spawnExplosion(player.x + PW / 2, player.y + PH / 2, 12);
-  // Death debris
-  spawnDebris(player.x + PW / 2, player.y + PH / 2, 8, THEME);
-  triggerShake(3, 10);
-  sfx.playerHit();
-  if (lives <= 0) {
-    if (score > best) {
-      best = score;
-      bestEl.textContent = best;
+function enemyPatternVelocity(enemy, player) {
+  const e = enemy;
+  const speed = e.def.speed;
+  const t = e.t * 0.045;
+  switch (e.pattern) {
+    case 'line': return { vx: 0, vy: speed };
+    case 'vee': return { vx: Math.sin(t) * 1.1, vy: speed };
+    case 'cross': return { vx: Math.sign(Math.sin(t)) * 1.5, vy: speed * 0.92 };
+    case 'stagger': return { vx: Math.sin(t * 1.8) * 1.4, vy: speed * 0.95 };
+    case 'swirl': return { vx: Math.cos(t) * 1.8, vy: speed * 0.88 };
+    case 'mini': return { vx: Math.sin(t * 0.8) * 1.4, vy: 0.6 };
+    case 'boss': {
+      const dx = player.x + player.w / 2 - (e.x + e.w / 2);
+      const clampV = clamp(dx * 0.02, -1.4, 1.4);
+      const yTarget = 80;
+      const dy = yTarget - e.y;
+      return { vx: clampV, vy: clamp(dy * 0.03, -1.2, 1.2) };
     }
-    sfx.gameOver();
-    _game.showOverlay('GAME OVER', `Score: ${score} — Press SPACE to restart`);
-    _game.setState('over');
-  } else {
-    rollingTimer = 30;
-    invincibleTimer = 90; // 1.5 seconds of invincibility
-    player.y = H - 80;
+    default: return { vx: 0, vy: speed };
   }
 }
 
-function startRoll() {
-  if (rollCooldownTimer > 0 || rollingTimer > 0) return;
-  rollingTimer = ROLL_DURATION;
-  rollCooldownTimer = ROLL_COOLDOWN;
-  triggerShake(1, ROLL_DURATION);
-  sfx.rollWhoosh();
-  // Initialize roll trail
-  rollTrail = [];
+function spawnWave(state) {
+  const campaign = getCampaign(state.campaignIndex);
+  state.wave += 1;
+
+  const waveKey = `${campaign.id}:${state.wave}`;
+  if (campaign.minibossWaves.includes(state.wave)) {
+    if (!state.shownMilestones.has(`${waveKey}:mini`)) {
+      queueDialogue(state, getDialogue(campaign.id, 'miniboss'));
+      state.shownMilestones.add(`${waveKey}:mini`);
+      sfx.bossWarn();
+    }
+    const mini = createEnemy(campaign.miniboss, W / 2 - 48, -90, 'mini', state.campaignIndex + 1, 'mini');
+    state.enemies.push(mini);
+    return;
+  }
+
+  if (state.wave === campaign.finalWave) {
+    if (!state.shownMilestones.has(`${waveKey}:boss`)) {
+      queueDialogue(state, getDialogue(campaign.id, 'boss'), 280);
+      state.shownMilestones.add(`${waveKey}:boss`);
+      sfx.bossWarn();
+    }
+    const boss = createEnemy(campaign.finalBoss, W / 2 - 76, -120, 'boss', state.campaignIndex + 1, 'final');
+    state.enemies.push(boss);
+    return;
+  }
+
+  const spec = campaign.waves[(state.wave - 1) % campaign.waves.length];
+  const count = spec.count + Math.min(state.campaignIndex, 2);
+  for (let i = 0; i < count; i++) {
+    const id = spec.mix[i % spec.mix.length];
+    let x = 40 + (i % 6) * 70;
+    let y = -30 - Math.floor(i / 6) * 44;
+    if (spec.pattern === 'vee') {
+      const col = i % 9;
+      x = W / 2 + (col - 4) * 26;
+      y = -30 - Math.abs(col - 4) * 14 - Math.floor(i / 9) * 52;
+    }
+    if (spec.pattern === 'swirl') {
+      x = W / 2 + Math.sin(i * 0.8) * 120;
+      y = -30 - i * 34;
+    }
+    state.enemies.push(createEnemy(id, x, y, spec.pattern, state.campaignIndex + 1, 'normal'));
+  }
 }
 
-// ── Engine exhaust ──
-function emitExhaust() {
-  if (exhaustParticles.length >= 40) return;
-  const cx = player.x + PW / 2;
-  const cy = player.y + PH;
-  const count = speedBoost ? 3 : 1;
-  const baseColor = speedBoost ? '#48f' : '#f84';
-  for (let i = 0; i < count; i++) {
-    exhaustParticles.push({
-      x: cx + (Math.random() - 0.5) * 6,
-      y: cy - 2 + Math.random() * 4,
-      vx: (Math.random() - 0.5) * 0.5,
-      vy: 1 + Math.random() * 1.5,
-      life: 8 + Math.floor(Math.random() * 5),
-      color: baseColor
+function spawnAmbient(state, theme) {
+  if (state.ambience.length > 24) return;
+  const r = Math.random();
+  const type = theme.wildlife[Math.floor(rand(0, theme.wildlife.length))];
+  if (r < 0.28) {
+    state.ambience.push({ type, x: rand(20, W - 60), y: -40, size: rand(22, 60), vy: rand(0.4, 1.2) });
+  }
+}
+
+function drawAmbient(renderer, ambient, campaign) {
+  const theme = campaign.theme;
+  for (const a of ambient) {
+    if (a.type === 'whale') {
+      renderer.fillRect(a.x, a.y, a.size, 10, '#3f6c8e');
+      renderer.fillRect(a.x + 8, a.y - 5, a.size * 0.35, 4, '#4e7ea3');
+    } else if (a.type === 'islands') {
+      renderer.fillRect(a.x, a.y, a.size, 8, '#d5bc84');
+      renderer.fillRect(a.x + 5, a.y - 11, a.size * 0.6, 11, '#4b7c45');
+    } else if (a.type === 'gulls' || a.type === 'birds') {
+      renderer.fillRect(a.x, a.y, 6, 2, '#eaeff7');
+      renderer.fillRect(a.x + 7, a.y + 1, 5, 2, '#eaeff7');
+    } else if (a.type === 'treeline') {
+      renderer.fillRect(a.x, a.y, a.size, 10, '#27492d');
+      renderer.fillRect(a.x + 4, a.y - 12, 8, 12, '#446d31');
+      renderer.fillRect(a.x + 16, a.y - 16, 9, 16, '#4d7935');
+    } else if (a.type === 'river') {
+      renderer.fillRect(a.x, a.y, a.size, 7, '#5f90bd');
+    } else if (a.type === 'dunes') {
+      renderer.fillRect(a.x, a.y, a.size, 8, '#be8a52');
+      renderer.fillRect(a.x + 10, a.y - 3, a.size * 0.4, 4, '#d4a065');
+    } else if (a.type === 'convoy') {
+      renderer.fillRect(a.x, a.y, a.size, 8, '#6e5743');
+      renderer.fillRect(a.x + 8, a.y - 8, a.size * 0.3, 8, '#92745b');
+    } else if (a.type === 'storm') {
+      renderer.fillRect(a.x, a.y, a.size, 12, '#4b5578');
+      renderer.fillRect(a.x + 5, a.y + 10, a.size * 0.2, 6, '#68739a');
+    } else if (a.type === 'subs') {
+      renderer.fillRect(a.x, a.y, a.size * 0.8, 7, '#596286');
+      renderer.fillRect(a.x + 3, a.y - 4, a.size * 0.25, 4, '#777fa3');
+    } else if (a.type === 'lightning') {
+      renderer.fillRect(a.x, a.y, 3, a.size, '#d9e3ff');
+      renderer.fillRect(a.x + 3, a.y + 8, 3, a.size * 0.4, '#f5f8ff');
+    } else {
+      renderer.fillRect(a.x, a.y, a.size, 8, theme.hazard);
+    }
+  }
+}
+
+function buildPowerupSprite(id) {
+  if (id === 'double-shot') return 'pickup_double';
+  if (id === 'speed-boost') return 'pickup_speed';
+  if (id === 'shield') return 'pickup_shield';
+  if (id === 'repair') return 'pickup_repair';
+  return 'pickup_bomb';
+}
+
+function startRoll(player) {
+  if (player.rollCooldown > 0 || player.rollTimer > 0) return;
+  player.rollTimer = ROLL_DURATION;
+  player.rollCooldown = player.plane.rollCooldown;
+  player.invuln = Math.max(player.invuln, ROLL_DURATION - 2);
+  sfx.roll();
+}
+
+function spawnPlayerBullets(state, mode = 'normal') {
+  const p = state.player;
+  const baseX = p.x + p.w / 2;
+  const baseY = p.y;
+  const speed = -8.5;
+
+  let pattern = [{ vx: 0, vy: speed, pierce: 0 }];
+  if (mode === 'burst') {
+    pattern = [
+      { vx: -2.0, vy: speed + 1.0, pierce: 0 },
+      { vx: -1.0, vy: speed, pierce: 0 },
+      { vx: 0, vy: speed, pierce: 0 },
+      { vx: 1.0, vy: speed, pierce: 0 },
+      { vx: 2.0, vy: speed + 1.0, pierce: 0 },
+    ];
+  } else if (mode === 'rail') {
+    pattern = [
+      { vx: -0.8, vy: speed - 1.0, pierce: 3 },
+      { vx: 0.8, vy: speed - 1.0, pierce: 3 },
+    ];
+  } else if (p.doubleShotTimer > 0) {
+    pattern = [
+      { vx: -0.5, vy: speed, pierce: 0 },
+      { vx: 0.5, vy: speed, pierce: 0 },
+    ];
+  }
+
+  for (const b of pattern) {
+    state.bullets.push({
+      x: baseX - BULLET_SIZE / 2,
+      y: baseY,
+      w: BULLET_SIZE,
+      h: 10,
+      vx: b.vx,
+      vy: b.vy,
+      pierce: b.pierce,
+      color: mode === 'rail' ? '#b8d4ff' : '#9df2ff',
     });
   }
+  sfx.shoot();
 }
 
-// ── Export ──
+function useSpecial(state) {
+  const p = state.player;
+  if (p.specialCooldown > 0) return;
+  const special = p.plane.special;
+  if (special.id === 'burst') {
+    p.specialTimer = special.duration;
+  } else if (special.id === 'rail') {
+    spawnPlayerBullets(state, 'rail');
+  } else if (special.id === 'phase') {
+    p.shieldTimer = Math.max(p.shieldTimer, special.duration);
+    p.invuln = Math.max(p.invuln, special.duration);
+  } else if (special.id === 'emp') {
+    for (const enemy of state.enemies) {
+      const dx = enemy.x + enemy.w / 2 - (p.x + p.w / 2);
+      const dy = enemy.y + enemy.h / 2 - (p.y + p.h / 2);
+      const d2 = dx * dx + dy * dy;
+      if (d2 < 180 * 180) {
+        enemy.stunned = 90;
+        enemy.hp -= 10;
+      }
+    }
+    state.enemyBullets = state.enemyBullets.filter((b) => {
+      const dx = b.x - (p.x + p.w / 2);
+      const dy = b.y - (p.y + p.h / 2);
+      return dx * dx + dy * dy > 150 * 150;
+    });
+    spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#8ec5ff', 20);
+  }
+  p.specialCooldown = special.cooldown;
+}
+
+function damagePlayer(state) {
+  const p = state.player;
+  if (p.invuln > 0 || p.shieldTimer > 0 || p.rollTimer > 0) return;
+  p.lives -= 1;
+  p.invuln = 120;
+  spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#8ec5ff', 16);
+  sfx.hit();
+  if (p.lives <= 0) {
+    state.best = Math.max(state.best, state.score);
+    localStorage.setItem('openarcade_1942_best', String(state.best));
+    return true;
+  }
+  return false;
+}
+
+function killEnemy(state, enemy) {
+  spawnExplosion(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ff8f5c', enemy.tier === 'normal' ? 10 : 24);
+  sfx.explode();
+  state.score += enemy.def.score;
+  if (enemy.tier === 'normal') {
+    if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+  } else {
+    spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, enemy.def.drop);
+  }
+}
+
+function moveToNextCampaign(state, game) {
+  const campaign = getCampaign(state.campaignIndex);
+  queueDialogue(state, getDialogue(campaign.id, 'clear'), 220);
+
+  state.campaignIndex += 1;
+  state.wave = 0;
+  state.waveDelay = 80;
+  state.enemies.length = 0;
+  state.enemyBullets.length = 0;
+  state.bullets.length = 0;
+  state.powerups.length = 0;
+  state.ambience.length = 0;
+
+  if (state.campaignIndex >= CAMPAIGNS.length) {
+    game.setState('over');
+    game.showOverlay('Victory', `Final Score: ${state.score}\nPress SPACE to fly again`);
+    return;
+  }
+
+  const nextCampaign = getCampaign(state.campaignIndex);
+  queueDialogue(state, getDialogue(nextCampaign.id, 'intro'), 280);
+}
+
+function updateGame(state, game, input) {
+  const player = state.player;
+  state.tick += 1;
+
+  if (player.fireCooldown > 0) player.fireCooldown--;
+  if (player.specialCooldown > 0) player.specialCooldown--;
+  if (player.specialTimer > 0) player.specialTimer--;
+  if (player.rollTimer > 0) player.rollTimer--;
+  if (player.rollCooldown > 0) player.rollCooldown--;
+  if (player.invuln > 0) player.invuln--;
+  if (player.doubleShotTimer > 0) player.doubleShotTimer--;
+  if (player.speedBoostTimer > 0) player.speedBoostTimer--;
+  if (player.shieldTimer > 0) player.shieldTimer--;
+  if (state.flashTimer > 0) state.flashTimer--;
+
+  if (state.tick % 40 === 0) {
+    spawnAmbient(state, getCampaign(state.campaignIndex).theme);
+  }
+
+  popDialogueIfNeeded(state);
+  if (state.dialogue) {
+    state.dialogue.timer -= 1;
+    if (state.dialogue.timer <= 0) state.dialogue = null;
+  }
+
+  const speed = player.plane.speed + (player.speedBoostTimer > 0 ? 1.15 : 0);
+  if (input.isDown('ArrowLeft')) player.x -= speed;
+  if (input.isDown('ArrowRight')) player.x += speed;
+  if (input.isDown('ArrowUp')) player.y -= speed;
+  if (input.isDown('ArrowDown')) player.y += speed;
+
+  player.x = clamp(player.x, 12, W - player.w - 12);
+  player.y = clamp(player.y, 44, H - player.h - 20);
+
+  if (input.wasPressed('Shift')) startRoll(player);
+
+  if (input.wasPressed(' ') && state.tick - player.lastSpacePressedAt <= 14) {
+    startRoll(player);
+  }
+  if (input.wasPressed(' ')) {
+    player.lastSpacePressedAt = state.tick;
+  }
+
+  if (input.wasPressed('x') || input.wasPressed('X')) {
+    useSpecial(state);
+  }
+
+  if (input.wasPressed('b') || input.wasPressed('B')) {
+    if (player.bombs > 0) {
+      player.bombs -= 1;
+      spawnExplosion(state, player.x + player.w / 2, player.y - 20, '#ffd27b', 24);
+      state.enemies.forEach((enemy) => {
+        enemy.hp -= enemy.tier === 'normal' ? 8 : 18;
+      });
+      state.enemyBullets.length = 0;
+    }
+  }
+
+  if (input.isDown(' ') && player.fireCooldown <= 0 && !state.dialogue) {
+    if (player.specialTimer > 0 && player.plane.special.id === 'burst') {
+      spawnPlayerBullets(state, 'burst');
+    } else {
+      spawnPlayerBullets(state, 'normal');
+    }
+    player.fireCooldown = player.plane.fireRate;
+  }
+
+  if (player.rollTimer > 0) {
+    player.rollTrail.unshift({ x: player.x, y: player.y, life: 18 });
+    if (player.rollTrail.length > ROLL_TRAIL_MAX) player.rollTrail.length = ROLL_TRAIL_MAX;
+  }
+
+  for (const tr of player.rollTrail) tr.life--;
+  player.rollTrail = player.rollTrail.filter((t) => t.life > 0);
+
+  for (const b of state.bullets) {
+    b.x += b.vx;
+    b.y += b.vy;
+  }
+  state.bullets = state.bullets.filter((b) => b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20);
+
+  for (const e of state.enemies) {
+    e.t += 1;
+    if (e.stunned > 0) {
+      e.stunned--;
+    } else {
+      const vel = enemyPatternVelocity(e, player);
+      e.x += vel.vx;
+      e.y += vel.vy;
+    }
+
+    e.fireTimer -= 1;
+    e.animTimer += 1;
+
+    const step = Math.max(1, Math.floor(60 / e.def.animFps));
+    e.frame = Math.floor(e.animTimer / step) % e.def.anim.length;
+
+    if (e.fireTimer <= 0 && !state.dialogue) {
+      const count = e.tier === 'normal' ? 1 : e.tier === 'mini' ? 3 : 5;
+      const cx = e.x + e.w / 2;
+      const cy = e.y + e.h - 4;
+      for (let i = 0; i < count; i++) {
+        const spread = count === 1 ? 0 : (i - (count - 1) / 2) * 0.55;
+        const vy = e.def.bulletSpeed;
+        state.enemyBullets.push({
+          x: cx,
+          y: cy,
+          w: 4,
+          h: 8,
+          vx: spread,
+          vy,
+          color: '#ff7a7a',
+        });
+      }
+      e.fireTimer = e.def.fireRate + rand(-8, 8);
+      if (Math.random() < 0.25) sfx.enemyShoot();
+    }
+  }
+
+  for (const eb of state.enemyBullets) {
+    eb.x += eb.vx;
+    eb.y += eb.vy;
+  }
+  state.enemyBullets = state.enemyBullets.filter((b) => b.y < H + 30 && b.x > -20 && b.x < W + 20);
+
+  for (const p of state.powerups) {
+    p.y += p.vy;
+    p.bob += 0.09;
+    p.x += Math.sin(p.bob) * 0.4;
+  }
+  state.powerups = state.powerups.filter((p) => p.y < H + 30);
+
+  for (const a of state.ambience) {
+    a.y += a.vy;
+  }
+  state.ambience = state.ambience.filter((a) => a.y < H + 60);
+
+  for (const pt of state.particles) {
+    pt.x += pt.vx;
+    pt.y += pt.vy;
+    pt.vx *= 0.97;
+    pt.vy *= 0.97;
+    pt.life -= 1;
+  }
+  state.particles = state.particles.filter((p) => p.life > 0);
+
+  for (let i = state.bullets.length - 1; i >= 0; i--) {
+    const b = state.bullets[i];
+    for (let j = state.enemies.length - 1; j >= 0; j--) {
+      const e = state.enemies[j];
+      if (!rectHit(b, e)) continue;
+      e.hp -= b.pierce > 0 ? 2 : 1;
+      if (b.pierce > 0) {
+        b.pierce -= 1;
+      } else {
+        state.bullets.splice(i, 1);
+      }
+      if (e.hp <= 0) {
+        const wasFinal = e.tier === 'final';
+        killEnemy(state, e);
+        state.enemies.splice(j, 1);
+        if (wasFinal && state.enemies.filter((x) => x.tier === 'final').length === 0) {
+          moveToNextCampaign(state, game);
+        }
+      }
+      break;
+    }
+  }
+
+  for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
+    if (rectHit(state.enemyBullets[i], player)) {
+      state.enemyBullets.splice(i, 1);
+      if (damagePlayer(state)) {
+        game.setState('over');
+        game.showOverlay('Mission Failed', `Final Score: ${state.score}\nPress SPACE to restart`);
+        return;
+      }
+    }
+  }
+
+  for (let i = state.enemies.length - 1; i >= 0; i--) {
+    const e = state.enemies[i];
+    if (rectHit(e, player)) {
+      state.enemies.splice(i, 1);
+      if (damagePlayer(state)) {
+        game.setState('over');
+        game.showOverlay('Mission Failed', `Final Score: ${state.score}\nPress SPACE to restart`);
+        return;
+      }
+      continue;
+    }
+    if (e.y > H + 30) state.enemies.splice(i, 1);
+  }
+
+  for (let i = state.powerups.length - 1; i >= 0; i--) {
+    const p = state.powerups[i];
+    if (rectHit(p, player)) {
+      const def = POWERUPS.find((x) => x.id === p.id);
+      if (def) def.apply(state);
+      state.powerups.splice(i, 1);
+      spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#baf6ff', 8);
+      sfx.pickup();
+    }
+  }
+
+  if (state.enemies.length === 0 && game.state === 'playing') {
+    state.waveDelay -= 1;
+    if (state.waveDelay <= 0) {
+      spawnWave(state);
+      state.waveDelay = 50;
+    }
+  }
+
+  if (state.campaignIndex === 3 && Math.random() < 0.012) {
+    state.flashTimer = 5;
+  }
+}
+
+function drawBackground(renderer, campaign, flashTimer) {
+  const t = campaign.theme;
+  renderer.fillRect(0, 0, W, H, t.low);
+
+  for (let y = 0; y < H; y += 8) {
+    const pct = y / H;
+    const mix = 0.35 + pct * 0.65;
+    const c = lerpHex(t.sky, t.sea, mix);
+    renderer.fillRect(0, y, W, 8, c);
+  }
+
+  for (let y = 0; y < H; y += 32) {
+    renderer.fillRect(0, y + 6, W, 1, hexToRgba(t.accent, 0.15));
+  }
+
+  if (flashTimer > 0) {
+    renderer.fillRect(0, 0, W, H, `rgba(240,248,255,${(flashTimer / 7).toFixed(2)})`);
+  }
+}
+
+function lerpHex(a, b, t) {
+  const aa = a.replace('#', '');
+  const bb = b.replace('#', '');
+  const ar = parseInt(aa.slice(0, 2), 16);
+  const ag = parseInt(aa.slice(2, 4), 16);
+  const ab = parseInt(aa.slice(4, 6), 16);
+  const br = parseInt(bb.slice(0, 2), 16);
+  const bg = parseInt(bb.slice(2, 4), 16);
+  const bbv = parseInt(bb.slice(4, 6), 16);
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bch = Math.round(ab + (bbv - ab) * t);
+  return `rgb(${r},${g},${bch})`;
+}
+
+function drawUI(renderer, text, state) {
+  const p = state.player;
+  const campaign = getCampaign(state.campaignIndex);
+
+  text.drawText(`SCORE ${state.score}`, 12, 10, 18, '#f1fbff');
+  text.drawText(`BEST ${Math.max(state.best, state.score)}`, 12, 30, 14, '#b6daf4');
+  text.drawText(`LIVES ${p.lives}`, 190, 10, 18, '#f1fbff');
+  text.drawText(`BOMBS ${p.bombs}`, 190, 30, 14, '#ffe1a2');
+  text.drawText(`WAVE ${state.wave}/${campaign.finalWave}`, 340, 10, 18, '#f1fbff');
+  text.drawText(campaign.name, 340, 30, 14, '#b6daf4');
+
+  text.drawText(`PLANE ${p.plane.name}`, 12, H - 24, 14, p.plane.color);
+  text.drawText(`SPECIAL ${p.plane.special.name}`, 220, H - 24, 14, '#d5e7ff');
+
+  const cdPct = p.specialCooldown / p.plane.special.cooldown;
+  const cdW = 120;
+  renderer.fillRect(350, H - 26, cdW, 8, '#334f66');
+  renderer.fillRect(350, H - 26, Math.floor(cdW * (1 - cdPct)), 8, '#79c7ff');
+
+  if (p.doubleShotTimer > 0) text.drawText('DOUBLE', 12, 52, 12, '#ffe48d');
+  if (p.speedBoostTimer > 0) text.drawText('SPEED', 80, 52, 12, '#8effb5');
+  if (p.shieldTimer > 0) text.drawText('SHIELD', 140, 52, 12, '#9bc8ff');
+
+  if (state.dialogue) {
+    const alpha = clamp(state.dialogue.timer / state.dialogue.hold, 0.2, 1);
+    renderer.fillRect(14, 68, W - 28, 58, `rgba(8,16,26,${(alpha * 0.8).toFixed(2)})`);
+    renderer.fillRect(20, 74, W - 40, 2, '#7ec7ff');
+    const lineA = state.dialogue.lines[0] || '';
+    const lineB = state.dialogue.lines[1] || '';
+    text.drawText(lineA, 24, 82, 13, '#eef7ff');
+    text.drawText(lineB, 24, 98, 13, '#b8ddff');
+  }
+}
+
+function enemyFrameId(enemy) {
+  return enemy.def.anim[enemy.frame % enemy.def.anim.length];
+}
+
 export function createGame() {
   const game = new Game('game');
-  _game = game;
+
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const livesEl = document.getElementById('lives');
+
+  let selectedPlaneIndex = 0;
+  let state = makeInitialState(PLANES[selectedPlaneIndex].id);
+
+  function updateOverlayText() {
+    const plane = PLANES[selectedPlaneIndex];
+    game.showOverlay(
+      '1942: Pixel Campaigns',
+      `Plane: [${selectedPlaneIndex + 1}] ${plane.name}\n` +
+      `Special: ${plane.special.name}\n\n` +
+      'Controls: Arrows move, Space shoot, Shift/Double-Space roll, X special, B bomb\n' +
+      'Select Plane: keys 1-4\nPress SPACE to launch'
+    );
+  }
+
+  function resetRun() {
+    state = makeInitialState(PLANES[selectedPlaneIndex].id);
+    queueDialogue(state, getDialogue(getCampaign(0).id, 'intro'), 260);
+    spawnWave(state);
+  }
 
   game.onInit = () => {
-    score = 0;
-    lives = 3;
-    tick = 0;
-    fireCooldown = 0;
-    waveTimer = 0;
-    waveNumber = 0;
-    waveEnemiesLeft = 0;
-    bossActive = false;
-    bossSpawnScore = 300;
-    scrollOffset = 0;
-    lastSpaceDown = -999;
-    rollCooldownTimer = 0;
-    rollingTimer = 0;
-    doubleShot = false;
-    doubleShotTimer = 0;
-    speedBoost = false;
-    speedBoostTimer = 0;
-    shakeAmount = 0;
-    shakeTimer = 0;
-    shakeOffsetX = 0;
-    shakeOffsetY = 0;
-    bossWarningTimer = 0;
-    waveTextTimer = 0;
-    waveTextNumber = 0;
-    bulletsFired = 0;
-    propellerAngle = 0;
-    invincibleTimer = 0;
-    rollTrail = [];
-    exhaustParticles = [];
-    debrisParticles = [];
-
-    player = { x: W / 2 - PW / 2, y: H - 80 };
-    bullets = [];
-    enemies = [];
-    enemyBullets = [];
-    powerUps = [];
-    particles = [];
-    explosions = [];
-
+    updateOverlayText();
     scoreEl.textContent = '0';
     livesEl.textContent = '3';
-    initGround();
-    initClouds();
-    game.showOverlay('1942', 'Press SPACE to start');
-    game.setState('waiting');
+    bestEl.textContent = String(state.best);
   };
 
-  game.setScoreFn(() => score);
+  game.setScoreFn(() => state.score);
 
   game.onUpdate = () => {
     const input = game.input;
 
-    // ── State transitions ──
     if (game.state === 'waiting') {
+      if (input.wasPressed('1')) { selectedPlaneIndex = 0; updateOverlayText(); }
+      if (input.wasPressed('2')) { selectedPlaneIndex = 1; updateOverlayText(); }
+      if (input.wasPressed('3')) { selectedPlaneIndex = 2; updateOverlayText(); }
+      if (input.wasPressed('4')) { selectedPlaneIndex = 3; updateOverlayText(); }
       if (input.wasPressed(' ')) {
+        resetRun();
         game.setState('playing');
       }
       return;
@@ -597,1009 +832,73 @@ export function createGame() {
 
     if (game.state === 'over') {
       if (input.wasPressed(' ')) {
-        game.onInit();
+        game.setState('waiting');
+        updateOverlayText();
       }
       return;
     }
 
-    // ── Playing state ──
-    tick++;
-    scrollOffset = (scrollOffset + SCROLL_SPEED) % (H * 2);
-    propellerAngle += 0.6; // fast propeller spin
+    updateGame(state, game, input);
 
-    // Cooldowns
-    if (fireCooldown > 0) fireCooldown--;
-    if (rollCooldownTimer > 0) rollCooldownTimer--;
-    if (rollingTimer > 0) rollingTimer--;
-    if (doubleShotTimer > 0) {
-      doubleShotTimer--;
-      if (doubleShotTimer <= 0) doubleShot = false;
-    }
-    if (speedBoostTimer > 0) {
-      speedBoostTimer--;
-      if (speedBoostTimer <= 0) speedBoost = false;
-    }
-    if (invincibleTimer > 0) invincibleTimer--;
-
-    // Screen shake update
-    if (shakeTimer > 0) {
-      shakeTimer--;
-      shakeOffsetX = (Math.random() - 0.5) * 2 * shakeAmount;
-      shakeOffsetY = (Math.random() - 0.5) * 2 * shakeAmount;
-      if (shakeTimer <= 0) {
-        shakeAmount = 0;
-        shakeOffsetX = 0;
-        shakeOffsetY = 0;
-      }
-    }
-
-    // Boss warning timer
-    if (bossWarningTimer > 0) bossWarningTimer--;
-
-    // Wave text timer
-    if (waveTextTimer > 0) waveTextTimer--;
-
-    // Player movement
-    const spd = speedBoost ? PLAYER_SPEED * 1.6 : PLAYER_SPEED;
-    if (input.isDown('ArrowLeft')) player.x -= spd;
-    if (input.isDown('ArrowRight')) player.x += spd;
-    if (input.isDown('ArrowUp')) player.y -= spd;
-    if (input.isDown('ArrowDown')) player.y += spd;
-    player.x = Math.max(0, Math.min(W - PW, player.x));
-    player.y = Math.max(H * 0.3, Math.min(H - PH - 10, player.y));
-
-    // Shift triggers roll
-    if (input.wasPressed('Shift')) {
-      startRoll();
-    }
-
-    // Double-tap space triggers roll
-    if (input.wasPressed(' ')) {
-      if (tick - lastSpaceDown < DOUBLE_TAP_WINDOW) {
-        startRoll();
-      }
-      lastSpaceDown = tick;
-    }
-
-    // Auto-fire while holding space
-    if (input.isDown(' ') && fireCooldown <= 0 && rollingTimer <= 0) {
-      fireBullet();
-      fireCooldown = FIRE_RATE;
-    }
-
-    // Roll trail: store previous positions
-    if (rollingTimer > 0) {
-      rollTrail.unshift({ x: player.x, y: player.y });
-      if (rollTrail.length > 3) rollTrail.length = 3;
-    } else {
-      rollTrail = [];
-    }
-
-    // Engine exhaust
-    if (game.state === 'playing' && rollingTimer <= 0) {
-      emitExhaust();
-    }
-
-    // Update exhaust particles
-    for (let i = exhaustParticles.length - 1; i >= 0; i--) {
-      const ep = exhaustParticles[i];
-      ep.x += ep.vx;
-      ep.y += ep.vy;
-      ep.life--;
-      if (ep.life <= 0) exhaustParticles.splice(i, 1);
-    }
-
-    // Update debris particles
-    for (let i = debrisParticles.length - 1; i >= 0; i--) {
-      const d = debrisParticles[i];
-      d.x += d.vx;
-      d.y += d.vy;
-      d.vy += 0.04; // slight gravity
-      d.rotation += d.rotSpeed;
-      d.life--;
-      if (d.life <= 0) debrisParticles.splice(i, 1);
-    }
-
-    // Player bullets
-    for (let i = bullets.length - 1; i >= 0; i--) {
-      bullets[i].y -= BULLET_SPEED;
-      if (bullets[i].y < -10) bullets.splice(i, 1);
-    }
-
-    // Wave spawning
-    const aliveEnemies = enemies.filter(e => e.alive);
-    if (aliveEnemies.length === 0) {
-      waveTimer++;
-      if (waveTimer > 60) {
-        waveTimer = 0;
-        bossActive = false;
-        spawnWave();
-      }
-    }
-
-    // Enemy update
-    for (let i = enemies.length - 1; i >= 0; i--) {
-      const e = enemies[i];
-      if (!e.alive) { enemies.splice(i, 1); continue; }
-
-      e.patternTimer++;
-
-      // Movement patterns
-      switch (e.pattern) {
-        case 'straight':
-          e.y += e.speed;
-          break;
-        case 'sine':
-          e.y += e.speed;
-          e.x += Math.sin(e.patternTimer * 0.04 + e.patternPhase) * 2;
-          break;
-        case 'swoopRight':
-          e.x += e.speed * 1.2;
-          e.y += e.speed * 0.8;
-          break;
-        case 'swoopLeft':
-          e.x -= e.speed * 1.2;
-          e.y += e.speed * 0.8;
-          break;
-        case 'boss':
-          if (e.y < 60) {
-            e.y += e.speed;
-          } else {
-            e.x += Math.sin(e.patternTimer * 0.02) * 2;
-            e.y = 60 + Math.sin(e.patternTimer * 0.015) * 20;
-          }
-          e.x = Math.max(10, Math.min(W - e.w - 10, e.x));
-          break;
-      }
-
-      // Enemy firing
-      e.fireTimer--;
-      if (e.fireTimer <= 0 && e.y > 0 && e.y < H * 0.7) {
-        e.fireTimer = e.fireRate + Math.floor(Math.random() * 30);
-        const bx = e.x + e.w / 2;
-        const by = e.y + e.h;
-
-        if (e.type === 'boss') {
-          for (let a = -1; a <= 1; a++) {
-            enemyBullets.push({
-              x: bx + a * 20, y: by,
-              vx: a * 1.5,
-              vy: ENEMY_BULLET_SPEED + waveNumber * 0.1
-            });
-          }
-          const dx = (player.x + PW / 2) - bx;
-          const dy = (player.y + PH / 2) - by;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const spd2 = ENEMY_BULLET_SPEED + 0.5;
-          enemyBullets.push({ x: bx, y: by, vx: dx / dist * spd2, vy: dy / dist * spd2 });
-        } else {
-          const dx = (player.x + PW / 2) - bx;
-          const dy = (player.y + PH / 2) - by;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const aim = 0.3;
-          const espd = ENEMY_BULLET_SPEED + waveNumber * 0.05;
-          enemyBullets.push({
-            x: bx, y: by,
-            vx: dx / dist * espd * aim,
-            vy: espd
-          });
-        }
-      }
-
-      // Off-screen removal
-      if (e.y > H + 40 || e.x < -60 || e.x > W + 60) {
-        enemies.splice(i, 1);
-        continue;
-      }
-
-      // Bullet-enemy collision
-      for (let j = bullets.length - 1; j >= 0; j--) {
-        const b = bullets[j];
-        if (b.x >= e.x && b.x <= e.x + e.w && b.y >= e.y && b.y <= e.y + e.h) {
-          bullets.splice(j, 1);
-          e.hp--;
-          if (e.hp <= 0) {
-            e.alive = false;
-            score += e.points;
-            scoreEl.textContent = score;
-            if (score > best) { best = score; bestEl.textContent = best; }
-            // Enhanced death effects
-            const isBoss = e.type === 'boss';
-            const deathCount = isBoss ? 20 : 10;
-            const enemyColor = e.type === 'fighter' ? '#f55' :
-                               e.type === 'bomber' ? '#e80' :
-                               e.type === 'ace' ? '#f4f' : '#f44';
-            spawnEnhancedExplosion(e.x + e.w / 2, e.y + e.h / 2, deathCount, enemyColor);
-            if (isBoss) {
-              triggerShake(5, 30);
-              sfx.bossExplosion();
-            } else {
-              triggerShake(1, 3);
-              sfx.explosion();
-            }
-            spawnPowerUp(e.x + e.w / 2, e.y + e.h / 2);
-          } else {
-            spawnParticles(b.x, b.y, 3, '#fff');
-          }
-          break;
-        }
-      }
-    }
-
-    // Enemy bullets
-    for (let i = enemyBullets.length - 1; i >= 0; i--) {
-      const b = enemyBullets[i];
-      b.x += b.vx;
-      b.y += b.vy;
-
-      // Boss bullet trails
-      if (b.vx !== undefined && Math.abs(b.vx) > 1) {
-        if (tick % 3 === 0 && particles.length < MAX_PARTICLES) {
-          particles.push({
-            x: b.x, y: b.y,
-            vx: (Math.random() - 0.5) * 0.3,
-            vy: (Math.random() - 0.5) * 0.3,
-            life: 6 + Math.random() * 4,
-            color: '#f44'
-          });
-        }
-      }
-
-      if (b.y > H + 10 || b.y < -10 || b.x < -10 || b.x > W + 10) {
-        enemyBullets.splice(i, 1);
-        continue;
-      }
-
-      // Hit player (not while rolling or invincible)
-      if (rollingTimer <= 0 && invincibleTimer <= 0) {
-        if (b.x >= player.x + 4 && b.x <= player.x + PW - 4 &&
-            b.y >= player.y + 4 && b.y <= player.y + PH - 4) {
-          enemyBullets.splice(i, 1);
-          hitPlayer();
-          break;
-        }
-      }
-    }
-
-    // Enemy-player collision (not while rolling or invincible)
-    if (rollingTimer <= 0 && invincibleTimer <= 0) {
-      for (const e of enemies) {
-        if (!e.alive) continue;
-        if (player.x + 4 < e.x + e.w && player.x + PW - 4 > e.x &&
-            player.y + 4 < e.y + e.h && player.y + PH - 4 > e.y) {
-          e.alive = false;
-          score += e.points;
-          scoreEl.textContent = score;
-          spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, 8);
-          hitPlayer();
-          break;
-        }
-      }
-    }
-
-    // Power-ups
-    for (let i = powerUps.length - 1; i >= 0; i--) {
-      const p = powerUps[i];
-      p.y += p.speed;
-      if (p.y > H + 20) { powerUps.splice(i, 1); continue; }
-
-      if (player.x < p.x + p.w && player.x + PW > p.x &&
-          player.y < p.y + p.h && player.y + PH > p.y) {
-        if (p.type === 'doubleShot') {
-          doubleShot = true;
-          doubleShotTimer = 600;
-        } else if (p.type === 'speedBoost') {
-          speedBoost = true;
-          speedBoostTimer = 480;
-        }
-        spawnParticles(p.x + p.w / 2, p.y + p.h / 2, 6, THEME);
-        sfx.powerupCollect();
-        powerUps.splice(i, 1);
-      }
-    }
-
-    // Explosions
-    for (let i = explosions.length - 1; i >= 0; i--) {
-      explosions[i].life--;
-      if (explosions[i].life <= 0) explosions.splice(i, 1);
-    }
-
-    // Particles
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life--;
-      if (p.life <= 0) particles.splice(i, 1);
-    }
-
-    // Clouds scroll
-    for (const c of clouds) {
-      c.y += c.speed;
-      if (c.y > H + c.h) {
-        c.y = -c.h - Math.random() * 100;
-        c.x = Math.random() * W;
-      }
-    }
+    scoreEl.textContent = String(state.score);
+    livesEl.textContent = String(state.player.lives);
+    bestEl.textContent = String(Math.max(state.best, state.score));
   };
 
   game.onDraw = (renderer, text) => {
-    // Apply screen shake offset to all drawing
-    const sx = shakeOffsetX;
-    const sy = shakeOffsetY;
+    const campaign = getCampaign(state.campaignIndex);
+    drawBackground(renderer, campaign, state.flashTimer);
 
-    // Ocean background — color shifts with danger level
-    const dangerT = Math.min(waveNumber / 20, 1);
-    const oceanR = Math.round(10 + dangerT * 20);
-    const oceanG = Math.round(22 - dangerT * 8);
-    const oceanB = Math.round(40 + dangerT * 15);
-    renderer.fillRect(0 + sx, 0 + sy, W, H, `rgb(${oceanR},${oceanG},${oceanB})`);
+    drawAmbient(renderer, state.ambience, campaign);
 
-    // Animated ocean ripple lines
-    for (let i = 0; i < 10; i++) {
-      const baseY = (i / 10) * H;
-      const rippleY = baseY + Math.sin(tick * 0.02 + i * 1.3) * 8;
-      const alpha = 0.08 + Math.sin(tick * 0.015 + i * 0.7) * 0.03;
-      const rippleColor = `rgba(60,100,140,${alpha.toFixed(3)})`;
-      // Wavy line: draw as several segments
-      const segs = 16;
-      for (let s = 0; s < segs; s++) {
-        const x1 = (s / segs) * W;
-        const x2 = ((s + 1) / segs) * W;
-        const y1 = rippleY + Math.sin(tick * 0.03 + s * 0.5 + i) * 3;
-        const y2 = rippleY + Math.sin(tick * 0.03 + (s + 1) * 0.5 + i) * 3;
-        renderer.drawLine(x1 + sx, y1 + sy, x2 + sx, y2 + sy, rippleColor, 1);
+    for (const p of state.powerups) {
+      drawPixelSprite(renderer, buildPowerupSprite(p.id), p.x, p.y, 3, '#ffd166');
+    }
+
+    for (const b of state.bullets) {
+      renderer.fillRect(b.x, b.y, b.w, b.h, b.color);
+    }
+
+    for (const b of state.enemyBullets) {
+      renderer.fillRect(b.x, b.y, b.w, b.h, b.color);
+    }
+
+    for (const enemy of state.enemies) {
+      const frameId = enemyFrameId(enemy);
+      const tint = enemy.tier === 'normal' ? '#ff6f6f' : '#ff4f65';
+      const alpha = enemy.stunned > 0 ? 0.55 : 1;
+      drawPixelSprite(renderer, frameId, enemy.x, enemy.y, enemy.tier === 'normal' ? ENEMY_SCALE : BOSS_SCALE, tint, alpha);
+
+      if (enemy.tier !== 'normal') {
+        const w = enemy.w;
+        const hpPct = clamp(enemy.hp / enemy.maxHp, 0, 1);
+        renderer.fillRect(enemy.x, enemy.y - 8, w, 3, '#2f3148');
+        renderer.fillRect(enemy.x, enemy.y - 8, Math.floor(w * hpPct), 3, '#ff8f7a');
       }
     }
 
-    // Parallax clouds
-    clouds.forEach(c => {
-      const cloudColor = `rgba(180,200,220,${c.alpha.toFixed(3)})`;
-      // Draw cloud as overlapping ellipse approximations
-      const pts = [];
-      const segs = 12;
-      for (let s = 0; s < segs; s++) {
-        const a = (s / segs) * Math.PI * 2;
-        pts.push({ x: c.x + Math.cos(a) * (c.w / 2) + sx, y: c.y + Math.sin(a) * (c.h / 2) + sy });
-      }
-      renderer.fillPoly(pts, cloudColor);
-      // Second lobe offset
-      const pts2 = [];
-      for (let s = 0; s < segs; s++) {
-        const a = (s / segs) * Math.PI * 2;
-        pts2.push({ x: c.x + c.w * 0.25 + Math.cos(a) * (c.w * 0.35) + sx, y: c.y - c.h * 0.15 + Math.sin(a) * (c.h * 0.4) + sy });
-      }
-      renderer.fillPoly(pts2, cloudColor);
-      // Third lobe
-      const pts3 = [];
-      for (let s = 0; s < segs; s++) {
-        const a = (s / segs) * Math.PI * 2;
-        pts3.push({ x: c.x - c.w * 0.2 + Math.cos(a) * (c.w * 0.3) + sx, y: c.y + c.h * 0.1 + Math.sin(a) * (c.h * 0.35) + sy });
-      }
-      renderer.fillPoly(pts3, cloudColor);
-    });
-
-    // Parallax ground — islands and waves
-    groundTiles.forEach(t => {
-      let ty = (t.y + scrollOffset) % (H * 2) - H * 0.5;
-      if (t.type === 'island') {
-        const rx = t.w / 2;
-        const ry = t.h / 2;
-        const alpha = 0.4 + t.shade;
-        const r = Math.round(30 * alpha);
-        const g = Math.round(80 * alpha);
-        const b2 = Math.round(50 * alpha);
-        const islandColor = `rgb(${r},${g},${b2})`;
-        const pts = [];
-        const segs = 12;
-        for (let s = 0; s < segs; s++) {
-          const a = (s / segs) * Math.PI * 2;
-          pts.push({ x: t.x + Math.cos(a) * rx + sx, y: ty + Math.sin(a) * ry + sy });
-        }
-        renderer.fillPoly(pts, islandColor);
-
-        const shoreColor = 'rgba(80,140,100,0.3)';
-        const shorePts = [];
-        for (let s = 0; s < segs; s++) {
-          const a = (s / segs) * Math.PI * 2;
-          shorePts.push({ x: t.x + Math.cos(a) * (rx + 2) + sx, y: ty + Math.sin(a) * (ry + 2) + sy });
-        }
-        renderer.strokePoly(shorePts, shoreColor, 1, true);
-
-        // Vegetation detail (small circles on islands)
-        const vegCount = Math.floor(t.w / 15);
-        for (let v = 0; v < vegCount; v++) {
-          const vAngle = (v / vegCount) * Math.PI * 2 + t.shade * 10;
-          const vr = rx * 0.5;
-          const vx = t.x + Math.cos(vAngle) * vr * (0.3 + Math.random() * 0.5) + sx;
-          const vy = ty + Math.sin(vAngle) * ry * 0.4 + sy;
-          const vegSize = 2 + Math.random() * 3;
-          renderer.fillCircle(vx, vy, vegSize, 'rgba(40,100,50,0.5)');
-        }
-      } else {
-        const waveAlpha = 0.15 + t.shade * 0.2;
-        const waveColor = `rgba(40,80,120,${waveAlpha})`;
-        renderer.drawLine(t.x - t.w / 2 + sx, ty + sy, t.x + t.w / 2 + sx, ty + sy, waveColor, 1);
-      }
-    });
-
-    // Exhaust particles (behind player)
-    exhaustParticles.forEach(ep => {
-      const alpha = Math.min(1, ep.life / 10);
-      const size = 2 + (1 - alpha) * 2;
-      renderer.fillCircle(ep.x + sx, ep.y + sy, size, applyAlpha(ep.color, alpha * 0.7));
-    });
-
-    // Power-ups
-    powerUps.forEach(p => {
-      const pulse = Math.sin(tick * 0.1) * 0.3 + 0.7;
-      if (p.type === 'doubleShot') {
-        const c = `rgba(255,200,50,${pulse})`;
-        renderer.setGlow('#fc3', 0.5);
-        renderer.fillRect(p.x + 4 + sx, p.y + 2 + sy, 4, 16, c);
-        renderer.fillRect(p.x + 12 + sx, p.y + 2 + sy, 4, 16, c);
-        renderer.setGlow(null);
-      } else {
-        const c = `rgba(100,200,255,${pulse})`;
-        renderer.setGlow('#4cf', 0.5);
-        renderer.fillPoly([
-          { x: p.x + 10 + sx, y: p.y + sy },
-          { x: p.x + 20 + sx, y: p.y + 10 + sy },
-          { x: p.x + 10 + sx, y: p.y + 20 + sy },
-          { x: p.x + 10 + sx, y: p.y + 14 + sy },
-          { x: p.x + sx, y: p.y + 14 + sy },
-          { x: p.x + sx, y: p.y + 6 + sy },
-          { x: p.x + 10 + sx, y: p.y + 6 + sy }
-        ], c);
-        renderer.setGlow(null);
-      }
-    });
-
-    // Enemy bullets
-    renderer.setGlow('#f44', 0.4);
-    enemyBullets.forEach(b => {
-      renderer.fillCircle(b.x + sx, b.y + sy, 3, '#f44');
-    });
-    renderer.setGlow(null);
-
-    // Enemies
-    enemies.forEach(e => {
-      if (!e.alive) return;
-      drawEnemy(renderer, text, e, sx, sy);
-    });
-
-    // Player bullets
-    renderer.setGlow(THEME, 0.5);
-    bullets.forEach(b => {
-      renderer.fillRect(b.x - 2 + sx, b.y + sy, 4, 10, THEME);
-    });
-    renderer.setGlow(null);
-
-    // Player (with roll afterimage)
-    drawPlayer(renderer, sx, sy);
-
-    // Explosions
-    explosions.forEach(ex => {
-      const pct = ex.life / ex.maxLife;
-      const r = ex.size * (1 - pct * 0.5);
-      const green = Math.floor(120 + pct * 135);
-      const blue = Math.floor(pct * 80);
-      const alpha = pct * 0.7;
-      const c = `rgba(255,${green},${blue},${alpha})`;
-      renderer.setGlow('#f84', 0.6);
-      renderer.fillCircle(ex.x + sx, ex.y + sy, r, c);
-      renderer.setGlow(null);
-    });
-
-    // Particles
-    particles.forEach(p => {
-      const alpha = Math.min(1, p.life / 30);
-      renderer.fillRect(p.x - 2 + sx, p.y - 2 + sy, 4, 4, applyAlpha(p.color, alpha));
-    });
-
-    // Debris particles (tumbling rectangles)
-    debrisParticles.forEach(d => {
-      const alpha = Math.min(1, d.life / d.maxLife);
-      const cos = Math.cos(d.rotation);
-      const sin = Math.sin(d.rotation);
-      const hw = d.w / 2;
-      const hh = d.h / 2;
-      const pts = [
-        { x: d.x + (-hw * cos - -hh * sin) + sx, y: d.y + (-hw * sin + -hh * cos) + sy },
-        { x: d.x + (hw * cos - -hh * sin) + sx, y: d.y + (hw * sin + -hh * cos) + sy },
-        { x: d.x + (hw * cos - hh * sin) + sx, y: d.y + (hw * sin + hh * cos) + sy },
-        { x: d.x + (-hw * cos - hh * sin) + sx, y: d.y + (-hw * sin + hh * cos) + sy }
-      ];
-      renderer.fillPoly(pts, applyAlpha(d.color, alpha));
-    });
-
-    // Power-up timer bars (on-canvas HUD)
-    drawPowerUpTimers(renderer, text, sx, sy);
-
-    // Roll cooldown indicator
-    if (rollCooldownTimer > 0) {
-      const pct = rollCooldownTimer / ROLL_COOLDOWN;
-      renderer.fillRect(W - 50 + sx, H - 14 + sy, 40 * (1 - pct), 6, 'rgba(102,221,187,0.3)');
-      renderer.strokePoly([
-        { x: W - 50 + sx, y: H - 14 + sy },
-        { x: W - 10 + sx, y: H - 14 + sy },
-        { x: W - 10 + sx, y: H - 8 + sy },
-        { x: W - 50 + sx, y: H - 8 + sy }
-      ], 'rgba(102,221,187,0.5)', 1, true);
+    for (const tr of state.player.rollTrail) {
+      const frame = tr.life % 2 ? 'roll_1' : 'roll_2';
+      drawPixelSprite(renderer, frame, tr.x, tr.y, PLAYER_SCALE, state.player.plane.color, tr.life / 18 * 0.45);
     }
 
-    // Boss warning overlay
-    if (bossWarningTimer > 0) {
-      const warningAlpha = Math.abs(Math.sin(bossWarningTimer * 0.15)) * 0.8;
+    const playerSprite = state.player.rollTimer > 0
+      ? (Math.floor(state.player.rollTimer / 6) % 2 ? 'roll_1' : 'roll_2')
+      : `plane_${state.player.plane.id}`;
 
-      // Dramatic WARNING text with glow
-      renderer.setGlow('#f00', 1.0);
-      text.drawText('WARNING', W / 2 + sx, H / 2 - 40 + sy, 40, `rgba(255,40,40,${warningAlpha.toFixed(2)})`, 'center');
-      renderer.setGlow(null);
+    const playerAlpha = state.player.invuln > 0 && state.tick % 6 < 3 ? 0.55 : 1;
+    drawPixelSprite(renderer, playerSprite, state.player.x, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
 
-      // Sub-text
-      if (bossWarningTimer < 60) {
-        const subAlpha = Math.min(1, (60 - bossWarningTimer) / 30) * warningAlpha;
-        text.drawText('BOSS APPROACHING', W / 2 + sx, H / 2 + sy, 16, `rgba(255,100,100,${subAlpha.toFixed(2)})`, 'center');
-      }
-
-      // Red screen flash
-      renderer.fillRect(0, 0, W, H, `rgba(255,0,0,${(warningAlpha * 0.08).toFixed(3)})`);
-
-      // Red border flash
-      const borderW = 4;
-      const borderAlpha = warningAlpha * 0.3;
-      const borderColor = `rgba(255,30,30,${borderAlpha.toFixed(3)})`;
-      renderer.fillRect(0, 0, W, borderW, borderColor);
-      renderer.fillRect(0, H - borderW, W, borderW, borderColor);
-      renderer.fillRect(0, 0, borderW, H, borderColor);
-      renderer.fillRect(W - borderW, 0, borderW, H, borderColor);
+    if (state.player.shieldTimer > 0) {
+      renderer.fillCircle(state.player.x + state.player.w / 2, state.player.y + state.player.h / 2, 24, 'rgba(132,188,255,0.2)');
     }
 
-    // Wave transition text
-    if (waveTextTimer > 0) {
-      const glitchX = (Math.random() - 0.5) * 3;
-      const glitchY = (Math.random() - 0.5) * 3;
-      const fadeAlpha = Math.min(1, waveTextTimer / 30);
-      renderer.setGlow(THEME, 0.7);
-      text.drawText(`WAVE ${waveTextNumber}`, W / 2 + glitchX + sx, H / 2 + glitchY + sy, 28, applyAlpha(THEME, fadeAlpha), 'center');
-      // Slight glitch duplicate
-      if (waveTextTimer > 60) {
-        text.drawText(`WAVE ${waveTextNumber}`, W / 2 + glitchX + 2 + sx, H / 2 + glitchY + sy, 28, `rgba(255,100,100,${(fadeAlpha * 0.3).toFixed(2)})`, 'center');
-        text.drawText(`WAVE ${waveTextNumber}`, W / 2 + glitchX - 2 + sx, H / 2 + glitchY + sy, 28, `rgba(100,100,255,${(fadeAlpha * 0.3).toFixed(2)})`, 'center');
-      }
-      renderer.setGlow(null);
+    for (const pt of state.particles) {
+      renderer.fillRect(pt.x, pt.y, pt.r, pt.r, hexToRgba(pt.color.startsWith('#') ? pt.color : '#ff8f5c', clamp(pt.life / pt.maxLife, 0, 1)));
     }
+
+    drawUI(renderer, text, state);
   };
 
   game.start();
-  return game;
-}
-
-// ── Helper: apply alpha to hex/named color ──
-function applyAlpha(color, alpha) {
-  if (alpha >= 1) return color;
-  // Parse common hex colors
-  if (color.startsWith('#')) {
-    let r, g, b;
-    if (color.length === 4) {
-      r = parseInt(color[1] + color[1], 16);
-      g = parseInt(color[2] + color[2], 16);
-      b = parseInt(color[3] + color[3], 16);
-    } else {
-      r = parseInt(color.slice(1, 3), 16);
-      g = parseInt(color.slice(3, 5), 16);
-      b = parseInt(color.slice(5, 7), 16);
-    }
-    return `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
-  }
-  return color; // fallback
-}
-
-// ── Draw helpers ──
-
-function drawPlayer(renderer, sx, sy) {
-  // Skip drawing every other frame when invincible (blink effect)
-  if (invincibleTimer > 0 && Math.floor(invincibleTimer / 3) % 2 === 0) return;
-
-  const px = player.x, py = player.y;
-  const cx = px + PW / 2, cy = py + PH / 2;
-
-  // During roll, draw afterimage trail and chromatic effect
-  if (rollingTimer > 0) {
-    // Draw afterimages at previous positions
-    for (let i = rollTrail.length - 1; i >= 0; i--) {
-      const trail = rollTrail[i];
-      const trailCx = trail.x + PW / 2;
-      const trailCy = trail.y + PH / 2;
-      const trailAlpha = 0.15 - i * 0.04;
-      if (trailAlpha > 0) {
-        drawPlayerShapeScaled(renderer, trailCx + sx, trailCy + sy, 0.8, trailAlpha);
-      }
-    }
-
-    const rollPct = rollingTimer / ROLL_DURATION;
-    const scaleX = Math.cos(rollPct * Math.PI * 3);
-    const absScale = Math.abs(scaleX) * 0.7 + 0.3;
-    const alpha = 0.4 + Math.abs(scaleX) * 0.6;
-
-    // Chromatic aberration effect: cyan and red offsets
-    drawPlayerShapeScaledTinted(renderer, cx - 2 + sx, cy + sy, absScale, alpha * 0.3, '#0ff');
-    drawPlayerShapeScaledTinted(renderer, cx + 2 + sx, cy + sy, absScale, alpha * 0.3, '#f00');
-    // Main ship
-    drawPlayerShapeScaled(renderer, cx + sx, cy + sy, absScale, alpha);
-    return;
-  }
-
-  drawPlayerShape(renderer, cx + sx, cy + sy);
-
-  // Double-shot swirling particles
-  if (doubleShot) {
-    for (let i = 0; i < 3; i++) {
-      const a = tick * 0.15 + i * (Math.PI * 2 / 3);
-      const orbitR = 18;
-      const dpx = player.x + PW / 2 + Math.cos(a) * orbitR + sx;
-      const dpy = player.y + PH / 2 + Math.sin(a) * orbitR + sy;
-      const dalpha = 0.4 + Math.sin(tick * 0.1 + i) * 0.2;
-      renderer.setGlow('#fc3', 0.3);
-      renderer.fillCircle(dpx, dpy, 2, `rgba(255,200,50,${dalpha.toFixed(2)})`);
-      renderer.setGlow(null);
-    }
-  }
-
-  // Speed boost trail
-  if (speedBoost) {
-    // Stretched exhaust trail
-    renderer.fillPoly([
-      { x: px + 4 + sx, y: py + PH + sy },
-      { x: px + PW / 2 + sx, y: py + PH + 20 + sy },
-      { x: px + PW - 4 + sx, y: py + PH + sy }
-    ], 'rgba(100,200,255,0.35)');
-    // Motion lines
-    for (let i = 0; i < 3; i++) {
-      const lx = px + 6 + i * (PW - 12) / 2 + sx;
-      const ly = py + PH + 5 + sy;
-      renderer.drawLine(lx, ly, lx, ly + 12 + Math.random() * 8, 'rgba(100,200,255,0.25)', 1);
-    }
-  }
-}
-
-function drawPlayerShape(renderer, cx, cy) {
-  renderer.setGlow(THEME, 0.5);
-
-  // Fuselage
-  renderer.fillPoly([
-    { x: cx, y: cy - PH / 2 },
-    { x: cx + 5, y: cy - 6 },
-    { x: cx + 5, y: cy + PH / 2 - 4 },
-    { x: cx - 5, y: cy + PH / 2 - 4 },
-    { x: cx - 5, y: cy - 6 }
-  ], THEME);
-
-  // Left wing
-  renderer.fillPoly([
-    { x: cx - 4, y: cy },
-    { x: cx - PW / 2, y: cy + 8 },
-    { x: cx - PW / 2, y: cy + 12 },
-    { x: cx - 4, y: cy + 6 }
-  ], THEME);
-
-  // Right wing
-  renderer.fillPoly([
-    { x: cx + 4, y: cy },
-    { x: cx + PW / 2, y: cy + 8 },
-    { x: cx + PW / 2, y: cy + 12 },
-    { x: cx + 4, y: cy + 6 }
-  ], THEME);
-
-  // Left tail
-  renderer.fillPoly([
-    { x: cx - 3, y: cy + PH / 2 - 6 },
-    { x: cx - 10, y: cy + PH / 2 },
-    { x: cx - 3, y: cy + PH / 2 - 2 }
-  ], THEME);
-
-  // Right tail
-  renderer.fillPoly([
-    { x: cx + 3, y: cy + PH / 2 - 6 },
-    { x: cx + 10, y: cy + PH / 2 },
-    { x: cx + 3, y: cy + PH / 2 - 2 }
-  ], THEME);
-
-  // Cockpit
-  const cockpitPts = [];
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    cockpitPts.push({ x: cx + Math.cos(a) * 3, y: (cy - 4) + Math.sin(a) * 5 });
-  }
-  renderer.fillPoly(cockpitPts, '#aef');
-
-  // Propeller
-  const propR = 8;
-  for (let i = 0; i < 2; i++) {
-    const a = propellerAngle + i * Math.PI;
-    const px1 = cx + Math.cos(a) * propR;
-    const py1 = (cy - PH / 2 - 2) + Math.sin(a) * 3;
-    const px2 = cx + Math.cos(a + Math.PI) * propR;
-    const py2 = (cy - PH / 2 - 2) + Math.sin(a + Math.PI) * 3;
-    renderer.drawLine(px1, py1, px2, py2, 'rgba(200,230,255,0.4)', 2);
-  }
-  // Propeller hub
-  renderer.fillCircle(cx, cy - PH / 2 - 2, 2, '#aef');
-
-  // Engine glow
-  renderer.setGlow('#f84', 0.5);
-  const enginePts = [];
-  const engineRx = 3, engineRy = 5;
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    enginePts.push({ x: cx + Math.cos(a) * engineRx, y: (cy + PH / 2 - 2) + Math.sin(a) * engineRy });
-  }
-  renderer.fillPoly(enginePts, '#fa4');
-
-  renderer.setGlow(null);
-}
-
-function drawPlayerShapeScaled(renderer, cx, cy, scaleX, alpha) {
-  const s = scaleX;
-  const col = applyAlpha(THEME, alpha);
-
-  renderer.setGlow(THEME, 0.3 * alpha);
-
-  // Fuselage
-  renderer.fillPoly([
-    { x: cx, y: cy - PH / 2 },
-    { x: cx + 5 * s, y: cy - 6 },
-    { x: cx + 5 * s, y: cy + PH / 2 - 4 },
-    { x: cx - 5 * s, y: cy + PH / 2 - 4 },
-    { x: cx - 5 * s, y: cy - 6 }
-  ], col);
-
-  // Left wing
-  renderer.fillPoly([
-    { x: cx - 4 * s, y: cy },
-    { x: cx - PW / 2 * s, y: cy + 8 },
-    { x: cx - PW / 2 * s, y: cy + 12 },
-    { x: cx - 4 * s, y: cy + 6 }
-  ], col);
-
-  // Right wing
-  renderer.fillPoly([
-    { x: cx + 4 * s, y: cy },
-    { x: cx + PW / 2 * s, y: cy + 8 },
-    { x: cx + PW / 2 * s, y: cy + 12 },
-    { x: cx + 4 * s, y: cy + 6 }
-  ], col);
-
-  // Left tail
-  renderer.fillPoly([
-    { x: cx - 3 * s, y: cy + PH / 2 - 6 },
-    { x: cx - 10 * s, y: cy + PH / 2 },
-    { x: cx - 3 * s, y: cy + PH / 2 - 2 }
-  ], col);
-
-  // Right tail
-  renderer.fillPoly([
-    { x: cx + 3 * s, y: cy + PH / 2 - 6 },
-    { x: cx + 10 * s, y: cy + PH / 2 },
-    { x: cx + 3 * s, y: cy + PH / 2 - 2 }
-  ], col);
-
-  renderer.setGlow(null);
-}
-
-function drawPlayerShapeScaledTinted(renderer, cx, cy, scaleX, alpha, tint) {
-  const s = scaleX;
-  const col = applyAlpha(tint, alpha);
-
-  // Fuselage only for tint (simplified for performance)
-  renderer.fillPoly([
-    { x: cx, y: cy - PH / 2 },
-    { x: cx + 5 * s, y: cy - 6 },
-    { x: cx + 5 * s, y: cy + PH / 2 - 4 },
-    { x: cx - 5 * s, y: cy + PH / 2 - 4 },
-    { x: cx - 5 * s, y: cy - 6 }
-  ], col);
-
-  // Wings
-  renderer.fillPoly([
-    { x: cx - 4 * s, y: cy },
-    { x: cx - PW / 2 * s, y: cy + 8 },
-    { x: cx - PW / 2 * s, y: cy + 12 },
-    { x: cx - 4 * s, y: cy + 6 }
-  ], col);
-  renderer.fillPoly([
-    { x: cx + 4 * s, y: cy },
-    { x: cx + PW / 2 * s, y: cy + 8 },
-    { x: cx + PW / 2 * s, y: cy + 12 },
-    { x: cx + 4 * s, y: cy + 6 }
-  ], col);
-}
-
-function drawEnemy(renderer, text, e, sx, sy) {
-  const cx = e.x + e.w / 2 + sx;
-  const cy = e.y + e.h / 2 + sy;
-
-  switch (e.type) {
-    case 'fighter':
-      drawEnemyFighter(renderer, cx, cy, e);
-      break;
-    case 'bomber':
-      drawEnemyBomber(renderer, cx, cy, e);
-      break;
-    case 'ace':
-      drawEnemyAce(renderer, cx, cy, e);
-      break;
-    case 'boss':
-      drawBoss(renderer, e, sx, sy);
-      break;
-  }
-}
-
-function drawEnemyFighter(renderer, cx, cy, e) {
-  renderer.setGlow('#f55', 0.4);
-
-  // Body (inverted — nose points down)
-  renderer.fillPoly([
-    { x: cx, y: cy + e.h / 2 },
-    { x: cx + 4, y: cy + 2 },
-    { x: cx + e.w / 2 - 2, y: cy - 4 },
-    { x: cx + e.w / 2 - 2, y: cy - e.h / 2 + 2 },
-    { x: cx - e.w / 2 + 2, y: cy - e.h / 2 + 2 },
-    { x: cx - e.w / 2 + 2, y: cy - 4 },
-    { x: cx - 4, y: cy + 2 }
-  ], '#f55');
-
-  // Cockpit
-  const cockpitPts = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    cockpitPts.push({ x: cx + Math.cos(a) * 3, y: cy + Math.sin(a) * 4 });
-  }
-  renderer.fillPoly(cockpitPts, '#400');
-
-  renderer.setGlow(null);
-}
-
-function drawEnemyBomber(renderer, cx, cy, e) {
-  renderer.setGlow('#e80', 0.5);
-
-  // Wide body
-  renderer.fillRect(cx - e.w / 2 + 2, cy - e.h / 2 + 4, e.w - 4, e.h - 8, '#e80');
-  // Wings
-  renderer.fillRect(cx - e.w / 2 - 4, cy - 4, e.w + 8, 10, '#e80');
-  // Nose
-  renderer.fillPoly([
-    { x: cx - 6, y: cy + e.h / 2 - 4 },
-    { x: cx, y: cy + e.h / 2 + 2 },
-    { x: cx + 6, y: cy + e.h / 2 - 4 }
-  ], '#e80');
-
-  // Cockpit
-  renderer.fillRect(cx - 4, cy - 3, 8, 6, '#420');
-
-  // HP indicator
-  if (e.hp > 1) {
-    for (let d = 0; d < e.hp; d++) {
-      renderer.fillRect(cx - 4 + d * 5, cy - e.h / 2, 3, 3, '#ff0');
-    }
-  }
-
-  renderer.setGlow(null);
-}
-
-function drawEnemyAce(renderer, cx, cy, e) {
-  renderer.setGlow('#f4f', 0.5);
-
-  // Sleek body
-  renderer.fillPoly([
-    { x: cx, y: cy + e.h / 2 },
-    { x: cx + e.w / 2, y: cy - e.h / 4 },
-    { x: cx + e.w / 4, y: cy - e.h / 2 },
-    { x: cx - e.w / 4, y: cy - e.h / 2 },
-    { x: cx - e.w / 2, y: cy - e.h / 4 }
-  ], '#f4f');
-
-  // Stripe
-  renderer.fillRect(cx - 2, cy - e.h / 2 + 2, 4, e.h - 4, '#808');
-
-  // HP indicator
-  if (e.hp > 1) {
-    for (let d = 0; d < e.hp; d++) {
-      renderer.fillRect(cx - 4 + d * 5, cy - e.h / 2 - 3, 3, 3, '#ff0');
-    }
-  }
-
-  renderer.setGlow(null);
-}
-
-function drawBoss(renderer, e, sx, sy) {
-  const cx = e.x + e.w / 2 + sx;
-  const cy = e.y + e.h / 2 + sy;
-
-  const pulse = Math.sin(tick * 0.06) * 0.3 + 0.7;
-  const bossColor = `rgba(255,60,60,${pulse})`;
-
-  renderer.setGlow('#f44', 0.8);
-
-  // Large fuselage
-  renderer.fillRect(cx - 12, cy - e.h / 2, 24, e.h, bossColor);
-  // Wide wings
-  renderer.fillRect(cx - e.w / 2, cy - 8, e.w, 18, bossColor);
-
-  // Left wing tip
-  renderer.fillPoly([
-    { x: cx - e.w / 2, y: cy - 8 },
-    { x: cx - e.w / 2 - 6, y: cy + 4 },
-    { x: cx - e.w / 2, y: cy + 10 }
-  ], bossColor);
-
-  // Right wing tip
-  renderer.fillPoly([
-    { x: cx + e.w / 2, y: cy - 8 },
-    { x: cx + e.w / 2 + 6, y: cy + 4 },
-    { x: cx + e.w / 2, y: cy + 10 }
-  ], bossColor);
-
-  // Nose
-  renderer.fillPoly([
-    { x: cx - 8, y: cy + e.h / 2 },
-    { x: cx, y: cy + e.h / 2 + 10 },
-    { x: cx + 8, y: cy + e.h / 2 }
-  ], bossColor);
-
-  // Cockpit
-  const cockpitPts = [];
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    cockpitPts.push({ x: cx + Math.cos(a) * 6, y: (cy + 2) + Math.sin(a) * 8 });
-  }
-  renderer.fillPoly(cockpitPts, '#400');
-
-  // Engine flames
-  const flameColor = `rgba(255,160,40,${pulse})`;
-  renderer.setGlow('#f84', 0.6);
-
-  const lFlame = [];
-  const rFlame = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    lFlame.push({ x: (cx - 10) + Math.cos(a) * 4, y: (cy - e.h / 2) + Math.sin(a) * 7 });
-    rFlame.push({ x: (cx + 10) + Math.cos(a) * 4, y: (cy - e.h / 2) + Math.sin(a) * 7 });
-  }
-  renderer.fillPoly(lFlame, flameColor);
-  renderer.fillPoly(rFlame, flameColor);
-
-  renderer.setGlow(null);
-
-  // Health bar
-  const barW = e.w + 20;
-  const hpPct = e.hp / e.maxHp;
-  renderer.fillRect(cx - barW / 2, e.y - 12 + sy, barW, 6, '#400');
-  const hpColor = hpPct > 0.5 ? '#0f0' : hpPct > 0.25 ? '#ff0' : '#f00';
-  renderer.fillRect(cx - barW / 2, e.y - 12 + sy, barW * hpPct, 6, hpColor);
-  renderer.strokePoly([
-    { x: cx - barW / 2, y: e.y - 12 + sy },
-    { x: cx + barW / 2, y: e.y - 12 + sy },
-    { x: cx + barW / 2, y: e.y - 6 + sy },
-    { x: cx - barW / 2, y: e.y - 6 + sy }
-  ], '#666', 1, true);
-}
-
-function drawPowerUpTimers(renderer, text, sx, sy) {
-  let yOff = 20;
-  if (doubleShot) {
-    const pct = doubleShotTimer / 600;
-    text.drawText('DOUBLE SHOT', 10 + sx, yOff - 10 + sy, 12, 'rgba(255,200,50,0.8)', 'left');
-    renderer.fillRect(10 + sx, yOff + 4 + sy, 80, 4, '#333');
-    renderer.fillRect(10 + sx, yOff + 4 + sy, 80 * pct, 4, '#fc3');
-    yOff += 24;
-  }
-  if (speedBoost) {
-    const pct = speedBoostTimer / 480;
-    text.drawText('SPEED BOOST', 10 + sx, yOff - 10 + sy, 12, 'rgba(100,200,255,0.8)', 'left');
-    renderer.fillRect(10 + sx, yOff + 4 + sy, 80, 4, '#333');
-    renderer.fillRect(10 + sx, yOff + 4 + sy, 80 * pct, 4, '#4cf');
-    yOff += 24;
-  }
 }
