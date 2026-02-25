@@ -85,7 +85,7 @@ function markdownToHtml(md) {
 
     const img = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (img) {
-      html.push(`<figure><img src="${img[2]}" alt="${esc(img[1])}"><figcaption>${esc(img[1])}</figcaption></figure>`);
+      html.push(`<figure><img loading="lazy" decoding="async" src="${img[2]}" alt="${esc(img[1])}"><figcaption>${esc(img[1])}</figcaption></figure>`);
       i += 1;
       continue;
     }
