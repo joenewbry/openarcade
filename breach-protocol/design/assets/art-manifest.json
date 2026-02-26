@@ -1,0 +1,80 @@
+{
+  "game": "breach-protocol",
+  "doc": "breach-protocol-design.md",
+  "model": "grok-imagine-image",
+  "generated_at": "2026-02-26T04:40:35.183Z",
+  "assets": [
+    {
+      "id": "visual-moodboard",
+      "file": "visual-moodboard.png",
+      "fallback": "visual-moodboard.svg",
+      "prompt_hash": "8078397334906f7e",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "weapon-lineup-board",
+      "file": "weapon-lineup-board.png",
+      "fallback": null,
+      "prompt_hash": "59edd35c19bc1844",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "class-silhouette-board",
+      "file": "class-silhouette-board.png",
+      "fallback": null,
+      "prompt_hash": "067b96ba433fdc47",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "map-helios-yard-board",
+      "file": "map-helios-yard-board.png",
+      "fallback": null,
+      "prompt_hash": "67f7b7e7b3aa2781",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "map-cathedral-arc-board",
+      "file": "map-cathedral-arc-board.png",
+      "fallback": null,
+      "prompt_hash": "3a94a72821fc06d6",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "map-severance-port-board",
+      "file": "map-severance-port-board.png",
+      "fallback": null,
+      "prompt_hash": "3d89adc6f8a8dd95",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "hud-spectator-board",
+      "file": "hud-spectator-board.png",
+      "fallback": "hud-spectator-board.svg",
+      "prompt_hash": "71f2e586f533a3c9",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "clipping-share-board",
+      "file": "clipping-share-board.png",
+      "fallback": null,
+      "prompt_hash": "092db2251cbd697c",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "screen-flow-board",
+      "file": "screen-flow-board.png",
+      "fallback": null,
+      "prompt_hash": "5c868bedfdf63ea4",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    }
+  ]
+}

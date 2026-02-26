@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CrownfallTelemetryEvent",
+  "type": "object",
+  "required": ["event", "timestamp_ms", "match_id"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "enum": [
+        "order_queued",
+        "order_submitted",
+        "timer_timeout",
+        "pact_sent",
+        "pact_accepted",
+        "pact_broken",
+        "event_applied",
+        "match_result",
+        "collusion_features",
+        "collusion_risk",
+        "enforcement_action"
+      ]
+    },
+    "timestamp_ms": { "type": "integer" },
+    "match_id": { "type": "string" },
+    "payload": { "type": "object" }
+  }
+}

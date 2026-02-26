@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BreachTelemetryEvent",
+  "type": "object",
+  "required": ["event", "timestamp_ms", "match_id", "round"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "enum": [
+        "shot_fired",
+        "hit_confirmed",
+        "damage_applied",
+        "ability_cast",
+        "objective_event",
+        "economy_award",
+        "reconcile_correction",
+        "clip_created",
+        "clip_uploaded",
+        "clip_shared"
+      ]
+    },
+    "timestamp_ms": { "type": "integer" },
+    "match_id": { "type": "string" },
+    "round": { "type": "integer" },
+    "payload": { "type": "object" }
+  }
+}

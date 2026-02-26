@@ -6,6 +6,9 @@
     "design:1942:art": "node generate-1942-art.mjs",
     "design:1942:extract": "node extract-1942-sprites.mjs",
     "design:1942:all": "node generate-1942-art.mjs && node extract-1942-sprites.mjs && node generate-design-book.mjs",
+    "design:crownfall:art": "node generate-crownfall-art.mjs",
+    "design:breach:art": "node generate-breach-art.mjs",
+    "design:foundry:art": "node generate-foundry-frontier-art.mjs",
     "design:docs": "node generate-design-book.mjs"
   },
   "dependencies": {

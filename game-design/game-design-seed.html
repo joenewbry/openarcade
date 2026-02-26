@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Design Seed Checklist</title>
+<style>
+:root{--bg:#0a1120;--panel:#101c33;--line:#284b78;--text:#e6f2ff;--muted:#b7d0ea;--accent:#7ec7ff;--code:#0b1628}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#162846,var(--bg) 52%);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+.shell{max-width:1220px;margin:0 auto;padding:20px;display:grid;grid-template-columns:280px 1fr;gap:14px}
+@media(max-width:980px){.shell{grid-template-columns:1fr}.toc{position:static}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.toc{padding:14px;position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto}
+.toc h3{margin:0 0 8px;font-size:14px;color:var(--accent)}
+.toc a{display:block;color:var(--muted);text-decoration:none;padding:5px 6px;border-radius:6px;font-size:13px}
+.toc a:hover{background:#173159;color:#ecf7ff}
+.toc .toc-l1{font-weight:700;color:#eaf4ff;margin-top:6px}
+.toc .toc-l2{padding-left:14px}
+.toc .toc-l3{padding-left:28px;font-size:12px}
+.main{padding:20px 24px}
+.header{margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.header h1{margin:0;font-size:30px}.header p{margin:6px 0 0;color:var(--muted)}
+.header .meta{margin-top:10px;font-size:12px;color:var(--muted)}
+h1,h2,h3,h4,h5,h6{color:#eaf4ff;scroll-margin-top:18px}
+h2{border-bottom:1px solid #234265;padding-bottom:6px;margin-top:30px}
+p,li{color:#d4e6f9;line-height:1.65}a{color:#9ed5ff}
+code{background:#1a2f4d;color:#eaf4ff;padding:1px 5px;border-radius:5px;font-size:.92em}
+pre{background:var(--code);border:1px solid #223e63;border-radius:10px;padding:12px;overflow:auto}
+pre code{background:none;padding:0}
+img{max-width:100%;height:auto;border-radius:10px;border:1px solid #2e5788;background:#132540}
+figure{margin:16px 0}figcaption{font-size:12px;color:var(--muted);margin-top:6px}
+table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border:1px solid #274870;padding:8px;text-align:left}th{background:#162b47}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="panel toc"><h3>Contents</h3><a class="toc-l1" href="#game-design-seed-checklist">Game Design Seed Checklist</a><a class="toc-l2" href="#purpose">Purpose</a><a class="toc-l2" href="#source-inputs">Source Inputs</a><a class="toc-l2" href="#gate-a-concept-and-audience">Gate A: Concept and Audience</a><a class="toc-l2" href="#gate-b-mechanics-core">Gate B: Mechanics Core</a><a class="toc-l2" href="#gate-c-progression-and-pacing">Gate C: Progression and Pacing</a><a class="toc-l2" href="#gate-d-visual-direction">Gate D: Visual Direction</a><a class="toc-l2" href="#gate-e-content-production-checklist">Gate E: Content Production Checklist</a><a class="toc-l2" href="#gate-f-narrative-and-ux">Gate F: Narrative and UX</a><a class="toc-l2" href="#gate-g-technical-spec-completeness">Gate G: Technical Spec Completeness</a><a class="toc-l2" href="#gate-h-review-outputs">Gate H: Review Outputs</a><a class="toc-l2" href="#design-book-chapter-skeleton">Design Book Chapter Skeleton</a><a class="toc-l2" href="#notes-for-ai-workflow">Notes for AI Workflow</a></aside>
+<main class="panel main">
+<div class="header"><h1>Game Design Seed Checklist</h1><p>Reusable checklist and process gate for consistent game design books.</p><div class="meta">Source: <a href="game-design-seed.md">game-design-seed.md</a></div></div>
+<h1 id="game-design-seed-checklist">Game Design Seed Checklist</h1>
+<h2 id="purpose">Purpose</h2>
+<p>This file is the reusable seed used before implementation to keep game design books consistent, reviewable, and decision-complete.</p>
+<h2 id="source-inputs">Source Inputs</h2>
+<ul><li>OpenArcade internal checklist baseline (<code>game-design-guide.md</code>)</li><li>MDA framework (Mechanics, Dynamics, Aesthetics)</li><li>Schell-style lens review mindset (player experience, clarity, challenge)</li></ul>
+<h2 id="gate-a-concept-and-audience">Gate A: Concept and Audience</h2>
+<ul><li>[ ] Working title and one-line pitch</li><li>[ ] Genre and subgenre</li><li>[ ] Target audience and session length</li><li>[ ] Success criteria for "fun" and "clarity"</li><li>[ ] Comparable games (at least 3)</li></ul>
+<h2 id="gate-b-mechanics-core">Gate B: Mechanics Core</h2>
+<ul><li>[ ] Core loop defined in 3-5 steps</li><li>[ ] Input map fully specified</li><li>[ ] Win and fail conditions</li><li>[ ] Scoring model and rewards</li><li>[ ] Resource systems (ammo, lives, economy, cooldowns)</li></ul>
+<h2 id="gate-c-progression-and-pacing">Gate C: Progression and Pacing</h2>
+<ul><li>[ ] Difficulty curve model (waves/levels/acts)</li><li>[ ] Introduction-then-recombination enemy plan</li><li>[ ] Mini-boss and final boss cadence</li><li>[ ] Upgrade drop cadence and balancing guardrails</li><li>[ ] First 30-second onboarding behavior</li></ul>
+<h2 id="gate-d-visual-direction">Gate D: Visual Direction</h2>
+<ul><li>[ ] Art style and resolution target</li><li>[ ] Color script per level/campaign</li><li>[ ] Silhouette readability rules for player/enemy/projectiles</li><li>[ ] Terrain and ambience layers</li><li>[ ] UI/HUD style and legibility constraints</li></ul>
+<h2 id="gate-e-content-production-checklist">Gate E: Content Production Checklist</h2>
+<ul><li>[ ] Planes/characters sheet</li><li>[ ] Enemy compendium sheet</li><li>[ ] Boss sheet</li><li>[ ] Power-up sheet</li><li>[ ] Level/campaign board set</li><li>[ ] HUD/context screenshot set</li></ul>
+<h2 id="gate-f-narrative-and-ux">Gate F: Narrative and UX</h2>
+<ul><li>[ ] Intro brief per chapter/level</li><li>[ ] Mid-level callouts for mechanic shifts</li><li>[ ] Boss warnings and weak-point hints</li><li>[ ] Post-level debrief and reward summary</li></ul>
+<h2 id="gate-g-technical-spec-completeness">Gate G: Technical Spec Completeness</h2>
+<ul><li>[ ] Public interfaces/files/modules listed</li><li>[ ] Data schemas and content manifests defined</li><li>[ ] Edge cases/failure modes listed</li><li>[ ] Acceptance tests enumerated</li><li>[ ] Rollout and iteration loop documented</li></ul>
+<h2 id="gate-h-review-outputs">Gate H: Review Outputs</h2>
+<ul><li>[ ] Markdown design book complete</li><li>[ ] Markdown mechanics spec complete</li><li>[ ] HTML-rendered browseable versions generated</li><li>[ ] Visual asset gallery linked and validated</li><li>[ ] Broken asset/path check passed</li></ul>
+<h2 id="design-book-chapter-skeleton">Design Book Chapter Skeleton</h2>
+<ol><li>Vision and Player Promise</li><li>Core Mechanics</li><li>Progression and Pacing</li><li>Visual Direction and Color Script</li><li>Content Catalog (planes, enemies, bosses, power-ups)</li><li>UX and Narrative Delivery</li><li>Technical Interfaces and Data Contracts</li><li>Test Plan and Acceptance Criteria</li><li>Competitive Inspiration and Applied Takeaways</li><li>Iteration Log</li></ol>
+<h2 id="notes-for-ai-workflow">Notes for AI Workflow</h2>
+<ul><li>Keep markdown as the source of truth.</li><li>Generate HTML from markdown after each major update.</li><li>Use this checklist as a pass/fail gate before implementation or major rewrites.</li></ul>
+</main>
+</div>
+</body>
+</html>

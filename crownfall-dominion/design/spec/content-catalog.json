@@ -1,0 +1,14 @@
+{
+  "factions": ["iron-court", "sun-pact", "ash-legion", "tide-union"],
+  "regions": 6,
+  "territories": 28,
+  "pact_types": ["truce", "alliance", "warning"],
+  "events": [
+    "border_revolt",
+    "famine_tax",
+    "mercenary_uprising",
+    "supply_collapse",
+    "twin_catastrophe"
+  ],
+  "tutorial_steps": 4
+}

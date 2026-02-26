@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Foundry Frontier Unified Design Book</title>
+<style>
+:root{--bg:#0f1117;--panel:#171b26;--line:#2d3f5e;--text:#e6effa;--muted:#a7bfdc;--accent:#8fd0ff;--code:#111827}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#1b2740,var(--bg) 56%);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+.shell{max-width:1320px;margin:0 auto;padding:20px;display:grid;grid-template-columns:290px 1fr;gap:14px}
+@media(max-width:980px){.shell{grid-template-columns:1fr}.toc{position:static}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.toc{padding:14px;position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto}
+.toc h3{margin:0 0 8px;font-size:14px;color:var(--accent)}
+.toc a{display:block;color:var(--muted);text-decoration:none;padding:5px 6px;border-radius:6px;font-size:13px}
+.toc a:hover{background:#223453;color:#eff8ff}
+.toc .toc-l1{font-weight:700;color:#eaf4ff;margin-top:6px}
+.toc .toc-l2{padding-left:14px}
+.toc .toc-l3{padding-left:28px;font-size:12px}
+.main{padding:20px 24px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.toolbar a{display:inline-block;background:#1b2b46;border:1px solid #36598a;color:#e8f4ff;text-decoration:none;border-radius:8px;padding:8px 12px;font-size:13px}
+.header{margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.header h1{margin:0;font-size:30px}.header p{margin:6px 0 0;color:var(--muted)}
+.header .meta{margin-top:10px;font-size:12px;color:var(--muted)}
+h1,h2,h3,h4,h5,h6{color:#eaf4ff;scroll-margin-top:18px}
+h2{border-bottom:1px solid #2b4469;padding-bottom:6px;margin-top:30px}
+p,li{color:#d4e6f9;line-height:1.65}a{color:#9ed5ff}
+code{background:#273a5c;color:#eaf4ff;padding:1px 5px;border-radius:5px;font-size:.92em}
+pre{background:var(--code);border:1px solid #2c4368;border-radius:10px;padding:12px;overflow:auto}
+pre code{background:none;padding:0}
+img{max-width:100%;height:auto;border-radius:10px;border:1px solid #2e5788;background:#132540}
+figure{margin:16px 0}figcaption{font-size:12px;color:var(--muted);margin-top:6px}
+table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border:1px solid #2f4e79;padding:8px;text-align:left}th{background:#1f3452}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="panel toc"><h3>Contents</h3><a class="toc-l1" href="#foundry-frontier-unified-design-book">Foundry Frontier Unified Design Book</a><a class="toc-l2" href="#quick-navigation">Quick Navigation</a><a class="toc-l2" href="#vision">Vision</a><a class="toc-l2" href="#build-surfaces">Build Surfaces</a><a class="toc-l2" href="#core-loop-and-state-machines">Core Loop and State Machines</a><a class="toc-l2" href="#starting-state-and-tutorial-flow">Starting State and Tutorial Flow</a><a class="toc-l2" href="#machine-and-recipe-catalog">Machine and Recipe Catalog</a><a class="toc-l3" href="#machine-specs">Machine Specs</a><a class="toc-l3" href="#core-recipes">Core Recipes</a><a class="toc-l2" href="#mass-driver-program-stages">Mass Driver Program Stages</a><a class="toc-l2" href="#unlock-and-progression-rules">Unlock and Progression Rules</a><a class="toc-l2" href="#multiplayer-and-matchmaking">Multiplayer and Matchmaking</a><a class="toc-l2" href="#ui-and-screen-contracts">UI and Screen Contracts</a><a class="toc-l2" href="#failure-modes-and-recovery">Failure Modes and Recovery</a><a class="toc-l2" href="#telemetry-and-replay">Telemetry and Replay</a><a class="toc-l2" href="#concept-art-pack">Concept Art Pack</a><a class="toc-l2" href="#data-interfaces">Data Interfaces</a><a class="toc-l2" href="#acceptance-scenarios">Acceptance Scenarios</a><a class="toc-l2" href="#production-checklist">Production Checklist</a></aside>
+<main class="panel main">
+<div class="toolbar">
+  <a href="/">Back to Arcade</a>
+  <a href="/foundry-frontier/">Play Game</a>
+  <a href="./assets/art-manifest.json">Art Manifest</a>
+</div>
+<div class="header"><h1>Foundry Frontier Unified Design Book</h1><p>Lunar automation strategy spec centered on building a moon mass driver.</p><div class="meta">Source: <a href="foundry-frontier-design.md">foundry-frontier-design.md</a></div></div>
+<h1 id="foundry-frontier-unified-design-book">Foundry Frontier Unified Design Book</h1>
+<h2 id="quick-navigation">Quick Navigation</h2>
+<ul><li><a href="#vision">Vision</a></li><li><a href="#build-surfaces">Build Surfaces</a></li><li><a href="#core-loop-and-state-machines">Core Loop and State Machines</a></li><li><a href="#starting-state-and-tutorial-flow">Starting State and Tutorial Flow</a></li><li><a href="#machine-and-recipe-catalog">Machine and Recipe Catalog</a></li><li><a href="#mass-driver-program-stages">Mass Driver Program Stages</a></li><li><a href="#unlock-and-progression-rules">Unlock and Progression Rules</a></li><li><a href="#multiplayer-and-matchmaking">Multiplayer and Matchmaking</a></li><li><a href="#ui-and-screen-contracts">UI and Screen Contracts</a></li><li><a href="#failure-modes-and-recovery">Failure Modes and Recovery</a></li><li><a href="#telemetry-and-replay">Telemetry and Replay</a></li><li><a href="#concept-art-pack">Concept Art Pack</a></li><li><a href="#data-interfaces">Data Interfaces</a></li><li><a href="#acceptance-scenarios">Acceptance Scenarios</a></li><li><a href="#production-checklist">Production Checklist</a></li></ul>
+<h2 id="vision">Vision</h2>
+<p><code>Foundry Frontier</code> is a lunar automation strategy game where the victory condition is completing and certifying a moon mass driver. The design goal is factory optimization plus crisis recovery under constrained oxygen, power, and heat budgets.</p>
+<p>Player fantasy:</p>
+<ul><li>start from a fragile outpost,</li><li>scale into a high-throughput industrial moon base,</li><li>launch the mass driver payload.</li></ul>
+<p>Session targets:</p>
+<ul><li>quick run: 20 minutes,</li><li>standard campaign run: 45-70 minutes.</li></ul>
+<h2 id="build-surfaces">Build Surfaces</h2>
+<p>Client modules:</p>
+<ul><li>world sim renderer,</li><li>build/placement tools,</li><li>logistics overlay,</li><li>objective and unlock HUD,</li><li>crisis alert panel,</li><li>post-run summary.</li></ul>
+<p>Server modules:</p>
+<ul><li>deterministic tick authority,</li><li>co-op sync and checksum validator,</li><li>matchmaking queue (single global),</li><li>replay event writer.</li></ul>
+<p>Data services:</p>
+<ul><li>progression profile,</li><li>unlock state,</li><li>telemetry ingest.</li></ul>
+<h2 id="core-loop-and-state-machines">Core Loop and State Machines</h2>
+<p>Loop:</p>
+<ol><li>extract lunar resources,</li><li>refine into industrial feedstock,</li><li>assemble mass-driver components,</li><li>stabilize during crisis events,</li><li>advance stage requirements.</li></ol>
+<p>Match lifecycle state machine:</p>
+<ul><li><code>init -&gt; onboarding -&gt; live -&gt; stage_checkpoint -&gt; live -&gt; certification -&gt; complete|failed</code></li></ul>
+<p>Certification state machine:</p>
+<ul><li><code>prep -&gt; charge -&gt; sustain_window -&gt; validation -&gt; pass|fail</code></li></ul>
+<h2 id="starting-state-and-tutorial-flow">Starting State and Tutorial Flow</h2>
+<p>Starting state contract:</p>
+<ul><li>extractor: 1,</li><li>refinery: 1,</li><li>belt tiles: 6,</li><li>micro battery: 1,</li><li>hab core: 1,</li><li>starter resources: low oxygen reserve, 150 power cells.</li></ul>
+<p>First-20-minute tutorial chapters:</p>
+<ol><li>first dust (mine and route),</li><li>breath and power (oxygen and grid stability),</li><li>flow discipline (split/merge priority),</li><li>stage prep (first mass-driver chain).</li></ol>
+<p>Tutorial rules:</p>
+<ul><li>max two new concepts per chapter,</li><li>chapter objective plus optional mastery objective,</li><li>skip available after chapter 1.</li></ul>
+<h2 id="machine-and-recipe-catalog">Machine and Recipe Catalog</h2>
+<h3 id="machine-specs">Machine Specs</h3>
+<table><thead><tr><th>Machine ID</th><th>Role</th><th>Tick (ms)</th><th>Power Draw</th><th>Heat</th></tr></thead><tbody><tr><td><code>extractor_t1</code></td><td>regolith extraction</td><td>1000</td><td>6</td><td>1</td></tr><tr><td><code>separator_ilmenite_t1</code></td><td>ilmenite separation</td><td>1400</td><td>8</td><td>2</td></tr><tr><td><code>electrolysis_t1</code></td><td>oxygen/hydrogen split</td><td>1800</td><td>12</td><td>3</td></tr><tr><td><code>smelter_al_t2</code></td><td>aluminum feedstock</td><td>1600</td><td>11</td><td>3</td></tr><tr><td><code>assembler_precision_t2</code></td><td>advanced components</td><td>2200</td><td>14</td><td>4</td></tr><tr><td><code>foundry_rail_t3</code></td><td>rail segments</td><td>2800</td><td>18</td><td>6</td></tr><tr><td><code>forge_capacitor_t3</code></td><td>capacitor cores</td><td>3000</td><td>20</td><td>7</td></tr></tbody></table>
+<h3 id="core-recipes">Core Recipes</h3>
+<table><thead><tr><th>Recipe ID</th><th>Inputs</th><th>Outputs</th><th>Time (ms)</th></tr></thead><tbody><tr><td><code>r_regolith_to_feed</code></td><td>regolith x4</td><td>feedstock x2</td><td>1200</td></tr><tr><td><code>r_ilmenite_to_al</code></td><td>ilmenite x3 + power x2</td><td>aluminum_feed x2 + oxygen_trace x1</td><td>1800</td></tr><tr><td><code>r_ice_to_o2_h2</code></td><td>polar_ice x2 + power x3</td><td>oxygen x3 + hydrogen x2</td><td>2000</td></tr><tr><td><code>r_composite_shell</code></td><td>aluminum_feed x2 + basalt_glass x1</td><td>composite_shell x1</td><td>2400</td></tr><tr><td><code>r_supercoil</code></td><td>aluminum_feed x2 + hydrogen x1 + rare_dust x1</td><td>supercoil x1</td><td>2600</td></tr><tr><td><code>r_rail_segment</code></td><td>composite_shell x2 + supercoil x1</td><td>rail_segment x1</td><td>3200</td></tr><tr><td><code>r_capacitor_core</code></td><td>supercoil x2 + ceramic x1</td><td>capacitor_core x1</td><td>3400</td></tr></tbody></table>
+<h2 id="mass-driver-program-stages">Mass Driver Program Stages</h2>
+<table><thead><tr><th>Stage</th><th>Required Deliverables</th><th>Stability Requirement</th></tr></thead><tbody><tr><td>1 Site Prep</td><td>120 feedstock, 60 oxygen</td><td>uptime &gt;= 90% for 180s</td></tr><tr><td>2 Materials</td><td>90 aluminum feed, 40 ceramic, 40 hydrogen</td><td>thermal margin &gt;= 15</td></tr><tr><td>3 Accelerator Build</td><td>24 rail segments, 18 capacitor cores, 10 guidance modules</td><td>power reserve &gt;= 25%</td></tr><tr><td>4 Launch Cert</td><td>sustain target throughput for 300s</td><td>no critical faults during window</td></tr></tbody></table>
+<p>Win condition:</p>
+<ul><li>pass stage 4 launch certification.</li></ul>
+<p>Fail conditions:</p>
+<ul><li>oxygen zero for &gt; 30s,</li><li>thermal runaway &gt; threshold for &gt; 20s,</li><li>debt state active for &gt; 180s.</li></ul>
+<h2 id="unlock-and-progression-rules">Unlock and Progression Rules</h2>
+<p>Unlock currencies:</p>
+<ul><li><code>tech_points</code> (chapter + efficiency rewards),</li><li><code>safety_tier</code> (gates high-energy systems),</li><li><code>discovery_flags</code> (resource-chain first completion).</li></ul>
+<p>Unlock table: | Unlock | Requirement | Cost | |---|---|---:| | Splitter/Merger | chapter 2 clear | 2 tech points | | Drone Relay | chapter 3 clear | 4 tech points | | Rail Foundry | safety tier 2 | 5 tech points | | Capacitor Forge | safety tier 3 + supercoil chain | 6 tech points | | Launch Control Node | stage 3 start | 8 tech points |</p>
+<p>Progression guardrails:</p>
+<ul><li>no more than two mandatory new systems per chapter,</li><li>hard prereq checks before stage promotion.</li></ul>
+<h2 id="multiplayer-and-matchmaking">Multiplayer and Matchmaking</h2>
+<p>Modes:</p>
+<ul><li>solo campaign,</li><li>co-op program (2-4 players),</li><li>versus race.</li></ul>
+<p>Queue model:</p>
+<ul><li>one global queue for v1,</li><li>party queue enabled,</li><li>no region partition in v1.</li></ul>
+<p>Determinism:</p>
+<ul><li>lockstep tick authority,</li><li>checksum every 5s,</li><li>desync auto-pause + rollback window (3s).</li></ul>
+<p>Reconnect:</p>
+<ul><li>60s grace window,</li><li>bot fallback after 20s disconnect.</li></ul>
+<h2 id="ui-and-screen-contracts">UI and Screen Contracts</h2>
+<p>Required screens:</p>
+<ul><li>main menu,</li><li>mode select,</li><li>queue/lobby,</li><li>tutorial chapter panel,</li><li>in-match HUD,</li><li>logistics debug overlay,</li><li>unlock modal,</li><li>crisis alert screen,</li><li>stage checkpoint summary,</li><li>run-end result screen.</li></ul>
+<p>HUD required widgets:</p>
+<ul><li>oxygen, power, thermal margin,</li><li>stage progress,</li><li>throughput graph,</li><li>active crisis badge,</li><li>objectives list.</li></ul>
+<h2 id="failure-modes-and-recovery">Failure Modes and Recovery</h2>
+<ul><li><code>oxygen_deficit</code>: disable non-critical production, highlight oxygen chain.</li><li><code>power_brownout</code>: auto-throttle high-draw machines.</li><li><code>thermal_spike</code>: force vent and cooling priority mode.</li><li><code>desync_detected</code>: pause, reconcile, and resume or fail-safe end.</li></ul>
+<p>Recovery rules are explicitly surfaced with recommended next action text.</p>
+<h2 id="telemetry-and-replay">Telemetry and Replay</h2>
+<p>Core events:</p>
+<ul><li>placement/edit/remove machine,</li><li>recipe start/finish,</li><li>unlock granted,</li><li>crisis enter/exit,</li><li>stage checkpoint pass/fail,</li><li>certification pass/fail,</li><li>reconnect/desync events.</li></ul>
+<p>Replay model:</p>
+<ul><li>deterministic state snapshots each 5s,</li><li>event log with seed and tick alignment.</li></ul>
+<h2 id="concept-art-pack">Concept Art Pack</h2>
+<figure><img loading="lazy" decoding="async" src="./assets/factory-moodboard.png" alt="Factory Moodboard"><figcaption>Factory Moodboard</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/production-system-board.png" alt="Production System Board"><figcaption>Production System Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/crisis-event-board.png" alt="Crisis Event Board"><figcaption>Crisis Event Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/hud-ux-board.png" alt="HUD and UX Board"><figcaption>HUD and UX Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/mass-driver-assembly-board.png" alt="Mass Driver Assembly Board"><figcaption>Mass Driver Assembly Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/lunar-resource-chain-board.png" alt="Lunar Resource Chain Board"><figcaption>Lunar Resource Chain Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/onboarding-flow-board.png" alt="Onboarding Flow Board"><figcaption>Onboarding Flow Board</figcaption></figure>
+<h2 id="data-interfaces">Data Interfaces</h2>
+<pre><code class="lang-ts">interface MatchConfig {
+  mode: 'solo' | 'coop' | 'versus';
+  map_seed: number;
+  difficulty: 'normal' | 'hard' | 'insane';
+  queue: 'global';
+  max_players: number;
+}
+
+interface ProductionGraph {
+  nodes: Array&lt;{ id: string; type: string; recipe?: string }&gt;;
+  edges: Array&lt;{ from: string; to: string; lane: number }&gt;;
+}
+
+interface UnlockState {
+  tech_points: number;
+  safety_tier: 0 | 1 | 2 | 3 | 4;
+  unlocked_machines: string[];
+  unlocked_resources: string[];
+  unlocked_mass_driver_stage: 0 | 1 | 2 | 3 | 4;
+}
+
+interface MassDriverProgramState {
+  stage: 0 | 1 | 2 | 3 | 4;
+  rail_segments_built: number;
+  capacitor_stability: number;
+  thermal_margin: number;
+  certification_ready: boolean;
+}
+
+interface PlayerInputEvent {
+  timestamp_ms: number;
+  action: 'place' | 'rotate' | 'connect' | 'upgrade' | 'pause' | 'set_priority';
+  target_id?: string;
+  payload?: Record&lt;string, string | number | boolean&gt;;
+}</code></pre>
+<h2 id="acceptance-scenarios">Acceptance Scenarios</h2>
+<ol><li>New player reaches stage 1 clear in &lt;= 12 minutes.</li><li>Tutorial introduces &lt;= 2 new systems per chapter.</li><li>Stage gates block invalid progression states.</li><li>Global queue enters co-op match and handles reconnect.</li><li>Replay can reproduce certification result from seed + log.</li><li>All HUD critical stats remain visible during crisis events.</li></ol>
+<h2 id="production-checklist">Production Checklist</h2>
+<ul><li>[ ] machine prefabs and recipe runtime integration</li><li>[ ] stage state machine and certification validator</li><li>[ ] tutorial scripting and objective gating</li><li>[ ] crisis event implementations and balancing pass</li><li>[ ] lobby/queue/reconnect flows</li><li>[ ] telemetry schema integration</li><li>[ ] deterministic replay verification</li></ul>
+</main>
+</div>
+</body>
+</html>

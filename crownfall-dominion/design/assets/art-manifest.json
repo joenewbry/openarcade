@@ -1,0 +1,64 @@
+{
+  "game": "crownfall-dominion",
+  "doc": "crownfall-dominion-design.md",
+  "model": "grok-imagine-image",
+  "generated_at": "2026-02-26T04:40:03.332Z",
+  "assets": [
+    {
+      "id": "world-faction-moodboard",
+      "file": "world-faction-moodboard.png",
+      "fallback": "world-faction-moodboard.svg",
+      "prompt_hash": "0607bfd243149c3e",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "territory-ui-board",
+      "file": "territory-ui-board.png",
+      "fallback": "territory-ui-board.svg",
+      "prompt_hash": "e5b2fc8aeefeaa5c",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "diplomacy-event-board",
+      "file": "diplomacy-event-board.png",
+      "fallback": "diplomacy-event-board.svg",
+      "prompt_hash": "7a49d962057b3691",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "battle-resolution-board",
+      "file": "battle-resolution-board.png",
+      "fallback": "battle-resolution-board.svg",
+      "prompt_hash": "c351baa8684c5daa",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "tutorial-flow-board",
+      "file": "tutorial-flow-board.png",
+      "fallback": null,
+      "prompt_hash": "7ccb921194f7b92c",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "turn-timer-board",
+      "file": "turn-timer-board.png",
+      "fallback": null,
+      "prompt_hash": "503925f765ed375f",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "anti-collusion-board",
+      "file": "anti-collusion-board.png",
+      "fallback": null,
+      "prompt_hash": "0b1ce0c254d1f1fb",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    }
+  ]
+}

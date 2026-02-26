@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CrownfallMatchState",
+  "type": "object",
+  "required": ["turn", "phase", "timer_sec_remaining", "territory_state"],
+  "properties": {
+    "turn": { "type": "integer" },
+    "phase": { "type": "string", "enum": ["reinforce", "diplomacy", "orders", "resolve", "event"] },
+    "timer_sec_remaining": { "type": "integer" },
+    "territory_state": { "type": "array", "items": { "type": "object" } }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "game": "crownfall-dominion",
+  "version": 1,
+  "timers": {
+    "blitz_sec": 20,
+    "standard_live_sec": 45,
+    "ranked_live_sec": 60,
+    "async_12h_sec": 43200,
+    "async_24h_sec": 86400
+  },
+  "timeout_policy": {
+    "live": "auto_submit",
+    "async": "auto_pass"
+  },
+  "victory": {
+    "control_pct": 0.65,
+    "capital_hold_turns": 2
+  },
+  "anti_collusion": {
+    "weights": {
+      "jaccard_target_overlap": 0.3,
+      "non_aggression_outlier_z": 0.25,
+      "treaty_imbalance_z": 0.25,
+      "surrender_timing_z": 0.2
+    },
+    "risk_bands": {
+      "medium": 0.6,
+      "high": 0.8
+    }
+  }
+}

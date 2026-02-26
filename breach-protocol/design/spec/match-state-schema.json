@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BreachMatchState",
+  "type": "object",
+  "required": ["round", "phase", "score", "map_id"],
+  "properties": {
+    "round": { "type": "integer" },
+    "phase": { "type": "string", "enum": ["buy", "live", "post"] },
+    "score": {
+      "type": "object",
+      "properties": {
+        "strikers": { "type": "integer" },
+        "wardens": { "type": "integer" }
+      },
+      "required": ["strikers", "wardens"]
+    },
+    "map_id": { "type": "string", "enum": ["helios-yard", "cathedral-arc", "severance-port"] }
+  }
+}

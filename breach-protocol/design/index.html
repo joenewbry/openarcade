@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Breach Protocol Unified Design Book</title>
+<style>
+:root{--bg:#0f1117;--panel:#171b26;--line:#2d3f5e;--text:#e6effa;--muted:#a7bfdc;--accent:#8fd0ff;--code:#111827}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#1b2740,var(--bg) 56%);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+.shell{max-width:1320px;margin:0 auto;padding:20px;display:grid;grid-template-columns:290px 1fr;gap:14px}
+@media(max-width:980px){.shell{grid-template-columns:1fr}.toc{position:static}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.toc{padding:14px;position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto}
+.toc h3{margin:0 0 8px;font-size:14px;color:var(--accent)}
+.toc a{display:block;color:var(--muted);text-decoration:none;padding:5px 6px;border-radius:6px;font-size:13px}
+.toc a:hover{background:#223453;color:#eff8ff}
+.toc .toc-l1{font-weight:700;color:#eaf4ff;margin-top:6px}
+.toc .toc-l2{padding-left:14px}
+.toc .toc-l3{padding-left:28px;font-size:12px}
+.main{padding:20px 24px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.toolbar a{display:inline-block;background:#1b2b46;border:1px solid #36598a;color:#e8f4ff;text-decoration:none;border-radius:8px;padding:8px 12px;font-size:13px}
+.header{margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.header h1{margin:0;font-size:30px}.header p{margin:6px 0 0;color:var(--muted)}
+.header .meta{margin-top:10px;font-size:12px;color:var(--muted)}
+h1,h2,h3,h4,h5,h6{color:#eaf4ff;scroll-margin-top:18px}
+h2{border-bottom:1px solid #2b4469;padding-bottom:6px;margin-top:30px}
+p,li{color:#d4e6f9;line-height:1.65}a{color:#9ed5ff}
+code{background:#273a5c;color:#eaf4ff;padding:1px 5px;border-radius:5px;font-size:.92em}
+pre{background:var(--code);border:1px solid #2c4368;border-radius:10px;padding:12px;overflow:auto}
+pre code{background:none;padding:0}
+img{max-width:100%;height:auto;border-radius:10px;border:1px solid #2e5788;background:#132540}
+figure{margin:16px 0}figcaption{font-size:12px;color:var(--muted);margin-top:6px}
+table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border:1px solid #2f4e79;padding:8px;text-align:left}th{background:#1f3452}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="panel toc"><h3>Contents</h3><a class="toc-l1" href="#breach-protocol-unified-design-book">Breach Protocol Unified Design Book</a><a class="toc-l2" href="#quick-navigation">Quick Navigation</a><a class="toc-l2" href="#vision">Vision</a><a class="toc-l2" href="#build-surfaces">Build Surfaces</a><a class="toc-l2" href="#round-rules-and-economy">Round Rules and Economy</a><a class="toc-l2" href="#classes-and-gun-roster">Classes and Gun Roster</a><a class="toc-l3" href="#classes-4">Classes (4)</a><a class="toc-l3" href="#gun-roster-12">Gun Roster (12)</a><a class="toc-l2" href="#map-pack-3-maps">Map Pack (3 Maps)</a><a class="toc-l3" href="#helios-yard">Helios Yard</a><a class="toc-l3" href="#cathedral-arc">Cathedral Arc</a><a class="toc-l3" href="#severance-port">Severance Port</a><a class="toc-l2" href="#shareable-moments-and-clipping-pipeline">Shareable Moments and Clipping Pipeline</a><a class="toc-l2" href="#screens-and-ux-inventory">Screens and UX Inventory</a><a class="toc-l2" href="#multiplayer-netcode-and-matchmaking">Multiplayer, Netcode, and Matchmaking</a><a class="toc-l2" href="#telemetry-and-replay-contracts">Telemetry and Replay Contracts</a><a class="toc-l2" href="#concept-art-pack">Concept Art Pack</a><a class="toc-l2" href="#data-interfaces">Data Interfaces</a><a class="toc-l2" href="#acceptance-scenarios">Acceptance Scenarios</a><a class="toc-l2" href="#production-checklist">Production Checklist</a></aside>
+<main class="panel main">
+<div class="toolbar">
+  <a href="/">Back to Arcade</a>
+  <a href="/breach-protocol/">Play Game</a>
+  <a href="./assets/art-manifest.json">Art Manifest</a>
+</div>
+<div class="header"><h1>Breach Protocol Unified Design Book</h1><p>Tactical 5v5 FPS spec with 3 maps, 4 classes, 12 guns, and full clip-sharing pipeline.</p><div class="meta">Source: <a href="breach-protocol-design.md">breach-protocol-design.md</a></div></div>
+<h1 id="breach-protocol-unified-design-book">Breach Protocol Unified Design Book</h1>
+<h2 id="quick-navigation">Quick Navigation</h2>
+<ul><li><a href="#vision">Vision</a></li><li><a href="#build-surfaces">Build Surfaces</a></li><li><a href="#round-rules-and-economy">Round Rules and Economy</a></li><li><a href="#classes-and-gun-roster">Classes and Gun Roster</a></li><li><a href="#map-pack-3-maps">Map Pack (3 Maps)</a></li><li><a href="#shareable-moments-and-clipping-pipeline">Shareable Moments and Clipping Pipeline</a></li><li><a href="#screens-and-ux-inventory">Screens and UX Inventory</a></li><li><a href="#multiplayer-netcode-and-matchmaking">Multiplayer, Netcode, and Matchmaking</a></li><li><a href="#telemetry-and-replay-contracts">Telemetry and Replay Contracts</a></li><li><a href="#concept-art-pack">Concept Art Pack</a></li><li><a href="#data-interfaces">Data Interfaces</a></li><li><a href="#acceptance-scenarios">Acceptance Scenarios</a></li><li><a href="#production-checklist">Production Checklist</a></li></ul>
+<h2 id="vision">Vision</h2>
+<p><code>Breach Protocol</code> is a tactical 5v5 objective FPS centered on clear teamplay, economy timing, and high-shareability highlight moments.</p>
+<p>Session targets:</p>
+<ul><li>ranked: 25-35 minutes,</li><li>casual short: 12-18 minutes.</li></ul>
+<h2 id="build-surfaces">Build Surfaces</h2>
+<p>Client modules:</p>
+<ul><li>movement/combat client,</li><li>buy/loadout UX,</li><li>round HUD,</li><li>scoreboard,</li><li>replay timeline,</li><li>clip editor + share panel.</li></ul>
+<p>Server modules:</p>
+<ul><li>authoritative hit and objective resolution,</li><li>matchmaking and party service,</li><li>clip render/upload service,</li><li>anti-cheat telemetry collector.</li></ul>
+<h2 id="round-rules-and-economy">Round Rules and Economy</h2>
+<p>Match format:</p>
+<ul><li>5v5 teams (<code>Strikers</code> vs <code>Wardens</code>),</li><li>plant/disarm data core or elimination,</li><li>side swap at half,</li><li>first to round cap wins.</li></ul>
+<p>Economy equations (v1 defaults):</p>
+<ul><li>round win: 3200,</li><li>round loss: 1900 base,</li><li>loss streak increment: +500 up to 3400 cap,</li><li>plant bonus: +300 team,</li><li>defuse bonus: +300 team,</li><li>survival carry applies for retained gear.</li></ul>
+<p>Round phases:</p>
+<ul><li>buy -&gt; live -&gt; post.</li></ul>
+<h2 id="classes-and-gun-roster">Classes and Gun Roster</h2>
+<h3 id="classes-4">Classes (4)</h3>
+<ul><li><code>Anchor</code>: hold-site specialist.</li><li><code>Entry</code>: first-contact breach role.</li><li><code>Controller</code>: spacing and denial utility.</li><li><code>Scout</code>: info and flank disruption.</li></ul>
+<p>Class kit constraints:</p>
+<ul><li>one signature utility + one shared utility slot,</li><li>cooldown and charge rules defined in <code>ClassDefinition</code> config.</li></ul>
+<h3 id="gun-roster-12">Gun Roster (12)</h3>
+<p>Rifles:</p>
+<ul><li>AR-9 Viper, AR-12 Longstep, BR-7 Cutline, VX-4 Helix</li></ul>
+<p>SMGs:</p>
+<ul><li>SMG-5 Stitch, SMG-9 Rift, SMG-11 Flicker</li></ul>
+<p>Shotguns:</p>
+<ul><li>SG-2 Breach, SG-8 Ember</li></ul>
+<p>Marksman:</p>
+<ul><li>DMR-14 Halcyon, DMR-3 Pike</li></ul>
+<p>Sidearm:</p>
+<ul><li>P-1 Kestrel</li></ul>
+<p>Each weapon requires full stat table in spec files:</p>
+<ul><li>base damage,</li><li>falloff,</li><li>fire rate,</li><li>recoil pattern id,</li><li>movement accuracy penalty,</li><li>economy price.</li></ul>
+<h2 id="map-pack-3-maps">Map Pack (3 Maps)</h2>
+<h3 id="helios-yard">Helios Yard</h3>
+<ul><li>rail-yard macro map,</li><li>contested mid bridge,</li><li>long A rotate, short B collapse path.</li></ul>
+<h3 id="cathedral-arc">Cathedral Arc</h3>
+<ul><li>tighter vertical interior,</li><li>strong utility timing choke points,</li><li>high value flank timing windows.</li></ul>
+<h3 id="severance-port">Severance Port</h3>
+<ul><li>wider sightlines,</li><li>anchor-friendly defense lanes,</li><li>punishable long rotates.</li></ul>
+<p>Each map must provide:</p>
+<ul><li>callout list,</li><li>site boundary polygons,</li><li>spawn and fallback zones,</li><li>lane graph for nav and replay tags.</li></ul>
+<h2 id="shareable-moments-and-clipping-pipeline">Shareable Moments and Clipping Pipeline</h2>
+<p>Pipeline:</p>
+<ol><li>rolling replay buffer stores last 45 seconds per player,</li><li>clip trigger from manual hotkey or auto-highlight,</li><li>clip render worker cuts segment,</li><li>upload storage + signed URL,</li><li>optional public URL + share card metadata.</li></ol>
+<p>Auto-highlight triggers:</p>
+<ul><li>ace,</li><li>1vX clutch,</li><li>multikill chain,</li><li>last-second objective save.</li></ul>
+<p>Moderation:</p>
+<ul><li>report endpoint,</li><li>visibility flag per clip,</li><li>retention policy by mode.</li></ul>
+<h2 id="screens-and-ux-inventory">Screens and UX Inventory</h2>
+<p>Required screens:</p>
+<ul><li>main menu,</li><li>matchmaking queue,</li><li>party lobby,</li><li>class/loadout,</li><li>buy panel,</li><li>in-round HUD,</li><li>post-round scoreboard,</li><li>match summary + MVP,</li><li>replay timeline,</li><li>clip editor,</li><li>share panel,</li><li>profile/history,</li><li>settings/keybind/accessibility.</li></ul>
+<p>Accessibility baseline:</p>
+<ul><li>subtitle and audio mix controls,</li><li>color-blind utility palette toggles,</li><li>controller remap support.</li></ul>
+<h2 id="multiplayer-netcode-and-matchmaking">Multiplayer, Netcode, and Matchmaking</h2>
+<p>Netcode model:</p>
+<ul><li>server authoritative,</li><li>client prediction,</li><li>lag compensation for hit validation,</li><li>reconciliation event stream.</li></ul>
+<p>Defaults:</p>
+<ul><li>ranked tickrate: 64,</li><li>casual tickrate: 32,</li><li>reconnect grace: 45 seconds.</li></ul>
+<p>Matchmaking:</p>
+<ul><li>ranked MMR queue,</li><li>casual broad queue,</li><li>party constraints in ranked.</li></ul>
+<h2 id="telemetry-and-replay-contracts">Telemetry and Replay Contracts</h2>
+<p>Core telemetry:</p>
+<ul><li>shot fired, hit confirmed, damage applied,</li><li>ability cast and outcome,</li><li>objective events,</li><li>round economy events,</li><li>reconcile corrections,</li><li>clip create/upload/share events.</li></ul>
+<p>Replay contract:</p>
+<ul><li>timeline markers for objective and multikill moments,</li><li>deterministic event ordering via server tick.</li></ul>
+<h2 id="concept-art-pack">Concept Art Pack</h2>
+<figure><img loading="lazy" decoding="async" src="./assets/visual-moodboard.png" alt="Visual Moodboard"><figcaption>Visual Moodboard</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/weapon-lineup-board.png" alt="Weapon Lineup Board"><figcaption>Weapon Lineup Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/class-silhouette-board.png" alt="Class Silhouette Board"><figcaption>Class Silhouette Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/map-helios-yard-board.png" alt="Map 1: Helios Yard Board"><figcaption>Map 1: Helios Yard Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/map-cathedral-arc-board.png" alt="Map 2: Cathedral Arc Board"><figcaption>Map 2: Cathedral Arc Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/map-severance-port-board.png" alt="Map 3: Severance Port Board"><figcaption>Map 3: Severance Port Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/hud-spectator-board.png" alt="HUD and Spectator Board"><figcaption>HUD and Spectator Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/clipping-share-board.png" alt="Clipping and Share UX Board"><figcaption>Clipping and Share UX Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/screen-flow-board.png" alt="Screen Flow Board"><figcaption>Screen Flow Board</figcaption></figure>
+<h2 id="data-interfaces">Data Interfaces</h2>
+<pre><code class="lang-ts">interface MatchConfig {
+  mode: 'ranked' | 'casual' | 'custom';
+  map_id: 'helios-yard' | 'cathedral-arc' | 'severance-port';
+  round_cap: number;
+  tickrate: number;
+  friendly_fire: boolean;
+}
+
+interface MapDefinition {
+  id: string;
+  sites: string[];
+  lanes: string[];
+  callouts: string[];
+}
+
+interface ClassDefinition {
+  id: 'anchor' | 'entry' | 'controller' | 'scout';
+  role: string;
+  utility_bias: string;
+}
+
+interface WeaponProfile {
+  id: string;
+  class: 'rifle' | 'smg' | 'shotgun' | 'marksman' | 'sidearm';
+  price: number;
+  recoil_pattern: string;
+  movement_accuracy_penalty: number;
+}
+
+interface RoundState {
+  round_number: number;
+  phase: 'buy' | 'live' | 'post';
+  timer_ms: number;
+  planted: boolean;
+}
+
+interface ClipEvent {
+  clip_id: string;
+  player_id: string;
+  match_id: string;
+  round: number;
+  trigger: 'manual' | 'ace' | 'clutch' | 'multikill' | 'last_second_objective';
+  start_ms: number;
+  end_ms: number;
+}
+
+interface ClipAsset {
+  clip_id: string;
+  format: 'webm' | 'mp4';
+  storage_path: string;
+  signed_url?: string;
+  public_url?: string;
+}
+
+interface ShareLinkPayload {
+  clip_id: string;
+  title: string;
+  description: string;
+  url: string;
+  thumbnail_url?: string;
+}</code></pre>
+<h2 id="acceptance-scenarios">Acceptance Scenarios</h2>
+<ol><li>All three maps load with valid sites/callouts.</li><li>Four classes and twelve guns are selectable with complete stat configs.</li><li>Economy equations produce expected buy-round outcomes.</li><li>Clip pipeline creates asset + URL + metadata payload.</li><li>Replay timeline can jump directly to clip-trigger moments.</li><li>Netcode remains stable under 80ms and 150ms test profiles.</li></ol>
+<h2 id="production-checklist">Production Checklist</h2>
+<ul><li>[ ] map geometry and callout finalization</li><li>[ ] class kit implementation and balancing pass</li><li>[ ] full gun stat table integration</li><li>[ ] clip service (capture/render/upload/share)</li><li>[ ] end-to-end screen flow prototypes</li><li>[ ] netcode reconciliation and reconnect validation</li><li>[ ] replay and spectator QA pass</li></ul>
+</main>
+</div>
+</body>
+</html>

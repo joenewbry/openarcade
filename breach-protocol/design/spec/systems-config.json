@@ -1,0 +1,24 @@
+{
+  "game": "breach-protocol",
+  "version": 1,
+  "match": {
+    "team_size": 5,
+    "round_cap": 13,
+    "ranked_tickrate": 64,
+    "casual_tickrate": 32,
+    "reconnect_grace_sec": 45
+  },
+  "economy": {
+    "round_win": 3200,
+    "round_loss_base": 1900,
+    "loss_streak_step": 500,
+    "loss_streak_cap": 3400,
+    "plant_bonus": 300,
+    "defuse_bonus": 300
+  },
+  "clip_pipeline": {
+    "buffer_seconds": 45,
+    "formats": ["webm", "mp4"],
+    "auto_triggers": ["ace", "clutch", "multikill", "last_second_objective"]
+  }
+}

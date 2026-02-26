@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FoundryMatchState",
+  "type": "object",
+  "required": ["phase", "tick", "resources", "stage"],
+  "properties": {
+    "phase": { "type": "string", "enum": ["init", "onboarding", "live", "checkpoint", "certification", "complete", "failed"] },
+    "tick": { "type": "integer" },
+    "stage": { "type": "integer", "minimum": 0, "maximum": 4 },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "oxygen": { "type": "number" },
+        "power": { "type": "number" },
+        "thermal_margin": { "type": "number" }
+      },
+      "required": ["oxygen", "power", "thermal_margin"]
+    }
+  }
+}

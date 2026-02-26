@@ -1,0 +1,26 @@
+{
+  "game": "foundry-frontier",
+  "version": 1,
+  "match_modes": {
+    "solo": { "max_players": 1 },
+    "coop": { "max_players": 4 },
+    "versus": { "max_players": 4 }
+  },
+  "queue": "global",
+  "timing": {
+    "tick_ms": 50,
+    "checksum_interval_sec": 5,
+    "reconnect_grace_sec": 60
+  },
+  "stages": {
+    "1": { "feedstock": 120, "oxygen": 60, "uptime_min": 0.9, "window_sec": 180 },
+    "2": { "aluminum_feed": 90, "ceramic": 40, "hydrogen": 40, "thermal_margin_min": 15 },
+    "3": { "rail_segments": 24, "capacitor_cores": 18, "guidance_modules": 10, "power_reserve_min": 0.25 },
+    "4": { "cert_window_sec": 300, "critical_faults_max": 0 }
+  },
+  "failure_thresholds": {
+    "oxygen_zero_sec": 30,
+    "thermal_runaway_sec": 20,
+    "debt_state_sec": 180
+  }
+}

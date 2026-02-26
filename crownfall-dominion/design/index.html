@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crownfall Dominion Unified Design Book</title>
+<style>
+:root{--bg:#0f1117;--panel:#171b26;--line:#2d3f5e;--text:#e6effa;--muted:#a7bfdc;--accent:#8fd0ff;--code:#111827}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#1b2740,var(--bg) 56%);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+.shell{max-width:1320px;margin:0 auto;padding:20px;display:grid;grid-template-columns:290px 1fr;gap:14px}
+@media(max-width:980px){.shell{grid-template-columns:1fr}.toc{position:static}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.toc{padding:14px;position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto}
+.toc h3{margin:0 0 8px;font-size:14px;color:var(--accent)}
+.toc a{display:block;color:var(--muted);text-decoration:none;padding:5px 6px;border-radius:6px;font-size:13px}
+.toc a:hover{background:#223453;color:#eff8ff}
+.toc .toc-l1{font-weight:700;color:#eaf4ff;margin-top:6px}
+.toc .toc-l2{padding-left:14px}
+.toc .toc-l3{padding-left:28px;font-size:12px}
+.main{padding:20px 24px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.toolbar a{display:inline-block;background:#1b2b46;border:1px solid #36598a;color:#e8f4ff;text-decoration:none;border-radius:8px;padding:8px 12px;font-size:13px}
+.header{margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.header h1{margin:0;font-size:30px}.header p{margin:6px 0 0;color:var(--muted)}
+.header .meta{margin-top:10px;font-size:12px;color:var(--muted)}
+h1,h2,h3,h4,h5,h6{color:#eaf4ff;scroll-margin-top:18px}
+h2{border-bottom:1px solid #2b4469;padding-bottom:6px;margin-top:30px}
+p,li{color:#d4e6f9;line-height:1.65}a{color:#9ed5ff}
+code{background:#273a5c;color:#eaf4ff;padding:1px 5px;border-radius:5px;font-size:.92em}
+pre{background:var(--code);border:1px solid #2c4368;border-radius:10px;padding:12px;overflow:auto}
+pre code{background:none;padding:0}
+img{max-width:100%;height:auto;border-radius:10px;border:1px solid #2e5788;background:#132540}
+figure{margin:16px 0}figcaption{font-size:12px;color:var(--muted);margin-top:6px}
+table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border:1px solid #2f4e79;padding:8px;text-align:left}th{background:#1f3452}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="panel toc"><h3>Contents</h3><a class="toc-l1" href="#crownfall-dominion-unified-design-book">Crownfall Dominion Unified Design Book</a><a class="toc-l2" href="#quick-navigation">Quick Navigation</a><a class="toc-l2" href="#vision">Vision</a><a class="toc-l2" href="#build-surfaces">Build Surfaces</a><a class="toc-l2" href="#rules-and-turn-structure">Rules and Turn Structure</a><a class="toc-l2" href="#time-lock-and-match-pacing">Time Lock and Match Pacing</a><a class="toc-l2" href="#tutorial-onboarding-skippable">Tutorial Onboarding (Skippable)</a><a class="toc-l2" href="#map-factions-and-diplomacy">Map, Factions, and Diplomacy</a><a class="toc-l2" href="#world-events-engine">World Events Engine</a><a class="toc-l2" href="#multiplayer-determinism-and-anti-collusion">Multiplayer, Determinism, and Anti-Collusion</a><a class="toc-l2" href="#ui-and-screen-contracts">UI and Screen Contracts</a><a class="toc-l2" href="#telemetry-and-enforcement">Telemetry and Enforcement</a><a class="toc-l2" href="#concept-art-pack">Concept Art Pack</a><a class="toc-l2" href="#data-interfaces">Data Interfaces</a><a class="toc-l2" href="#math-and-technique-references">Math and Technique References</a><a class="toc-l2" href="#acceptance-scenarios">Acceptance Scenarios</a><a class="toc-l2" href="#production-checklist">Production Checklist</a></aside>
+<main class="panel main">
+<div class="toolbar">
+  <a href="/">Back to Arcade</a>
+  <a href="/crownfall-dominion/">Play Game</a>
+  <a href="./assets/art-manifest.json">Art Manifest</a>
+</div>
+<div class="header"><h1>Crownfall Dominion Unified Design Book</h1><p>Territory conquest strategy with strict time locks, deterministic events, and anti-collusion integrity.</p><div class="meta">Source: <a href="crownfall-dominion-design.md">crownfall-dominion-design.md</a></div></div>
+<h1 id="crownfall-dominion-unified-design-book">Crownfall Dominion Unified Design Book</h1>
+<h2 id="quick-navigation">Quick Navigation</h2>
+<ul><li><a href="#vision">Vision</a></li><li><a href="#build-surfaces">Build Surfaces</a></li><li><a href="#rules-and-turn-structure">Rules and Turn Structure</a></li><li><a href="#time-lock-and-match-pacing">Time Lock and Match Pacing</a></li><li><a href="#tutorial-onboarding-skippable">Tutorial Onboarding (Skippable)</a></li><li><a href="#map-factions-and-diplomacy">Map, Factions, and Diplomacy</a></li><li><a href="#world-events-engine">World Events Engine</a></li><li><a href="#multiplayer-determinism-and-anti-collusion">Multiplayer, Determinism, and Anti-Collusion</a></li><li><a href="#ui-and-screen-contracts">UI and Screen Contracts</a></li><li><a href="#telemetry-and-enforcement">Telemetry and Enforcement</a></li><li><a href="#concept-art-pack">Concept Art Pack</a></li><li><a href="#data-interfaces">Data Interfaces</a></li><li><a href="#math-and-technique-references">Math and Technique References</a></li><li><a href="#acceptance-scenarios">Acceptance Scenarios</a></li><li><a href="#production-checklist">Production Checklist</a></li></ul>
+<h2 id="vision">Vision</h2>
+<p><code>Crownfall Dominion</code> is a turn-based conquest strategy game focused on fast, time-locked turns, meaningful diplomacy, and deterministic ranked integrity.</p>
+<p>Session targets:</p>
+<ul><li>blitz: 18-25 minutes,</li><li>standard live: 30-45 minutes,</li><li>async: long-form social play.</li></ul>
+<h2 id="build-surfaces">Build Surfaces</h2>
+<p>Client modules:</p>
+<ul><li>territory map renderer,</li><li>order planner,</li><li>diplomacy panel,</li><li>turn timer UX,</li><li>replay viewer,</li><li>tutorial flow.</li></ul>
+<p>Server modules:</p>
+<ul><li>authoritative turn resolver,</li><li>deterministic event scheduler,</li><li>ranked/MMR service,</li><li>anti-collusion scorer and review queue.</li></ul>
+<h2 id="rules-and-turn-structure">Rules and Turn Structure</h2>
+<p>Turn sequence:</p>
+<ol><li>reinforcement,</li><li>diplomacy,</li><li>order assignment,</li><li>simultaneous resolution,</li><li>world event application.</li></ol>
+<p>Combat:</p>
+<ul><li>attack dice up to 3,</li><li>defense dice up to 2,</li><li>tie favors defense,</li><li>supply penalties for disconnected fronts.</li></ul>
+<p>Victory:</p>
+<ul><li>control <code>65%</code> of territories, or</li><li>hold all enemy capitals for 2 turns.</li></ul>
+<h2 id="time-lock-and-match-pacing">Time Lock and Match Pacing</h2>
+<table><thead><tr><th>Mode</th><th>Turn Timer</th><th>Timeout Action</th></tr></thead><tbody><tr><td>Blitz</td><td>20s</td><td>auto-submit queued orders</td></tr><tr><td>Standard Live</td><td>45s</td><td>auto-submit queued orders</td></tr><tr><td>Ranked Live</td><td>60s</td><td>auto-submit queued orders</td></tr><tr><td>Async 12h</td><td>12h</td><td>auto-pass if expired</td></tr><tr><td>Async 24h</td><td>24h</td><td>auto-pass if expired</td></tr></tbody></table>
+<p>Hard rules:</p>
+<ul><li>ranked live has no timer extensions,</li><li>unresolved pacts expire at lock,</li><li>warning states at T-10 and T-5.</li></ul>
+<h2 id="tutorial-onboarding-skippable">Tutorial Onboarding (Skippable)</h2>
+<p>Four-turn guided tutorial vs AI:</p>
+<ol><li>reinforce two borders,</li><li>send one diplomacy offer,</li><li>queue attack + fortify,</li><li>resolve one world event.</li></ol>
+<p>Skip rules:</p>
+<ul><li>skip at entry,</li><li>skip after each turn milestone,</li><li>replay from settings.</li></ul>
+<p>Completion flag unlocks default live queue access.</p>
+<h2 id="map-factions-and-diplomacy">Map, Factions, and Diplomacy</h2>
+<p>World map:</p>
+<ul><li>28 territories,</li><li>6 regions with asymmetric bonuses,</li><li>capitals provide morale and reinforcement multiplier.</li></ul>
+<p>Faction archetypes:</p>
+<ul><li>Iron Court (defensive),</li><li>Sun Pact (diplomatic),</li><li>Ash Legion (aggressive),</li><li>Tide Union (mobility).</li></ul>
+<p>Diplomacy:</p>
+<ul><li>pact types: truce/alliance/warning,</li><li>public and private variants,</li><li>betrayal cooldown and trust penalties.</li></ul>
+<h2 id="world-events-engine">World Events Engine</h2>
+<p>Determinism rule:</p>
+<ul><li>event selection = function(seed, turn, current_state_hash).</li></ul>
+<p>Event categories:</p>
+<ul><li>border revolt,</li><li>famine tax,</li><li>mercenary uprising,</li><li>supply collapse,</li><li>twin catastrophe.</li></ul>
+<p>Each event defines:</p>
+<ul><li>trigger window,</li><li>affected regions,</li><li>numeric modifiers,</li><li>duration,</li><li>UI warning strings.</li></ul>
+<h2 id="multiplayer-determinism-and-anti-collusion">Multiplayer, Determinism, and Anti-Collusion</h2>
+<p>Modes:</p>
+<ul><li>solo vs AI,</li><li>live PvP (2-6),</li><li>async PvP.</li></ul>
+<p>Deterministic replay:</p>
+<ul><li>canonical order log + outcome hash each turn,</li><li>server-only randomness with seed derivation.</li></ul>
+<p>Anti-collusion pipeline:</p>
+<ul><li>feature extraction per player pair:</li></ul>
+<p>  - target overlap,   - non-aggression outlier,   - treaty benefit imbalance,   - surrender timing anomalies.</p>
+<ul><li>scoring:</li></ul>
+<p>  - z-score normalized features,   - weighted risk composite,   - risk band low/medium/high.</p>
+<ul><li>enforcement:</li></ul>
+<p>  - low: monitor,   - medium: review queue,   - high: invalidate ranked result + queue restriction path.</p>
+<h2 id="ui-and-screen-contracts">UI and Screen Contracts</h2>
+<p>Required screens:</p>
+<ul><li>main menu,</li><li>mode select,</li><li>tutorial setup,</li><li>live turn board,</li><li>diplomacy modal,</li><li>event recap,</li><li>match recap,</li><li>replay viewer,</li><li>async notification inbox,</li><li>ranked integrity notice state.</li></ul>
+<p>Critical HUD elements:</p>
+<ul><li>turn timer,</li><li>reinforcement pool,</li><li>active pacts and expiry,</li><li>event indicator,</li><li>trust/reputation delta.</li></ul>
+<h2 id="telemetry-and-enforcement">Telemetry and Enforcement</h2>
+<p>Core telemetry events:</p>
+<ul><li>order queued/removed,</li><li>pact sent/accepted/rejected/broken,</li><li>timeout auto-submit/pass,</li><li>event applied,</li><li>match result,</li><li>anti-collusion features and risk score,</li><li>enforcement action emission.</li></ul>
+<p>Ranked enforcement audit log retains:</p>
+<ul><li>source match ids,</li><li>pair ids,</li><li>feature vector snapshot,</li><li>decision trace.</li></ul>
+<h2 id="concept-art-pack">Concept Art Pack</h2>
+<figure><img loading="lazy" decoding="async" src="./assets/world-faction-moodboard.png" alt="World and Faction Moodboard"><figcaption>World and Faction Moodboard</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/territory-ui-board.png" alt="Territory and UI Readability Board"><figcaption>Territory and UI Readability Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/diplomacy-event-board.png" alt="Diplomacy and Event Board"><figcaption>Diplomacy and Event Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/battle-resolution-board.png" alt="Battle and Resolution Board"><figcaption>Battle and Resolution Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/tutorial-flow-board.png" alt="Tutorial Flow Board"><figcaption>Tutorial Flow Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/turn-timer-board.png" alt="Turn Timer Board"><figcaption>Turn Timer Board</figcaption></figure>
+<figure><img loading="lazy" decoding="async" src="./assets/anti-collusion-board.png" alt="Anti-Collusion Signals Board"><figcaption>Anti-Collusion Signals Board</figcaption></figure>
+<h2 id="data-interfaces">Data Interfaces</h2>
+<pre><code class="lang-ts">interface MatchConfig {
+  mode: 'solo' | 'live' | 'async';
+  map_id: string;
+  max_players: number;
+  world_events: boolean;
+  timer_profile: 'blitz' | 'standard_live' | 'ranked_live' | 'async_12h' | 'async_24h';
+}
+
+interface TurnTimerConfig {
+  turn_timer_sec: number;
+  timeout_policy: 'auto_submit' | 'auto_pass';
+}
+
+interface TutorialState {
+  enabled: boolean;
+  step: 0 | 1 | 2 | 3 | 4;
+  skippable: boolean;
+  completed: boolean;
+}
+
+interface DiplomacyState {
+  from_player: string;
+  to_player: string;
+  pact_type: 'truce' | 'alliance' | 'warning';
+  expires_turn: number;
+  public: boolean;
+}
+
+interface OrderResolution {
+  turn: number;
+  orders: Array&lt;{ player_id: string; kind: 'attack' | 'fortify' | 'reserve'; source: string; target?: string }&gt;;
+  outcome_hash: string;
+}
+
+interface CollusionSignal {
+  pair_id: string;
+  jaccard_target_overlap: number;
+  non_aggression_outlier_z: number;
+  treaty_imbalance_z: number;
+  surrender_timing_z: number;
+}
+
+interface CollusionRiskScore {
+  pair_id: string;
+  risk: number;
+  band: 'low' | 'medium' | 'high';
+}
+
+interface EnforcementAction {
+  match_id: string;
+  action: 'none' | 'review_queue' | 'invalidate_ranked_result' | 'queue_restrict';
+}</code></pre>
+<h2 id="math-and-technique-references">Math and Technique References</h2>
+<ul><li>Elo rating system: https://en.wikipedia.org/wiki/Elo_rating_system</li><li>Glicko rating system: https://en.wikipedia.org/wiki/Glicko_rating_system</li><li>Jaccard index: https://en.wikipedia.org/wiki/Jaccard_index</li><li>Standard score (z-score): https://en.wikipedia.org/wiki/Standard_score</li></ul>
+<h2 id="acceptance-scenarios">Acceptance Scenarios</h2>
+<ol><li>Timer expiry performs correct auto-submit/auto-pass by mode.</li><li>Tutorial is skippable and replayable without progression corruption.</li><li>Replay determinism reproduces outcomes from log + seed.</li><li>Anti-collusion detector emits risk bands for synthetic test patterns.</li><li>Ranked invalidation prevents MMR update on high-risk matches.</li><li>Async deadlines generate reminders and expiration behavior correctly.</li></ol>
+<h2 id="production-checklist">Production Checklist</h2>
+<ul><li>[ ] map/faction asset pipeline</li><li>[ ] timer UX and lock state implementation</li><li>[ ] tutorial scripting and AI coach behavior</li><li>[ ] deterministic turn resolver and replay hash validation</li><li>[ ] anti-collusion scoring service and review queue UI</li><li>[ ] ranked enforcement logging and audit tools</li></ul>
+</main>
+</div>
+</body>
+</html>

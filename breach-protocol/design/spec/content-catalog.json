@@ -1,0 +1,32 @@
+{
+  "maps": ["helios-yard", "cathedral-arc", "severance-port"],
+  "classes": ["anchor", "entry", "controller", "scout"],
+  "weapons": [
+    "ar-9-viper",
+    "ar-12-longstep",
+    "br-7-cutline",
+    "vx-4-helix",
+    "smg-5-stitch",
+    "smg-9-rift",
+    "smg-11-flicker",
+    "sg-2-breach",
+    "sg-8-ember",
+    "dmr-14-halcyon",
+    "dmr-3-pike",
+    "p-1-kestrel"
+  ],
+  "screens": [
+    "main_menu",
+    "queue",
+    "lobby",
+    "loadout",
+    "buy",
+    "hud",
+    "scoreboard",
+    "summary",
+    "replay",
+    "clip_editor",
+    "share_panel",
+    "settings"
+  ]
+}

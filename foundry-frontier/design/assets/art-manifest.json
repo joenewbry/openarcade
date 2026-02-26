@@ -1,0 +1,64 @@
+{
+  "game": "foundry-frontier",
+  "doc": "foundry-frontier-design.md",
+  "model": "grok-imagine-image",
+  "generated_at": "2026-02-26T04:57:54.219Z",
+  "assets": [
+    {
+      "id": "factory-moodboard",
+      "file": "factory-moodboard.png",
+      "fallback": "factory-moodboard.svg",
+      "prompt_hash": "82166a762648f03c",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "production-system-board",
+      "file": "production-system-board.png",
+      "fallback": "production-system-board.svg",
+      "prompt_hash": "f58400c3aee1a8af",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "crisis-event-board",
+      "file": "crisis-event-board.png",
+      "fallback": "crisis-event-board.svg",
+      "prompt_hash": "5b8ef1e10b6806e3",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "hud-ux-board",
+      "file": "hud-ux-board.png",
+      "fallback": "hud-ux-board.svg",
+      "prompt_hash": "644800128837e278",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "mass-driver-assembly-board",
+      "file": "mass-driver-assembly-board.png",
+      "fallback": null,
+      "prompt_hash": "4c34fb8109e9776b",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "lunar-resource-chain-board",
+      "file": "lunar-resource-chain-board.png",
+      "fallback": null,
+      "prompt_hash": "5fcbe11e6f5c5362",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    },
+    {
+      "id": "onboarding-flow-board",
+      "file": "onboarding-flow-board.png",
+      "fallback": null,
+      "prompt_hash": "605cf6635c1bc25d",
+      "model": "grok-imagine-image",
+      "status": "generated"
+    }
+  ]
+}

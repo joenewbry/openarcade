@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FoundryTelemetryEvent",
+  "type": "object",
+  "required": ["event", "timestamp_ms", "session_id"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "enum": [
+        "machine_placed",
+        "machine_removed",
+        "recipe_started",
+        "recipe_completed",
+        "unlock_granted",
+        "crisis_started",
+        "crisis_ended",
+        "stage_checkpoint",
+        "certification_result",
+        "reconnect",
+        "desync"
+      ]
+    },
+    "timestamp_ms": { "type": "integer" },
+    "session_id": { "type": "string" },
+    "payload": { "type": "object" }
+  }
+}

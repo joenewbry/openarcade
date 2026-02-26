@@ -1,0 +1,33 @@
+{
+  "machines": [
+    "extractor_t1",
+    "separator_ilmenite_t1",
+    "electrolysis_t1",
+    "smelter_al_t2",
+    "assembler_precision_t2",
+    "foundry_rail_t3",
+    "forge_capacitor_t3"
+  ],
+  "recipes": [
+    "r_regolith_to_feed",
+    "r_ilmenite_to_al",
+    "r_ice_to_o2_h2",
+    "r_composite_shell",
+    "r_supercoil",
+    "r_rail_segment",
+    "r_capacitor_core"
+  ],
+  "crises": [
+    "micrometeor_shower",
+    "lunar_night_brownout",
+    "thermal_spike",
+    "dust_contamination"
+  ],
+  "unlocks": [
+    "splitter_merger",
+    "drone_relay",
+    "rail_foundry",
+    "capacitor_forge",
+    "launch_control_node"
+  ]
+}
