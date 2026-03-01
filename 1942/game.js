@@ -192,6 +192,8 @@ function makeInitialState(planeId) {
     deathFreezeTimer: 0,
     screenShakeTimer: 0,
     pendingAutoBomb: false,
+    signatureWhale: null,
+    signatureWingman: null,
   };
 }
 
@@ -347,13 +349,46 @@ function enemyPatternVelocity(enemy, player) {
       const dy = yTarget - e.y;
       return { vx: clampV, vy: clamp(dy * 0.03, -2.4, 2.4) };
     }
+    case 'ambush_left': return { vx: speed * 1.1, vy: Math.sin(t) * 0.8 };
+    case 'ambush_right': return { vx: -speed * 1.1, vy: Math.sin(t) * 0.8 };
+    case 'ambush_bottom': return { vx: Math.sin(t) * 0.8, vy: -speed };
     default: return { vx: 0, vy: speed };
   }
 }
 
 function spawnWave(state) {
   const campaign = getCampaign(state.campaignIndex);
+
+  // Remove wingman from previous wave
+  if (state.signatureWingman) {
+    state.signatureWingman = null;
+  }
+
   state.wave += 1;
+
+  // Check for signature moments
+  const sigMoment = campaign.signatureMoments && campaign.signatureMoments[state.wave];
+  if (sigMoment === 'whale_crossing') {
+    state.signatureWhale = {
+      x: -320,
+      y: H * 0.4,
+      w: 320,
+      h: 80,
+      vx: 7.2,
+    };
+    queueDialogue(state, ['A massive whale surfaces below...', 'Use it as cover!']);
+  } else if (sigMoment === 'wingman') {
+    state.signatureWingman = {
+      x: state.player.x + 80,
+      y: state.player.y,
+      w: state.player.w,
+      h: state.player.h,
+      fireCooldown: 0,
+      fireRate: 14,
+      waveSpawned: state.wave,
+    };
+    queueDialogue(state, ['Allied wingman on your six!', 'Covering fire incoming.']);
+  }
 
   const waveKey = `${campaign.id}:${state.wave}`;
   if (campaign.minibossWaves.includes(state.wave)) {
@@ -388,6 +423,38 @@ function spawnWave(state) {
       boss.maxHp = boss.hp;
     }
     state.enemies.push(boss);
+    return;
+  }
+
+  // Signature moment: ambush from all edges (replaces normal spawn)
+  if (sigMoment === 'ambush_all_edges') {
+    const roster = campaign.roster;
+    const perEdge = 4;
+    // Top edge
+    for (let i = 0; i < perEdge; i++) {
+      const id = roster[i % roster.length];
+      const x = 120 + i * 190;
+      state.enemies.push(createEnemy(id, x, -60, 'line', state.campaignIndex + 1, 'normal'));
+    }
+    // Bottom edge
+    for (let i = 0; i < perEdge; i++) {
+      const id = roster[i % roster.length];
+      const x = 120 + i * 190;
+      state.enemies.push(createEnemy(id, x, H + 60, 'ambush_bottom', state.campaignIndex + 1, 'normal'));
+    }
+    // Left edge
+    for (let i = 0; i < perEdge; i++) {
+      const id = roster[i % roster.length];
+      const y = 200 + i * 200;
+      state.enemies.push(createEnemy(id, -60, y, 'ambush_left', state.campaignIndex + 1, 'normal'));
+    }
+    // Right edge
+    for (let i = 0; i < perEdge; i++) {
+      const id = roster[i % roster.length];
+      const y = 200 + i * 200;
+      state.enemies.push(createEnemy(id, W + 60, y, 'ambush_right', state.campaignIndex + 1, 'normal'));
+    }
+    queueDialogue(state, ['CONTACTS ALL AROUND!', 'They\'re coming from every direction!']);
     return;
   }
 
@@ -846,6 +913,8 @@ function moveToNextCampaign(state, game) {
   state.bulletTrails.length = 0;
   state.powerups.length = 0;
   state.ambience.length = 0;
+  state.signatureWhale = null;
+  state.signatureWingman = null;
 
   if (state.campaignIndex >= CAMPAIGNS.length) {
     game.setState('over');
@@ -901,6 +970,58 @@ function updateGame(state, game, input) {
 
   if (state.tick % 40 === 0) {
     spawnAmbient(state, getCampaign(state.campaignIndex).theme);
+  }
+
+  // Signature moment: whale crossing
+  if (state.signatureWhale) {
+    const whale = state.signatureWhale;
+    whale.x += whale.vx;
+    // Water spray particles
+    if (state.tick % 8 === 0) {
+      for (let i = 0; i < 3; i++) {
+        state.particles.push({
+          x: whale.x + whale.w - 10 + rand(-10, 10),
+          y: whale.y + rand(-15, 5),
+          vx: rand(-0.5, 0.5),
+          vy: rand(-2, -0.5),
+          life: 15, maxLife: 15,
+          color: '#a8e0ff', r: rand(3, 6),
+        });
+      }
+    }
+    // Remove when fully off-screen right
+    if (whale.x > W + 20) {
+      state.signatureWhale = null;
+    }
+  }
+
+  // Signature moment: wingman
+  if (state.signatureWingman) {
+    const wm = state.signatureWingman;
+    // Follow player's Y, offset 80px to the right
+    const targetX = player.x + 80;
+    const targetY = player.y;
+    wm.x += (targetX - wm.x) * 0.12;
+    wm.y += (targetY - wm.y) * 0.12;
+    wm.x = clamp(wm.x, 24, W - wm.w - 24);
+    wm.y = clamp(wm.y, 88, H - wm.h - 40);
+    // Auto-fire at enemies (slower rate than player)
+    if (wm.fireCooldown > 0) wm.fireCooldown--;
+    if (wm.fireCooldown <= 0 && state.enemies.length > 0 && !state.dialogue) {
+      const bx = wm.x + wm.w / 2;
+      const by = wm.y;
+      state.bullets.push({
+        x: bx - BULLET_SIZE / 2,
+        y: by,
+        w: BULLET_SIZE,
+        h: 20,
+        vx: 0,
+        vy: -15,
+        pierce: 0,
+        color: '#ffdd66',
+      });
+      wm.fireCooldown = wm.fireRate;
+    }
   }
 
   popDialogueIfNeeded(state);
@@ -1021,7 +1142,25 @@ function updateGame(state, game, input) {
     eb.x += eb.vx;
     eb.y += eb.vy;
   }
-  state.enemyBullets = state.enemyBullets.filter((b) => b.y < H + 60 && b.x > -40 && b.x < W + 40);
+  state.enemyBullets = state.enemyBullets.filter((b) => b.y < H + 60 && b.y > -60 && b.x > -40 && b.x < W + 40);
+
+  // Signature whale blocks enemy bullets
+  if (state.signatureWhale) {
+    const whale = state.signatureWhale;
+    const whaleRect = { x: whale.x, y: whale.y, w: whale.w, h: whale.h };
+    for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
+      if (rectHit(state.enemyBullets[i], whaleRect)) {
+        const b = state.enemyBullets[i];
+        state.particles.push({
+          x: b.x, y: b.y,
+          vx: rand(-2, 2), vy: rand(-2, 0),
+          life: 8, maxLife: 8,
+          color: '#8ec5ff', r: 3,
+        });
+        state.enemyBullets.splice(i, 1);
+      }
+    }
+  }
 
   for (const p of state.powerups) {
     p.y += p.vy;
@@ -1125,7 +1264,7 @@ function updateGame(state, game, input) {
       }
       continue;
     }
-    if (e.y > H + 60) state.enemies.splice(i, 1);
+    if (e.y > H + 100 || e.y < -300 || e.x < -300 || e.x > W + 300) state.enemies.splice(i, 1);
   }
 
   for (let i = state.powerups.length - 1; i >= 0; i--) {
@@ -1354,6 +1493,28 @@ export function createGame() {
 
     drawAmbient(renderer, state.ambience, campaign);
 
+    // Draw signature whale
+    if (state.signatureWhale) {
+      const whale = state.signatureWhale;
+      // Main body
+      renderer.fillRect(whale.x, whale.y, whale.w, whale.h, '#3a7ca5');
+      // Darker dorsal
+      renderer.fillRect(whale.x + 20, whale.y, whale.w - 40, whale.h * 0.35, '#2d6080');
+      // Lighter belly
+      renderer.fillRect(whale.x + 20, whale.y + whale.h * 0.65, whale.w - 40, whale.h * 0.25, '#6db8d8');
+      // Head (front bulge)
+      renderer.fillRect(whale.x + whale.w - 30, whale.y + 8, 30, whale.h - 16, '#3580a8');
+      // Tail flukes
+      renderer.fillRect(whale.x - 24, whale.y + 10, 32, 18, '#2d6080');
+      renderer.fillRect(whale.x - 24, whale.y + whale.h - 28, 32, 18, '#2d6080');
+      renderer.fillRect(whale.x - 40, whale.y + 4, 20, 12, '#265a78');
+      renderer.fillRect(whale.x - 40, whale.y + whale.h - 16, 20, 12, '#265a78');
+      // Eye
+      renderer.fillRect(whale.x + whale.w - 50, whale.y + 18, 8, 8, '#e0f0ff');
+      // Subtle fin
+      renderer.fillRect(whale.x + whale.w * 0.4, whale.y - 14, 24, 16, '#2d6080');
+    }
+
     for (const p of state.powerups) {
       drawPixelSprite(renderer, buildPowerupSprite(p.id), p.x, p.y, 6, '#ffd166');
     }
@@ -1420,6 +1581,14 @@ export function createGame() {
     const playerAlpha = (state.player.invuln > 0 || state.player.bombInvuln > 0) && state.tick % 6 < 3 ? 0.55 : 1;
     const bankOffset = clamp(state.player.vx * 0.4, -2, 2);
     drawPixelSprite(renderer, playerSprite, state.player.x + bankOffset, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
+
+    // Draw signature wingman
+    if (state.signatureWingman) {
+      const wm = state.signatureWingman;
+      drawPixelSprite(renderer, `plane_${state.player.plane.id}`, wm.x, wm.y, PLAYER_SCALE, '#66ff88', 0.85);
+      // Engine glow
+      renderer.fillRect(wm.x + wm.w / 2 - 4, wm.y + wm.h, 8, 12, '#ffaa44');
+    }
 
     if (state.player.shieldTimer > 0) {
       renderer.fillCircle(state.player.x + state.player.w / 2, state.player.y + state.player.h / 2, 48, 'rgba(132,188,255,0.2)');
