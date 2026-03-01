@@ -1,35 +1,5 @@
 export const PLANES = [
   {
-    id: 'falcon',
-    name: 'P-38 Falcon',
-    color: '#8de8ff',
-    speed: 4.2,
-    fireRate: 9,
-    rollCooldown: 80,
-    special: {
-      id: 'burst',
-      name: 'Wing Burst',
-      cooldown: 360,
-      duration: 36,
-      description: 'Fires a wide 5-shot spread for a short window.',
-    },
-  },
-  {
-    id: 'lancer',
-    name: 'F4U Lancer',
-    color: '#7ad5ff',
-    speed: 3.9,
-    fireRate: 8,
-    rollCooldown: 72,
-    special: {
-      id: 'rail',
-      name: 'Rail Strafe',
-      cooldown: 420,
-      duration: 1,
-      description: 'Launches piercing rails that cut through enemies.',
-    },
-  },
-  {
     id: 'specter',
     name: 'XP-59 Specter',
     color: '#9fb8ff',

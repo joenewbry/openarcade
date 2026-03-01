@@ -1,0 +1,317 @@
+# Design Feedback Log
+
+## Miyamoto (Shigeru Miyamoto lens) - 2026-03-01
+
+### Feedback 1: Implement Wordless Tutorial (W1-4)
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-001
+- **Description:** Players are dropped into a full wave with a text overlay listing every control. The design doc specifies a wordless tutorial: W1=move, W2=dodge, W3=powerups, W4=roll. None of this is implemented.
+- **Implementation approach:** Hand-script waves 1-4 in Campaign 1 with reduced enemy counts and no/slow shooting. Gate mechanics: W1 = 3-4 non-firing scouts, W2 = slow aimed shots, W3 = guaranteed powerup drop, W4 = roll-forcing bullet wall. Remove control listing overlay.
+- **PR:**
+
+### Feedback 2: Reduce to 2 Planes for v1
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-002
+- **Description:** Design doc says v1 ships Specter + Atlas only. Code has 4 planes. Players choose between meaningless options before firing a single bullet.
+- **Implementation approach:** Remove Falcon and Lancer from PLANES array. Default to Specter. Simplify plane select to 2 options.
+- **PR:**
+
+### Feedback 3: Add Movement Velocity Smoothing
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-003
+- **Description:** Player movement is instant digital input with no weight. Movement feels like sliding a chess piece rather than piloting a plane.
+- **Implementation approach:** Track player.vx/vy, lerp toward target: `player.vx += (mx * speed - player.vx) * 0.28`. Add visual tilt via 1px offset when banking. ~4 frames acceleration, ~6 frames deceleration.
+- **PR:**
+
+### Feedback 4: Fix Score Values to Match Design Doc
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-004
+- **Description:** Score values are deflated (scout=14pts vs design doc's 100pts). Numbers are psychologically dead and don't communicate progress.
+- **Implementation approach:** Set small enemies=100, medium=250, mini boss=5000, final boss=25000 per design doc.
+- **PR:**
+
+### Feedback 5: Add Wave Clear Transitions
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-005
+- **Description:** No breathing room between waves. 50-frame delay with no visual feedback. No WAVE CLEAR text, no score tally, no boss WARNING sequence.
+- **Implementation approach:** Show "WAVE CLEAR" text for 90 frames with score bonus. Increase waveDelay to 120. Add 180-frame WARNING phase before bosses with darkened screen and flashing text.
+- **PR:**
+
+### Feedback 6: Make Bombs Feel Powerful
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-006
+- **Description:** Bombs deal flat 8/18 damage with no drama. Should be screen-filling events with I-frames, instant kills on normals, and bullet-cancel scoring.
+- **Implementation approach:** Add 60 frames invulnerability on bomb. Kill all normal enemies outright. Bosses take 15% maxHP. Full-screen white flash 8 frames. Award 10 points per bullet cancelled.
+- **PR:**
+
+### Feedback 7: Remove NOT- Prefix from Campaign Names/IDs
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-007
+- **Description:** All campaign IDs have `not_` prefix and names show "NOT-". Placeholder text that signals "unfinished" to players.
+- **Implementation approach:** Find-and-replace in campaigns.js and dialogue.js. Remove all `not_`/`NOT-` prefixes.
+- **PR:**
+
+### Feedback 8: Differentiate Enemy and Player Bullet Visuals
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-008
+- **Description:** Player bullets (4×10 cyan rectangles) and enemy bullets (4×8 red rectangles) are too similar in shape. At high density, color distinction alone isn't enough.
+- **Implementation approach:** Draw enemy bullets as 6×6 diamonds or circles. Add 1px bright white core. Keep player bullets rectangular for shape contrast.
+- **PR:**
+
+### Feedback 9: Add Death Consequences
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** ARCADE-009
+- **Description:** Death has no mechanical consequence beyond lives counter. No powerup loss, no pause, no teaching moment. Design doc says drop 1 shot tier, lose buffs.
+- **Implementation approach:** On death: reset doubleShotTimer, speedBoostTimer, shieldTimer to 0. Add 30-frame entity freeze + screen shake. Implement shot tier downgrade.
+- **PR:**
+
+### Feedback 10: Simplify Campaign Intro
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** ARCADE-010
+- **Description:** campaign_intro phase is half-built. Between-campaign transitions are instant with no ceremony.
+- **Implementation approach:** Remove campaign_intro phase for v1. Add 3-second black screen with campaign name between campaigns. Save elaborate intros for later.
+- **PR:**
+
+---
+
+## Kojima (Hideo Kojima lens) - 2026-03-01
+
+### Feedback 1: Implement Unique Campaign Structures
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-011
+- **Description:** All 4 campaigns use identical minibossWaves [5,10,15]. Design doc specifies unique structures: C2 boss at W3/double W10, C3 no minis, C4 bosses every 4 waves. This makes every campaign feel like a reskin.
+- **Implementation approach:** Replace uniform minibossWaves with per-campaign structures. Create full 20-entry custom wave arrays instead of 5 templates cycling via modulo.
+- **PR:**
+
+### Feedback 2: Implement Boss Hit Zones
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-012
+- **Description:** Bosses are single HP pools. Design doc specifies 4 destructible sections (port/starboard battery, engine, core) with phase transitions. Current bosses are just big enemies.
+- **Implementation approach:** Split boss HP into 4 sections with separate collision rects. Each section destroyed changes behavior. Add at least 2 phases per final boss. Add WARNING + entrance choreography.
+- **PR:**
+
+### Feedback 3: Every Campaign Feels Identical (duplicate of ARCADE-011)
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** (see ARCADE-011)
+- **Description:** Same as ARCADE-011 — consolidated.
+- **Implementation approach:** See ARCADE-011.
+- **PR:**
+
+### Feedback 4: Implement Signature Moments
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-013
+- **Description:** 8 signature moments designed (whale crossing, 4-side ambush, sandstorm, wingman) — none implemented. These are what players remember.
+- **Implementation approach:** Start with 2-3: whale crossing in C1 (blocks bullets), ambush from all edges in C2 (change spawn positions), wingman in C4 (AI ally plane for 1 wave).
+- **PR:**
+
+### Feedback 5: Death Means Nothing (see ARCADE-009)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-009)
+- **Description:** Consolidated with ARCADE-009.
+- **PR:**
+
+### Feedback 6: Implement Chain Scoring System
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-014
+- **Description:** No chain/combo system. Score is passive counter. Chain system transforms player from passive survivor to active hunter.
+- **Implementation approach:** Track chainCount/chainTimer. Each kill within window increments chain and multiplies score. Display prominently. Shrinking window from 90→45 frames.
+- **PR:**
+
+### Feedback 7: Trim to 2 Planes (see ARCADE-002)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-002)
+- **Description:** Consolidated with ARCADE-002.
+- **PR:**
+
+### Feedback 8: Add Wave Transition Breathing Room (see ARCADE-005)
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** (see ARCADE-005)
+- **Description:** Consolidated with ARCADE-005.
+- **PR:**
+
+### Feedback 9: Add Focus Mode
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** ARCADE-015
+- **Description:** Hold-space focus mode (slow movement + visible hitbox) not implemented. Creates moment-to-moment decisions between speed and precision.
+- **Implementation approach:** When Space held: reduce speed to 1.5px/f, render 3px bright hitbox dot at player center. Tie graze scoring to focus mode.
+- **PR:**
+
+### Feedback 10: World Doesn't React to Player
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** ARCADE-016
+- **Description:** Environment is static backdrop. No reaction to bombs, boss deaths, or player actions.
+- **Implementation approach:** Darken background on bomb use. Boss death triggers campaign-specific ambient event. Make C4 lightning flashes gameplay-relevant.
+- **PR:**
+
+---
+
+## Ikeda (Tsuneki Ikeda / CAVE lens) - 2026-03-01
+
+### Feedback 1: Implement Chain Scoring System (see ARCADE-014)
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** (see ARCADE-014)
+- **Description:** Consolidated with ARCADE-014. Single biggest gap for skilled play.
+- **PR:**
+
+### Feedback 2: Implement Distinct Enemy Bullet Patterns
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-017
+- **Description:** Every enemy fires identical aimed spreads. Design doc specifies complex per-enemy patterns. All bullets same color/size. Violates readability-at-density rule.
+- **Implementation approach:** Define per-enemy bulletPattern functions. Color-code by speed tier: slow=large pink, medium=orange diamonds, fast=small bright red.
+- **PR:**
+
+### Feedback 3: Implement Graze System
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-018
+- **Description:** No graze scoring. Without it, optimal strategy is stay at bottom and shoot up. Graze rewards threading through patterns.
+- **Implementation approach:** Graze hitbox ~28px radius around player center. Each bullet passing through graze zone but not collision hitbox scores 25 × chain_multiplier. Mark bullets as grazed. Visual spark particles + crystalline tick sound.
+- **PR:**
+
+### Feedback 4: Implement Focus Mode (see ARCADE-015)
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** (see ARCADE-015)
+- **Description:** Consolidated with ARCADE-015. Non-negotiable for bullet-hell genre.
+- **PR:**
+
+### Feedback 5: Fix Score Values (see ARCADE-004)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-004)
+- **Description:** Consolidated with ARCADE-004.
+- **PR:**
+
+### Feedback 6: Implement Boss Hit Zones (see ARCADE-012)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-012)
+- **Description:** Consolidated with ARCADE-012.
+- **PR:**
+
+### Feedback 7: Integrate Bomb with Scoring System
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-019
+- **Description:** Bomb has no scoring integration. Should reset chain (cost) but award bullet-cancel points (mitigation). No I-frames during bomb.
+- **Implementation approach:** Bombing resets chain to 0. Each cancelled bullet awards 10pts (not multiplied). Add 90 frames I-frames. Auto-bomb option in settings.
+- **PR:**
+
+### Feedback 8: Add Wave Clear Transitions (see ARCADE-005)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-005)
+- **Description:** Consolidated with ARCADE-005.
+- **PR:**
+
+### Feedback 9: Implement Roll Stock System
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** ARCADE-020
+- **Description:** Roll is cooldown-based. Design doc specifies 3 stocks with 10s regen. Stock system creates resource management decisions.
+- **Implementation approach:** Replace rollCooldown with rollStocks (3 max), rollRegenTimer, rollRegenRate (600 frames). Display as 3 icons in UI.
+- **PR:**
+
+### Feedback 10: Add Death Mechanical Consequences (see ARCADE-009)
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** (see ARCADE-009)
+- **Description:** Consolidated with ARCADE-009.
+- **PR:**
+
+---
+
+## Okamoto (Yoshiki Okamoto / Original 1942 Creator lens) - 2026-03-01
+
+### Feedback 1: Fix Score Economy
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** (see ARCADE-004)
+- **Description:** Consolidated with ARCADE-004. Also: add floating score pop text at kill locations.
+- **PR:**
+
+### Feedback 2: Add Wave Punctuation (see ARCADE-005)
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** (see ARCADE-005)
+- **Description:** Consolidated with ARCADE-005.
+- **PR:**
+
+### Feedback 3: Implement Distinct Bullet Patterns (see ARCADE-017)
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** (see ARCADE-017)
+- **Description:** Consolidated with ARCADE-017.
+- **PR:**
+
+### Feedback 4: Add Death Penalty (see ARCADE-009)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-009)
+- **Description:** Consolidated with ARCADE-009.
+- **PR:**
+
+### Feedback 5: Implement Roll Stock System (see ARCADE-020)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-020)
+- **Description:** Consolidated with ARCADE-020.
+- **PR:**
+
+### Feedback 6: Implement Unique Campaign Structures (see ARCADE-011)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-011)
+- **Description:** Consolidated with ARCADE-011.
+- **PR:**
+
+### Feedback 7: Trim to 2 Planes (see ARCADE-002)
+- **Priority:** important
+- **Status:** open
+- **Ticket:** (see ARCADE-002)
+- **Description:** Consolidated with ARCADE-002.
+- **PR:**
+
+### Feedback 8: Implement Chain Combo System (see ARCADE-014)
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** (see ARCADE-014)
+- **Description:** Consolidated with ARCADE-014.
+- **PR:**
+
+### Feedback 9: Add Focus Mode (see ARCADE-015)
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** (see ARCADE-015)
+- **Description:** Consolidated with ARCADE-015.
+- **PR:**
+
+### Feedback 10: Add 1-Up Score Milestones
+- **Priority:** nice-to-have
+- **Status:** open
+- **Ticket:** ARCADE-021
+- **Description:** No lives ever gained. Design doc says 1-up at 100k, then every 200k. Creates mid-session goals.
+- **Implementation approach:** Track nextLifeAt in state (100000, +200000). On threshold: grant life (max 5), play distinctive sound, flash "1-UP" text.
+- **PR:**
