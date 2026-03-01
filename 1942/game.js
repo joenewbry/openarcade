@@ -202,7 +202,7 @@ function createEnemy(enemyId, x, y, pattern, difficulty = 1, tier = 'normal') {
   const anim = def.anim[0];
   const scale = tier === 'normal' ? ENEMY_SCALE : BOSS_SCALE;
   const size = spriteSize(anim, scale);
-  return {
+  const enemy = {
     id: enemyId,
     def,
     tier,
@@ -219,6 +219,68 @@ function createEnemy(enemyId, x, y, pattern, difficulty = 1, tier = 'normal') {
     t: rand(0, 120),
     stunned: 0,
   };
+  initHitZones(enemy);
+  return enemy;
+}
+
+function initHitZones(enemy) {
+  if (enemy.tier === 'final') {
+    const totalHp = enemy.hp;
+    const zoneHp = Math.ceil(totalHp / 4);
+    enemy.hitZones = [
+      { name: 'port', hp: zoneHp, maxHp: zoneHp, destroyed: false,
+        ox: 0, oy: Math.floor(enemy.h * 0.25),
+        w: Math.floor(enemy.w * 0.3), h: Math.floor(enemy.h * 0.5),
+        color: '#ff6666', smokeTimer: 0 },
+      { name: 'starboard', hp: zoneHp, maxHp: zoneHp, destroyed: false,
+        ox: Math.floor(enemy.w * 0.7), oy: Math.floor(enemy.h * 0.25),
+        w: Math.floor(enemy.w * 0.3), h: Math.floor(enemy.h * 0.5),
+        color: '#6688ff', smokeTimer: 0 },
+      { name: 'engine', hp: zoneHp, maxHp: zoneHp, destroyed: false,
+        ox: Math.floor(enemy.w * 0.25), oy: 0,
+        w: Math.floor(enemy.w * 0.5), h: Math.floor(enemy.h * 0.3),
+        color: '#ffaa44', smokeTimer: 0 },
+      { name: 'core', hp: zoneHp, maxHp: zoneHp, destroyed: false,
+        ox: Math.floor(enemy.w * 0.2), oy: Math.floor(enemy.h * 0.3),
+        w: Math.floor(enemy.w * 0.6), h: Math.floor(enemy.h * 0.55),
+        color: '#ff4466', smokeTimer: 0 },
+    ];
+    enemy.phase = 1;
+    enemy.zonesDestroyed = 0;
+  } else if (enemy.tier === 'mini') {
+    const totalHp = enemy.hp;
+    const zoneHp = Math.ceil(totalHp / 2);
+    enemy.hitZones = [
+      { name: 'left', hp: zoneHp, maxHp: zoneHp, destroyed: false,
+        ox: 0, oy: 0,
+        w: Math.floor(enemy.w * 0.5), h: enemy.h,
+        color: '#ff6666', smokeTimer: 0 },
+      { name: 'right', hp: zoneHp, maxHp: zoneHp, destroyed: false,
+        ox: Math.floor(enemy.w * 0.5), oy: 0,
+        w: Math.floor(enemy.w * 0.5), h: enemy.h,
+        color: '#6688ff', smokeTimer: 0 },
+    ];
+    enemy.phase = 1;
+    enemy.zonesDestroyed = 0;
+  }
+}
+
+function checkBossZoneStatus(state, enemy) {
+  if (!enemy.hitZones) return false;
+  // Phase transition: when 2+ zones destroyed, enter phase 2
+  if (enemy.zonesDestroyed >= 2 && enemy.phase === 1) {
+    enemy.phase = 2;
+    spawnExplosion(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ff4444', 20);
+    state.screenShakeTimer = 15;
+    sfx.bossWarn();
+  }
+  // Sync HP to sum of zone HPs
+  enemy.hp = enemy.hitZones.reduce((sum, z) => sum + Math.max(0, z.hp), 0);
+  // Boss dies when core destroyed (final) or all zones destroyed
+  const allDestroyed = enemy.hitZones.every(z => z.destroyed);
+  const coreZone = enemy.hitZones.find(z => z.name === 'core');
+  const coreDestroyed = coreZone ? coreZone.destroyed : false;
+  return allDestroyed || coreDestroyed;
 }
 
 function queueDialogue(state, lines, hold = 260) {
