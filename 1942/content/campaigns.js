@@ -1,7 +1,7 @@
 export const CAMPAIGNS = [
   {
-    id: 'not_coral_front',
-    name: 'NOT-Coral Front',
+    id: 'coral_front',
+    name: 'Coral Front',
     theme: {
       sky: '#6bb8d8',
       sea: '#1c5d8f',
@@ -24,8 +24,8 @@ export const CAMPAIGNS = [
     ],
   },
   {
-    id: 'not_jungle_spear',
-    name: 'NOT-Jungle Spear',
+    id: 'jungle_spear',
+    name: 'Jungle Spear',
     theme: {
       sky: '#8ba36e',
       sea: '#3a6a4f',
@@ -48,8 +48,8 @@ export const CAMPAIGNS = [
     ],
   },
   {
-    id: 'not_dust_convoy',
-    name: 'NOT-Dust Convoy',
+    id: 'dust_convoy',
+    name: 'Dust Convoy',
     theme: {
       sky: '#cf9b57',
       sea: '#91643d',
@@ -72,8 +72,8 @@ export const CAMPAIGNS = [
     ],
   },
   {
-    id: 'not_iron_monsoon',
-    name: 'NOT-Iron Monsoon',
+    id: 'iron_monsoon',
+    name: 'Iron Monsoon',
     theme: {
       sky: '#525c7f',
       sea: '#2e3455',

@@ -1,7 +1,7 @@
 export const CAMPAIGN_DIALOGUE = {
-  not_coral_front: {
+  coral_front: {
     intro: [
-      'Command: Welcome to NOT-Coral Front. Keep convoy lanes clear.',
+      'Command: Welcome to Coral Front. Keep convoy lanes clear.',
       'Wingmate: Watch for reefs and low-flying torpedo craft.',
     ],
     miniboss: [
@@ -16,9 +16,9 @@ export const CAMPAIGN_DIALOGUE = {
       'Command: Sector secure. Refuel and prep for next campaign.',
     ],
   },
-  not_jungle_spear: {
+  jungle_spear: {
     intro: [
-      'Command: Entering NOT-Jungle Spear. Canopy fire teams active.',
+      'Command: Entering Jungle Spear. Canopy fire teams active.',
       'Wingmate: Ground tracers will blend with foliage. Stay sharp.',
     ],
     miniboss: [
@@ -33,9 +33,9 @@ export const CAMPAIGN_DIALOGUE = {
       'Command: Jungle line broken. Advance route unlocked.',
     ],
   },
-  not_dust_convoy: {
+  dust_convoy: {
     intro: [
-      'Command: NOT-Dust Convoy is live. Expect armored escorts.',
+      'Command: Dust Convoy is live. Expect armored escorts.',
       'Wingmate: Heat haze will hide rockets until the last second.',
     ],
     miniboss: [
@@ -50,9 +50,9 @@ export const CAMPAIGN_DIALOGUE = {
       'Command: Convoy shattered. Proceed to monsoon perimeter.',
     ],
   },
-  not_iron_monsoon: {
+  iron_monsoon: {
     intro: [
-      'Command: NOT-Iron Monsoon conditions are severe. Lightning windows are short.',
+      'Command: Iron Monsoon conditions are severe. Lightning windows are short.',
       'Wingmate: Use flashes to line up priority kills.',
     ],
     miniboss: [
