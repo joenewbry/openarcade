@@ -13,7 +13,7 @@ export const CAMPAIGNS = [
     roster: ['scout_zero', 'torpedo_gull'],
     miniboss: 'reef_guardian',
     finalBoss: 'coral_dreadnought',
-    minibossWaves: [5, 10, 15],
+    minibossWaves: [5, 10, 15],       // C1: standard tutorial pacing
     finalWave: 20,
     waves: [
       { pattern: 'vee', mix: ['scout_zero'], count: 8 },
@@ -37,7 +37,8 @@ export const CAMPAIGNS = [
     roster: ['canopy_raider', 'gunship_hornet', 'scout_zero'],
     miniboss: 'river_bastion',
     finalBoss: 'jungle_citadel',
-    minibossWaves: [5, 10, 15],
+    minibossWaves: [3, 10],            // C2: early boss at W3, double mini-boss at W10
+    doubleMiniWaves: [10],             // spawn 2 mini bosses on these waves
     finalWave: 20,
     waves: [
       { pattern: 'line', mix: ['canopy_raider'], count: 10 },
@@ -61,7 +62,8 @@ export const CAMPAIGNS = [
     roster: ['dune_lancer', 'rail_bomber', 'gunship_hornet'],
     miniboss: 'convoy_ram',
     finalBoss: 'dust_colossus',
-    minibossWaves: [5, 10, 15],
+    minibossWaves: [],                 // C3: no mini bosses — pure wave survival
+    finalBossScale: 1.5,               // extra-tough final boss
     finalWave: 20,
     waves: [
       { pattern: 'line', mix: ['dune_lancer'], count: 10 },
@@ -85,7 +87,7 @@ export const CAMPAIGNS = [
     roster: ['storm_wraith', 'sub_spear', 'dune_lancer', 'canopy_raider'],
     miniboss: 'monsoon_blade',
     finalBoss: 'iron_tempest',
-    minibossWaves: [5, 10, 15],
+    minibossWaves: [4, 8, 12, 16],    // C4: relentless — boss every 4 waves
     finalWave: 20,
     waves: [
       { pattern: 'vee', mix: ['storm_wraith'], count: 10 },
