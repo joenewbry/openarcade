@@ -132,6 +132,8 @@ function makePlayer(planeId) {
     specialTimer: 0,
     rollTimer: 0,
     rollInvuln: 0,
+    vx: 0,
+    vy: 0,
     rollVx: 0,
     rollVy: -1,
     rollCooldown: 0,
@@ -548,8 +550,14 @@ function updateGame(state, game, input) {
     player.x += player.rollVx * ROLL_SPEED * burst;
     player.y += player.rollVy * (ROLL_SPEED * 0.72) * burst;
   } else {
-    player.x += mx * speed;
-    player.y += my * speed;
+    const targetVX = mx * speed;
+    const targetVY = my * speed;
+    player.vx += (targetVX - player.vx) * 0.28;
+    player.vy += (targetVY - player.vy) * 0.20;
+    if (Math.abs(player.vx) < 0.01) player.vx = 0;
+    if (Math.abs(player.vy) < 0.01) player.vy = 0;
+    player.x += player.vx;
+    player.y += player.vy;
   }
 
   player.x = clamp(player.x, 12, W - player.w - 12);
@@ -931,7 +939,8 @@ export function createGame() {
       : `plane_${state.player.plane.id}`;
 
     const playerAlpha = state.player.invuln > 0 && state.tick % 6 < 3 ? 0.55 : 1;
-    drawPixelSprite(renderer, playerSprite, state.player.x, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
+    const bankOffset = clamp(state.player.vx * 0.4, -1, 1);
+    drawPixelSprite(renderer, playerSprite, state.player.x + bankOffset, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
 
     if (state.player.shieldTimer > 0) {
       renderer.fillCircle(state.player.x + state.player.w / 2, state.player.y + state.player.h / 2, 24, 'rgba(132,188,255,0.2)');
