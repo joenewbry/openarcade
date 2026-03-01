@@ -298,8 +298,16 @@ function spawnWave(state) {
       state.shownMilestones.add(`${waveKey}:mini`);
       sfx.bossWarn();
     }
-    const mini = createEnemy(campaign.miniboss, W / 2 - 96, -180, 'mini', state.campaignIndex + 1, 'mini');
-    state.enemies.push(mini);
+    const isDouble = campaign.doubleMiniWaves && campaign.doubleMiniWaves.includes(state.wave);
+    if (isDouble) {
+      // Spawn two mini bosses side by side
+      const miniL = createEnemy(campaign.miniboss, W / 2 - 200, -180, 'mini', state.campaignIndex + 1, 'mini');
+      const miniR = createEnemy(campaign.miniboss, W / 2 + 8, -180, 'mini', state.campaignIndex + 1, 'mini');
+      state.enemies.push(miniL, miniR);
+    } else {
+      const mini = createEnemy(campaign.miniboss, W / 2 - 96, -180, 'mini', state.campaignIndex + 1, 'mini');
+      state.enemies.push(mini);
+    }
     return;
   }
 
@@ -310,6 +318,11 @@ function spawnWave(state) {
       sfx.bossWarn();
     }
     const boss = createEnemy(campaign.finalBoss, W / 2 - 152, -240, 'boss', state.campaignIndex + 1, 'final');
+    // Apply extra-tough scaling if defined
+    if (campaign.finalBossScale && campaign.finalBossScale > 1) {
+      boss.hp = Math.round(boss.hp * campaign.finalBossScale);
+      boss.maxHp = boss.hp;
+    }
     state.enemies.push(boss);
     return;
   }
