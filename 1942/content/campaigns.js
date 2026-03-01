@@ -14,6 +14,7 @@ export const CAMPAIGNS = [
     miniboss: 'reef_guardian',
     finalBoss: 'coral_dreadnought',
     minibossWaves: [5, 10, 15],       // C1: standard tutorial pacing
+    signatureMoments: { 7: 'whale_crossing' },
     finalWave: 20,
     waves: [
       { pattern: 'vee', mix: ['scout_zero'], count: 8 },
@@ -39,6 +40,7 @@ export const CAMPAIGNS = [
     finalBoss: 'jungle_citadel',
     minibossWaves: [3, 10],            // C2: early boss at W3, double mini-boss at W10
     doubleMiniWaves: [10],             // spawn 2 mini bosses on these waves
+    signatureMoments: { 6: 'ambush_all_edges' },
     finalWave: 20,
     waves: [
       { pattern: 'line', mix: ['canopy_raider'], count: 10 },
@@ -88,6 +90,7 @@ export const CAMPAIGNS = [
     miniboss: 'monsoon_blade',
     finalBoss: 'iron_tempest',
     minibossWaves: [4, 8, 12, 16],    // C4: relentless — boss every 4 waves
+    signatureMoments: { 14: 'wingman' },
     finalWave: 20,
     waves: [
       { pattern: 'vee', mix: ['storm_wraith'], count: 10 },
