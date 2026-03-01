@@ -169,6 +169,7 @@ function makeInitialState(planeId) {
     phase: 'campaign_intro',
     player: makePlayer(planeId),
     bullets: [],
+    bulletTrails: [],
     enemyBullets: [],
     enemies: [],
     powerups: [],
@@ -690,6 +691,7 @@ function moveToNextCampaign(state, game) {
   state.enemies.length = 0;
   state.enemyBullets.length = 0;
   state.bullets.length = 0;
+  state.bulletTrails.length = 0;
   state.powerups.length = 0;
   state.ambience.length = 0;
 
@@ -886,6 +888,13 @@ function updateGame(state, game, input) {
 
   for (const tr of player.rollTrail) tr.life--;
   player.rollTrail = player.rollTrail.filter((t) => t.life > 0);
+
+  // Capture bullet trails (afterimage) before moving
+  for (const b of state.bullets) {
+    state.bulletTrails.push({ x: b.x, y: b.y, w: b.w, h: b.h, life: 3 });
+  }
+  for (const t of state.bulletTrails) t.life--;
+  state.bulletTrails = state.bulletTrails.filter((t) => t.life > 0);
 
   for (const b of state.bullets) {
     b.x += b.vx;
@@ -1256,8 +1265,23 @@ export function createGame() {
       drawPixelSprite(renderer, buildPowerupSprite(p.id), p.x, p.y, 6, '#ffd166');
     }
 
+    // Player bullet glow trails (afterimage)
+    for (const t of state.bulletTrails) {
+      const alpha = (t.life / 3 * 0.35).toFixed(2);
+      renderer.fillRect(t.x, t.y, t.w, t.h, `rgba(0,255,255,${alpha})`);
+    }
+
+    // Player bullets: bright cyan body with white core stripe
     for (const b of state.bullets) {
-      renderer.fillRect(b.x, b.y, b.w, b.h, b.color);
+      // Outer glow
+      renderer.setGlow('#00ffff', 0.5);
+      // Cyan body
+      renderer.fillRect(b.x, b.y, b.w, b.h, '#00ffff');
+      renderer.setGlow(null);
+      // White core stripe (centered, 2px wide)
+      const coreW = 2;
+      const coreX = b.x + (b.w - coreW) / 2;
+      renderer.fillRect(coreX, b.y, coreW, b.h, '#ffffff');
     }
 
     for (const b of state.enemyBullets) {
