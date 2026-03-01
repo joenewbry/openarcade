@@ -180,6 +180,8 @@ function makeInitialState(planeId) {
     chainCount: 0,
     chainTimer: 0,
     chainPulse: 0,
+    deathFreezeTimer: 0,
+    screenShakeTimer: 0,
   };
 }
 
@@ -599,6 +601,23 @@ function damagePlayer(state) {
   p.invuln = 120;
   spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#8ec5ff', 16);
   sfx.hit();
+
+  // Death consequences: reset all buffs
+  p.doubleShotTimer = 0;
+  p.speedBoostTimer = 0;
+  p.shieldTimer = 0;
+  p.specialTimer = 0;
+
+  // Reset chain
+  state.chainCount = 0;
+  state.chainTimer = 0;
+  state.chainPulse = 0;
+
+  // Entity freeze + screen shake + death flash
+  state.deathFreezeTimer = 30;
+  state.screenShakeTimer = 20;
+  state.flashTimer = 8;
+
   if (p.lives <= 0) {
     state.best = Math.max(state.best, state.score);
     localStorage.setItem('openarcade_1942_best', String(state.best));
@@ -681,6 +700,20 @@ function updateGame(state, game, input) {
   const player = state.player;
   state.tick += 1;
 
+  // Death freeze: pause all entities, only tick down timers
+  if (state.deathFreezeTimer > 0) {
+    state.deathFreezeTimer--;
+    if (state.screenShakeTimer > 0) state.screenShakeTimer--;
+    if (state.flashTimer > 0) state.flashTimer--;
+    if (player.invuln > 0) player.invuln--;
+    // Decay particles during freeze for visual continuity
+    for (const pt of state.particles) {
+      pt.life -= 1;
+    }
+    state.particles = state.particles.filter((p) => p.life > 0);
+    return;
+  }
+
   if (player.fireCooldown > 0) player.fireCooldown--;
   if (player.specialCooldown > 0) player.specialCooldown--;
   if (player.specialTimer > 0) player.specialTimer--;
@@ -692,6 +725,7 @@ function updateGame(state, game, input) {
   if (player.speedBoostTimer > 0) player.speedBoostTimer--;
   if (player.shieldTimer > 0) player.shieldTimer--;
   if (state.flashTimer > 0) state.flashTimer--;
+  if (state.screenShakeTimer > 0) state.screenShakeTimer--;
 
   // Chain timer
   if (state.chainTimer > 0) {
@@ -1137,6 +1171,15 @@ export function createGame() {
   };
 
   game.onDraw = (renderer, text) => {
+    // Screen shake via canvas CSS transform
+    if (state.screenShakeTimer > 0) {
+      const shakeX = Math.round((Math.random() - 0.5) * 8);
+      const shakeY = Math.round((Math.random() - 0.5) * 8);
+      renderer.canvas.style.transform = `translate(${shakeX}px, ${shakeY}px)`;
+    } else {
+      renderer.canvas.style.transform = '';
+    }
+
     const campaign = getCampaign(state.campaignIndex);
     drawBackground(renderer, campaign, state.flashTimer);
 
