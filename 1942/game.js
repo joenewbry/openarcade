@@ -155,6 +155,7 @@ function makePlayer(planeId) {
     lastSpacePressedAt: -100,
     lastMoveX: 0,
     lastMoveY: -1,
+    autoBomb: false,
   };
 }
 
@@ -190,6 +191,7 @@ function makeInitialState(planeId) {
     chainPulse: 0,
     deathFreezeTimer: 0,
     screenShakeTimer: 0,
+    pendingAutoBomb: false,
   };
 }
 
@@ -677,9 +679,84 @@ function spawnEnemyBullets(state, e, player) {
   }
 }
 
+function activateBomb(state, game) {
+  const player = state.player;
+  if (player.bombs <= 0) return;
+  player.bombs -= 1;
+
+  // --- Dramatic sound ---
+  sfx.bomb();
+
+  // --- Full-screen white flash for 8 frames ---
+  state.flashTimer = 8;
+
+  // --- Kill all normal enemies outright; bosses/minis take 15% maxHp ---
+  for (let i = state.enemies.length - 1; i >= 0; i--) {
+    const enemy = state.enemies[i];
+    if (enemy.tier === 'normal') {
+      state.score += enemy.def.score;
+      state.scorePops.push({ x: enemy.x + enemy.w / 2, y: enemy.y, text: `${enemy.def.score}`, life: 30 });
+      spawnExplosion(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ff8f5c', 10);
+      if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+      state.enemies.splice(i, 1);
+    } else {
+      enemy.hp -= Math.ceil(enemy.maxHp * 0.15);
+      if (enemy.hp <= 0) {
+        const wasFinal = enemy.tier === 'final';
+        killEnemy(state, enemy);
+        state.enemies.splice(i, 1);
+        if (wasFinal && state.enemies.filter((x) => x.tier === 'final').length === 0) {
+          moveToNextCampaign(state, game);
+        }
+      }
+    }
+  }
+
+  // --- Cancel ALL enemy bullets, award 10 points per bullet (flat, no chain) ---
+  const cancelledBullets = state.enemyBullets.length;
+  if (cancelledBullets > 0) {
+    const bulletPoints = cancelledBullets * 10;
+    state.score += bulletPoints;
+    state.scorePops.push({ x: W / 2 - 40, y: H / 2, text: `+${bulletPoints}`, life: 45 });
+  }
+  state.enemyBullets.length = 0;
+
+  // --- 90 frames of bomb I-frames (tracked separately) ---
+  player.bombInvuln = 90;
+
+  // --- Reset chain to 0 (bombing costs your combo) ---
+  state.chainCount = 0;
+  state.chainTimer = 0;
+  state.chainPulse = 0;
+
+  // --- Big explosion particles across the screen (35 large orange/white) ---
+  for (let i = 0; i < 35; i++) {
+    const px = rand(40, W - 40);
+    const py = rand(40, H - 40);
+    const color = Math.random() < 0.5 ? '#ffa040' : '#ffffff';
+    state.particles.push({
+      x: px,
+      y: py,
+      vx: rand(-6, 6),
+      vy: rand(-6, 6),
+      life: rand(30, 55),
+      maxLife: rand(30, 55),
+      color,
+      r: rand(10, 22),
+    });
+  }
+}
+
 function damagePlayer(state) {
   const p = state.player;
   if (p.invuln > 0 || p.shieldTimer > 0 || p.rollInvuln > 0 || p.bombInvuln > 0) return;
+
+  // --- Auto-bomb: if enabled and player has bombs, use bomb instead of dying ---
+  if (p.autoBomb && p.bombs > 0) {
+    state.pendingAutoBomb = true;
+    return;
+  }
+
   p.lives -= 1;
   p.invuln = 120;
   spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#8ec5ff', 16);
@@ -878,73 +955,13 @@ function updateGame(state, game, input) {
     useSpecial(state);
   }
 
-  if (input.wasPressed('b') || input.wasPressed('B')) {
-    if (player.bombs > 0) {
-      player.bombs -= 1;
+  if (input.wasPressed('a') || input.wasPressed('A')) {
+    player.autoBomb = !player.autoBomb;
+  }
 
-      // --- Dramatic sound ---
-      sfx.bomb();
-
-      // --- Full-screen white flash for 8 frames ---
-      state.flashTimer = 8;
-
-      // --- Kill all normal enemies outright; bosses/minis take 15% maxHp ---
-      for (let i = state.enemies.length - 1; i >= 0; i--) {
-        const enemy = state.enemies[i];
-        if (enemy.tier === 'normal') {
-          // Award base score (no chain multiplier — chain is reset below)
-          state.score += enemy.def.score;
-          state.scorePops.push({ x: enemy.x + enemy.w / 2, y: enemy.y, text: `${enemy.def.score}`, life: 30 });
-          spawnExplosion(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ff8f5c', 10);
-          if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
-          state.enemies.splice(i, 1);
-        } else {
-          enemy.hp -= Math.ceil(enemy.maxHp * 0.15);
-          if (enemy.hp <= 0) {
-            const wasFinal = enemy.tier === 'final';
-            killEnemy(state, enemy);
-            state.enemies.splice(i, 1);
-            if (wasFinal && state.enemies.filter((x) => x.tier === 'final').length === 0) {
-              moveToNextCampaign(state, game);
-            }
-          }
-        }
-      }
-
-      // --- Cancel ALL enemy bullets, award 10 points per bullet (flat, no chain) ---
-      const cancelledBullets = state.enemyBullets.length;
-      if (cancelledBullets > 0) {
-        const bulletPoints = cancelledBullets * 10;
-        state.score += bulletPoints;
-        state.scorePops.push({ x: W / 2 - 40, y: H / 2, text: `+${bulletPoints}`, life: 45 });
-      }
-      state.enemyBullets.length = 0;
-
-      // --- 60 frames of bomb I-frames (tracked separately) ---
-      player.bombInvuln = 60;
-
-      // --- Reset chain to 0 (bombing costs your combo) ---
-      state.chainCount = 0;
-      state.chainTimer = 0;
-      state.chainPulse = 0;
-
-      // --- Big explosion particles across the screen (35 large orange/white) ---
-      for (let i = 0; i < 35; i++) {
-        const px = rand(40, W - 40);
-        const py = rand(40, H - 40);
-        const color = Math.random() < 0.5 ? '#ffa040' : '#ffffff';
-        state.particles.push({
-          x: px,
-          y: py,
-          vx: rand(-6, 6),
-          vy: rand(-6, 6),
-          life: rand(30, 55),
-          maxLife: rand(30, 55),
-          color,
-          r: rand(10, 22),
-        });
-      }
-    }
+  if (input.wasPressed('b') || input.wasPressed('B') || state.pendingAutoBomb) {
+    state.pendingAutoBomb = false;
+    activateBomb(state, game);
   }
 
   if (input.isDown(' ') && player.fireCooldown <= 0 && !state.dialogue) {
@@ -1225,6 +1242,7 @@ function drawUI(renderer, text, state) {
   text.drawText(`BEST ${Math.max(state.best, state.score)}`, 24, 60, 28, '#b6daf4');
   text.drawText(`LIVES ${p.lives}`, 380, 20, 36, '#f1fbff');
   text.drawText(`BOMBS ${p.bombs}`, 380, 60, 28, '#ffe1a2');
+  if (p.autoBomb) text.drawText('AUTO', 560, 60, 24, '#ff6666');
   text.drawText(`WAVE ${state.wave}/${campaign.finalWave}`, 680, 20, 36, '#f1fbff');
   text.drawText(campaign.name, 680, 60, 28, '#b6daf4');
 
@@ -1273,7 +1291,7 @@ export function createGame() {
       '1942: Pixel Campaigns',
       `Plane: [${selectedPlaneIndex + 1}] ${plane.name}\n` +
       `Special: ${plane.special.name}\n\n` +
-      'Controls: Arrows move, Space shoot, Shift/Double-Space roll, X special, B bomb\n' +
+      'Controls: Arrows move, Space shoot, Shift/Double-Space roll, X special, B bomb, A auto-bomb\n' +
       'Select Plane: keys 1-4\nPress SPACE to launch'
     );
   }
