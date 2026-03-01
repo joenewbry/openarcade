@@ -74,6 +74,12 @@ class Sfx {
   roll() { this.tone(520, 'triangle', 0.12, 0.08); }
   pickup() { this.tone(680, 'sine', 0.08, 0.1); setTimeout(() => this.tone(980, 'sine', 0.1, 0.09), 70); }
   bossWarn() { this.tone(160, 'square', 0.12, 0.12); setTimeout(() => this.tone(130, 'square', 0.12, 0.1), 140); }
+  oneUp() {
+    this.tone(440, 'sine', 0.1, 0.12);
+    setTimeout(() => this.tone(554, 'sine', 0.1, 0.12), 80);
+    setTimeout(() => this.tone(659, 'sine', 0.1, 0.12), 160);
+    setTimeout(() => this.tone(880, 'sine', 0.2, 0.15), 240);
+  }
 }
 
 const sfx = new Sfx();
@@ -147,6 +153,9 @@ function makePlayer(planeId) {
     rollVx: 0,
     rollVy: -1,
     rollCooldown: 0,
+    rollStocks: 3,
+    rollMaxStocks: 3,
+    rollRegenTimer: 0,
     invuln: 0,
     shieldTimer: 0,
     speedBoostTimer: 0,
@@ -167,7 +176,9 @@ function makeInitialState(planeId) {
     campaignIndex: 0,
     wave: 0,
     waveDelay: 50,
-    phase: 'campaign_intro',
+    phase: 'playing',
+    campaignIntroTimer: 0,
+    campaignIntroName: '',
     player: makePlayer(planeId),
     bullets: [],
     bulletTrails: [],
@@ -194,6 +205,12 @@ function makeInitialState(planeId) {
     pendingAutoBomb: false,
     signatureWhale: null,
     signatureWingman: null,
+    bombDarkenTimer: 0,
+    bossSlowTimer: 0,
+    chainPulseFlash: 0,
+    nextLifeAt: 100000,
+    oneUpTimer: 0,
+    focusActive: false,
   };
 }
 
@@ -534,12 +551,14 @@ function buildPowerupSprite(id) {
 }
 
 function startRoll(player, dirX, dirY) {
-  if (player.rollCooldown > 0 || player.rollTimer > 0) return;
+  if (player.rollTimer > 0) return;
+  // Stock system: need at least 1 stock
+  if (player.rollStocks <= 0) return;
   const mag = Math.hypot(dirX, dirY) || 1;
   const nx = mag > 0 ? dirX / mag : 0;
   const ny = mag > 0 ? dirY / mag : -1;
   player.rollTimer = ROLL_DURATION;
-  player.rollCooldown = player.plane.rollCooldown;
+  player.rollStocks -= 1;
   player.rollInvuln = ROLL_IFRAMES;
   player.rollVx = nx;
   player.rollVy = ny;
@@ -757,6 +776,9 @@ function activateBomb(state, game) {
   // --- Full-screen white flash for 8 frames ---
   state.flashTimer = 8;
 
+  // --- ARCADE-016: Darken background for 30 frames ---
+  state.bombDarkenTimer = 30;
+
   // --- Kill all normal enemies outright; bosses/minis take 15% maxHp ---
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const enemy = state.enemies[i];
@@ -881,6 +903,33 @@ function killEnemy(state, enemy) {
   state.chainTimer = getChainWindow(state.chainCount);
   state.chainPulse = 12;
 
+  // ARCADE-016: Chain milestone pulse (every 5 kills)
+  if (state.chainCount > 0 && state.chainCount % 5 === 0) {
+    state.chainPulseFlash = 12;
+    state.screenShakeTimer = Math.max(state.screenShakeTimer, 4);
+  }
+
+  // ARCADE-016: Boss death triggers big particle burst + slowdown
+  if (enemy.tier === 'final' || enemy.tier === 'mini') {
+    // Big particle burst across the screen
+    for (let i = 0; i < 50; i++) {
+      const px = enemy.x + enemy.w / 2 + rand(-120, 120);
+      const py = enemy.y + enemy.h / 2 + rand(-120, 120);
+      const color = ['#ff4444', '#ffaa44', '#ffffff', '#ff8844', '#ffdd44'][Math.floor(rand(0, 5))];
+      state.particles.push({
+        x: px, y: py,
+        vx: rand(-8, 8), vy: rand(-8, 8),
+        life: rand(40, 70), maxLife: rand(40, 70),
+        color, r: rand(6, 16),
+      });
+    }
+    // Brief slowdown for final bosses
+    if (enemy.tier === 'final') {
+      state.bossSlowTimer = 60;
+    }
+    state.screenShakeTimer = Math.max(state.screenShakeTimer, 20);
+  }
+
   // Apply chain multiplier to score
   const multiplier = getChainMultiplier(state.chainCount);
   const points = Math.round(enemy.def.score * multiplier);
@@ -922,13 +971,31 @@ function moveToNextCampaign(state, game) {
     return;
   }
 
+  // ARCADE-010: Show campaign intro screen for 180 frames
   const nextCampaign = getCampaign(state.campaignIndex);
+  state.campaignIntroTimer = 180;
+  state.campaignIntroName = nextCampaign.name;
+  // Clear pending dialogue, will queue intro after the black screen
+  state.dialogue = null;
+  state.pendingDialogue = [];
   queueDialogue(state, getDialogue(nextCampaign.id, 'intro'), 280);
 }
 
 function updateGame(state, game, input) {
   const player = state.player;
   state.tick += 1;
+
+  // ARCADE-010: Campaign intro screen — pause gameplay during transition
+  if (state.campaignIntroTimer > 0) {
+    state.campaignIntroTimer--;
+    return;
+  }
+
+  // ARCADE-016: Boss slow effect — run at 0.5x speed (skip every other frame)
+  if (state.bossSlowTimer > 0) {
+    state.bossSlowTimer--;
+    if (state.tick % 2 === 0) return; // skip every other frame for 0.5x speed
+  }
 
   // Death freeze: pause all entities, only tick down timers
   if (state.deathFreezeTimer > 0) {
@@ -951,13 +1018,29 @@ function updateGame(state, game, input) {
   if (player.rollTimer > 0) player.rollTimer--;
   if (player.rollInvuln > 0) player.rollInvuln--;
   if (player.bombInvuln > 0) player.bombInvuln--;
-  if (player.rollCooldown > 0) player.rollCooldown--;
   if (player.invuln > 0) player.invuln--;
   if (player.doubleShotTimer > 0) player.doubleShotTimer--;
   if (player.speedBoostTimer > 0) player.speedBoostTimer--;
   if (player.shieldTimer > 0) player.shieldTimer--;
   if (state.flashTimer > 0) state.flashTimer--;
   if (state.screenShakeTimer > 0) state.screenShakeTimer--;
+  if (state.bombDarkenTimer > 0) state.bombDarkenTimer--;
+  if (state.chainPulseFlash > 0) state.chainPulseFlash--;
+  if (state.oneUpTimer > 0) state.oneUpTimer--;
+
+  // ARCADE-020: Roll stock regeneration (1 stock per 600 frames)
+  if (player.rollStocks < player.rollMaxStocks) {
+    player.rollRegenTimer++;
+    if (player.rollRegenTimer >= 600) {
+      player.rollStocks++;
+      player.rollRegenTimer = 0;
+    }
+  } else {
+    player.rollRegenTimer = 0;
+  }
+
+  // ARCADE-015: Focus mode — active when Space is held
+  state.focusActive = input.isDown(' ');
 
   // Chain timer
   if (state.chainTimer > 0) {
@@ -1030,7 +1113,13 @@ function updateGame(state, game, input) {
     if (state.dialogue.timer <= 0) state.dialogue = null;
   }
 
-  const speed = (player.plane.speed + (player.speedBoostTimer > 0 ? 1.15 : 0)) * 2;
+  // ARCADE-015: Focus mode reduces speed to 1.5px/frame (3px at 2x scale)
+  let speed;
+  if (state.focusActive) {
+    speed = 3; // 1.5px/frame * 2x scale
+  } else {
+    speed = (player.plane.speed + (player.speedBoostTimer > 0 ? 1.15 : 0)) * 2;
+  }
   let mx = 0;
   let my = 0;
   if (input.isDown('ArrowLeft')) mx -= 1;
@@ -1183,7 +1272,7 @@ function updateGame(state, game, input) {
   }
   state.particles = state.particles.filter((p) => p.life > 0);
 
-  // -- Graze detection --
+  // -- Graze detection (ARCADE-015: enhanced during focus mode) --
   {
     const pcx = player.x + player.w / 2;
     const pcy = player.y + player.h / 2;
@@ -1197,7 +1286,9 @@ function updateGame(state, game, input) {
       if (dist < GRAZE_RADIUS && !rectHit(eb, player)) {
         eb.grazed = true;
         state.grazeCount += 1;
-        const grazeMultiplier = getChainMultiplier(state.chainCount);
+        // Focus mode: 2x graze multiplier bonus
+        const focusBonus = state.focusActive ? 2 : 1;
+        const grazeMultiplier = getChainMultiplier(state.chainCount) * focusBonus;
         const grazePoints = Math.round(GRAZE_POINTS * grazeMultiplier);
         state.score += grazePoints;
         state.scorePops.push({ x: bcx, y: bcy, text: `+${grazePoints}`, life: 20 });
@@ -1275,6 +1366,19 @@ function updateGame(state, game, input) {
       state.powerups.splice(i, 1);
       spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#baf6ff', 8);
       sfx.pickup();
+    }
+  }
+
+  // ARCADE-021: 1-Up score milestones
+  if (state.score >= state.nextLifeAt && player.lives < 5) {
+    player.lives += 1;
+    state.oneUpTimer = 90;
+    sfx.oneUp();
+    // Next milestone: first at 100k, then every 200k after
+    if (state.nextLifeAt === 100000) {
+      state.nextLifeAt = 200000;
+    } else {
+      state.nextLifeAt += 200000;
     }
   }
 
@@ -1399,6 +1503,21 @@ function drawUI(renderer, text, state) {
   if (p.speedBoostTimer > 0) text.drawText('SPEED', 160, 104, 24, '#8effb5');
   if (p.shieldTimer > 0) text.drawText('SHIELD', 280, 104, 24, '#9bc8ff');
 
+  // ARCADE-020: Roll stock icons
+  const rollIconY = 62;
+  const rollIconX = 580;
+  text.drawText('ROLL', rollIconX - 56, rollIconY - 2, 20, '#b6daf4');
+  for (let i = 0; i < p.rollMaxStocks; i++) {
+    const ix = rollIconX + i * 22;
+    if (i < p.rollStocks) {
+      renderer.fillRect(ix, rollIconY, 16, 16, '#79c7ff');
+      renderer.fillRect(ix + 2, rollIconY + 2, 12, 12, '#b8e8ff');
+    } else {
+      renderer.fillRect(ix, rollIconY, 16, 16, '#334f66');
+      renderer.fillRect(ix + 2, rollIconY + 2, 12, 12, '#223344');
+    }
+  }
+
   if (state.dialogue) {
     const alpha = clamp(state.dialogue.timer / state.dialogue.hold, 0.2, 1);
     renderer.fillRect(28, 136, W - 56, 116, `rgba(8,16,26,${(alpha * 0.8).toFixed(2)})`);
@@ -1479,6 +1598,16 @@ export function createGame() {
   };
 
   game.onDraw = (renderer, text) => {
+    // ARCADE-010: Campaign intro screen — black screen with campaign name
+    if (state.campaignIntroTimer > 0) {
+      renderer.fillRect(0, 0, W, H, '#000000');
+      const alpha = Math.min(1, Math.min(state.campaignIntroTimer / 30, (180 - state.campaignIntroTimer) / 30));
+      const color = `rgba(255,255,255,${alpha.toFixed(2)})`;
+      const name = state.campaignIntroName || '';
+      text.drawText(name, W / 2 - name.length * 16, H / 2 - 30, 64, color);
+      return;
+    }
+
     // Screen shake via canvas CSS transform
     if (state.screenShakeTimer > 0) {
       const shakeX = Math.round((Math.random() - 0.5) * 8);
@@ -1490,6 +1619,18 @@ export function createGame() {
 
     const campaign = getCampaign(state.campaignIndex);
     drawBackground(renderer, campaign, state.flashTimer);
+
+    // ARCADE-016: Bomb darken overlay
+    if (state.bombDarkenTimer > 0) {
+      const darkenAlpha = Math.min(0.5, state.bombDarkenTimer / 30 * 0.5);
+      renderer.fillRect(0, 0, W, H, `rgba(0,0,0,${darkenAlpha.toFixed(2)})`);
+    }
+
+    // ARCADE-016: Chain milestone pulse flash
+    if (state.chainPulseFlash > 0) {
+      const pulseAlpha = (state.chainPulseFlash / 12 * 0.15).toFixed(2);
+      renderer.fillRect(0, 0, W, H, `rgba(255,255,100,${pulseAlpha})`);
+    }
 
     drawAmbient(renderer, state.ambience, campaign);
 
@@ -1582,6 +1723,16 @@ export function createGame() {
     const bankOffset = clamp(state.player.vx * 0.4, -2, 2);
     drawPixelSprite(renderer, playerSprite, state.player.x + bankOffset, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
 
+    // ARCADE-015: Focus mode — draw hitbox dot and FOCUS text
+    if (state.focusActive) {
+      const pcx = state.player.x + state.player.w / 2;
+      const pcy = state.player.y + state.player.h / 2;
+      renderer.fillCircle(pcx, pcy, 3, '#ffffff');
+      // Outer glow ring
+      renderer.fillCircle(pcx, pcy, 6, 'rgba(255,255,255,0.3)');
+      text.drawText('FOCUS', pcx - 30, state.player.y + state.player.h + 8, 20, '#ffffff');
+    }
+
     // Draw signature wingman
     if (state.signatureWingman) {
       const wm = state.signatureWingman;
@@ -1634,6 +1785,16 @@ export function createGame() {
       const timerPct = state.chainTimer / getChainWindow(state.chainCount);
       renderer.fillRect(barX, barY, barW, barH, '#334f66');
       renderer.fillRect(barX, barY, Math.floor(barW * timerPct), barH, chainColor);
+    }
+
+    // ARCADE-021: 1-UP flash text
+    if (state.oneUpTimer > 0) {
+      const alpha = Math.min(1, state.oneUpTimer / 15);
+      const color = `rgba(255,255,0,${alpha.toFixed(2)})`;
+      const blink = Math.floor(state.oneUpTimer / 6) % 2 === 0;
+      if (blink) {
+        text.drawText('1-UP', W / 2 - 48, 140, 48, color);
+      }
     }
 
     updateAndDrawScorePops(text, state);
