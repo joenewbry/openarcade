@@ -177,6 +177,9 @@ function makeInitialState(planeId) {
     shownMilestones: new Set(),
     scorePops: [],
     grazeCount: 0,
+    chainCount: 0,
+    chainTimer: 0,
+    chainPulse: 0,
   };
 }
 
@@ -604,11 +607,42 @@ function damagePlayer(state) {
   return false;
 }
 
+function getChainMultiplier(chainCount) {
+  if (chainCount < 2) return 1;
+  return 1 + Math.floor(chainCount / 5) * 0.5;
+}
+
+function getChainWindow(chainCount) {
+  return Math.max(45, 90 - chainCount * 3);
+}
+
+function getChainColor(chainCount) {
+  if (chainCount >= 10) return '#ff4444';
+  if (chainCount >= 5) return '#ff9933';
+  return '#ffdd44';
+}
+
 function killEnemy(state, enemy) {
   spawnExplosion(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ff8f5c', enemy.tier === 'normal' ? 10 : 24);
   sfx.explode();
-  state.score += enemy.def.score;
-  state.scorePops.push({ x: enemy.x + enemy.w / 2, y: enemy.y, text: `${enemy.def.score}`, life: 30 });
+
+  // Update chain
+  if (state.chainTimer > 0) {
+    state.chainCount += 1;
+  } else {
+    state.chainCount = 1;
+  }
+  state.chainTimer = getChainWindow(state.chainCount);
+  state.chainPulse = 12;
+
+  // Apply chain multiplier to score
+  const multiplier = getChainMultiplier(state.chainCount);
+  const points = Math.round(enemy.def.score * multiplier);
+  state.score += points;
+
+  const popText = multiplier > 1 ? `${points} x${multiplier.toFixed(1)}` : `${points}`;
+  state.scorePops.push({ x: enemy.x + enemy.w / 2, y: enemy.y, text: popText, life: 30 });
+
   if (enemy.tier === 'normal') {
     if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
   } else {
@@ -658,6 +692,15 @@ function updateGame(state, game, input) {
   if (player.speedBoostTimer > 0) player.speedBoostTimer--;
   if (player.shieldTimer > 0) player.shieldTimer--;
   if (state.flashTimer > 0) state.flashTimer--;
+
+  // Chain timer
+  if (state.chainTimer > 0) {
+    state.chainTimer -= 1;
+    if (state.chainTimer <= 0) {
+      state.chainCount = 0;
+    }
+  }
+  if (state.chainPulse > 0) state.chainPulse -= 1;
 
   if (state.tick % 40 === 0) {
     spawnAmbient(state, getCampaign(state.campaignIndex).theme);
@@ -813,8 +856,10 @@ function updateGame(state, game, input) {
       if (dist < GRAZE_RADIUS && !rectHit(eb, player)) {
         eb.grazed = true;
         state.grazeCount += 1;
-        state.score += GRAZE_POINTS;
-        state.scorePops.push({ x: bcx, y: bcy, text: `+${GRAZE_POINTS}`, life: 20 });
+        const grazeMultiplier = getChainMultiplier(state.chainCount);
+        const grazePoints = Math.round(GRAZE_POINTS * grazeMultiplier);
+        state.score += grazePoints;
+        state.scorePops.push({ x: bcx, y: bcy, text: `+${grazePoints}`, life: 20 });
         // Spark particles
         for (let s = 0; s < 4; s++) {
           state.particles.push({
@@ -1170,6 +1215,29 @@ export function createGame() {
       if (Math.floor(state.bossWarningTimer / 12) % 2 === 0) {
         text.drawText('WARNING', W / 2 - 70, H / 2 - 20, 32, '#ff2244');
       }
+    }
+
+    // Chain display
+    if (state.chainCount > 1) {
+      const chainColor = getChainColor(state.chainCount);
+      const multiplier = getChainMultiplier(state.chainCount);
+      const pulse = state.chainPulse > 0 ? 1 + state.chainPulse * 0.02 : 1;
+      const baseSize = 40;
+      const fontSize = Math.round(baseSize * pulse);
+      const multSize = Math.round(30 * pulse);
+      const chainText = `CHAIN ${state.chainCount}`;
+      const multText = `x${multiplier.toFixed(1)}`;
+      const cx = W / 2;
+      text.drawText(chainText, cx - chainText.length * 10, 100, fontSize, chainColor);
+      text.drawText(multText, cx - multText.length * 6, 100 + fontSize + 4, multSize, chainColor);
+      // Chain timer bar
+      const barW = 160;
+      const barH = 6;
+      const barX = cx - barW / 2;
+      const barY = 100 + fontSize + multSize + 12;
+      const timerPct = state.chainTimer / getChainWindow(state.chainCount);
+      renderer.fillRect(barX, barY, barW, barH, '#334f66');
+      renderer.fillRect(barX, barY, Math.floor(barW * timerPct), barH, chainColor);
     }
 
     updateAndDrawScorePops(text, state);
