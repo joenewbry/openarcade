@@ -852,8 +852,6 @@ export function createGame() {
     if (game.state === 'waiting') {
       if (input.wasPressed('1')) { selectedPlaneIndex = 0; updateOverlayText(); }
       if (input.wasPressed('2')) { selectedPlaneIndex = 1; updateOverlayText(); }
-      if (input.wasPressed('3')) { selectedPlaneIndex = 2; updateOverlayText(); }
-      if (input.wasPressed('4')) { selectedPlaneIndex = 3; updateOverlayText(); }
       if (input.wasPressed(' ')) {
         resetRun();
         game.setState('playing');
