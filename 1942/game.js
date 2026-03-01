@@ -65,6 +65,12 @@ class Sfx {
   enemyShoot() { this.tone(420, 'sawtooth', 0.06, 0.07); }
   hit() { this.noise(0.08, 0.12); }
   explode() { this.noise(0.18, 0.18); this.tone(130, 'sine', 0.15, 0.1); }
+  bomb() {
+    this.noise(0.5, 0.3);
+    this.tone(55, 'sine', 0.6, 0.25);
+    this.tone(80, 'square', 0.4, 0.15);
+    setTimeout(() => { this.noise(0.3, 0.2); this.tone(40, 'sine', 0.5, 0.18); }, 120);
+  }
   roll() { this.tone(520, 'triangle', 0.12, 0.08); }
   pickup() { this.tone(680, 'sine', 0.08, 0.1); setTimeout(() => this.tone(980, 'sine', 0.1, 0.09), 70); }
   bossWarn() { this.tone(160, 'square', 0.12, 0.12); setTimeout(() => this.tone(130, 'square', 0.12, 0.1), 140); }
@@ -135,6 +141,7 @@ function makePlayer(planeId) {
     specialTimer: 0,
     rollTimer: 0,
     rollInvuln: 0,
+    bombInvuln: 0,
     vx: 0,
     vy: 0,
     rollVx: 0,
@@ -596,7 +603,7 @@ function spawnEnemyBullets(state, e, player) {
 
 function damagePlayer(state) {
   const p = state.player;
-  if (p.invuln > 0 || p.shieldTimer > 0 || p.rollInvuln > 0) return;
+  if (p.invuln > 0 || p.shieldTimer > 0 || p.rollInvuln > 0 || p.bombInvuln > 0) return;
   p.lives -= 1;
   p.invuln = 120;
   spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#8ec5ff', 16);
@@ -706,6 +713,7 @@ function updateGame(state, game, input) {
     if (state.screenShakeTimer > 0) state.screenShakeTimer--;
     if (state.flashTimer > 0) state.flashTimer--;
     if (player.invuln > 0) player.invuln--;
+    if (player.bombInvuln > 0) player.bombInvuln--;
     // Decay particles during freeze for visual continuity
     for (const pt of state.particles) {
       pt.life -= 1;
@@ -719,6 +727,7 @@ function updateGame(state, game, input) {
   if (player.specialTimer > 0) player.specialTimer--;
   if (player.rollTimer > 0) player.rollTimer--;
   if (player.rollInvuln > 0) player.rollInvuln--;
+  if (player.bombInvuln > 0) player.bombInvuln--;
   if (player.rollCooldown > 0) player.rollCooldown--;
   if (player.invuln > 0) player.invuln--;
   if (player.doubleShotTimer > 0) player.doubleShotTimer--;
@@ -795,11 +804,69 @@ function updateGame(state, game, input) {
   if (input.wasPressed('b') || input.wasPressed('B')) {
     if (player.bombs > 0) {
       player.bombs -= 1;
-      spawnExplosion(state, player.x + player.w / 2, player.y - 40, '#ffd27b', 24);
-      state.enemies.forEach((enemy) => {
-        enemy.hp -= enemy.tier === 'normal' ? 8 : 18;
-      });
+
+      // --- Dramatic sound ---
+      sfx.bomb();
+
+      // --- Full-screen white flash for 8 frames ---
+      state.flashTimer = 8;
+
+      // --- Kill all normal enemies outright; bosses/minis take 15% maxHp ---
+      for (let i = state.enemies.length - 1; i >= 0; i--) {
+        const enemy = state.enemies[i];
+        if (enemy.tier === 'normal') {
+          // Award base score (no chain multiplier — chain is reset below)
+          state.score += enemy.def.score;
+          state.scorePops.push({ x: enemy.x + enemy.w / 2, y: enemy.y, text: `${enemy.def.score}`, life: 30 });
+          spawnExplosion(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ff8f5c', 10);
+          if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+          state.enemies.splice(i, 1);
+        } else {
+          enemy.hp -= Math.ceil(enemy.maxHp * 0.15);
+          if (enemy.hp <= 0) {
+            const wasFinal = enemy.tier === 'final';
+            killEnemy(state, enemy);
+            state.enemies.splice(i, 1);
+            if (wasFinal && state.enemies.filter((x) => x.tier === 'final').length === 0) {
+              moveToNextCampaign(state, game);
+            }
+          }
+        }
+      }
+
+      // --- Cancel ALL enemy bullets, award 10 points per bullet (flat, no chain) ---
+      const cancelledBullets = state.enemyBullets.length;
+      if (cancelledBullets > 0) {
+        const bulletPoints = cancelledBullets * 10;
+        state.score += bulletPoints;
+        state.scorePops.push({ x: W / 2 - 40, y: H / 2, text: `+${bulletPoints}`, life: 45 });
+      }
       state.enemyBullets.length = 0;
+
+      // --- 60 frames of bomb I-frames (tracked separately) ---
+      player.bombInvuln = 60;
+
+      // --- Reset chain to 0 (bombing costs your combo) ---
+      state.chainCount = 0;
+      state.chainTimer = 0;
+      state.chainPulse = 0;
+
+      // --- Big explosion particles across the screen (35 large orange/white) ---
+      for (let i = 0; i < 35; i++) {
+        const px = rand(40, W - 40);
+        const py = rand(40, H - 40);
+        const color = Math.random() < 0.5 ? '#ffa040' : '#ffffff';
+        state.particles.push({
+          x: px,
+          y: py,
+          vx: rand(-6, 6),
+          vy: rand(-6, 6),
+          life: rand(30, 55),
+          maxLife: rand(30, 55),
+          color,
+          r: rand(10, 22),
+        });
+      }
     }
   }
 
@@ -1233,7 +1300,7 @@ export function createGame() {
       ? (Math.floor(state.player.rollTimer / 6) % 2 ? 'roll_1' : 'roll_2')
       : `plane_${state.player.plane.id}`;
 
-    const playerAlpha = state.player.invuln > 0 && state.tick % 6 < 3 ? 0.55 : 1;
+    const playerAlpha = (state.player.invuln > 0 || state.player.bombInvuln > 0) && state.tick % 6 < 3 ? 0.55 : 1;
     const bankOffset = clamp(state.player.vx * 0.4, -2, 2);
     drawPixelSprite(renderer, playerSprite, state.player.x + bankOffset, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
 
