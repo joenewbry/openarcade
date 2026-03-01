@@ -458,6 +458,133 @@ function useSpecial(state) {
   p.specialCooldown = special.cooldown;
 }
 
+// -- Enemy bullet pattern helpers --
+// Speed tiers for color-coding:
+//   slow  (<=3.0): large 12px, pink/magenta circle
+//   medium (<=5.0): medium 8px, orange diamond
+//   fast  (>5.0):  small 6px, bright red circle
+
+function bulletTier(speed) {
+  const abs = Math.abs(speed);
+  if (abs <= 3.0) return 'slow';
+  if (abs <= 5.0) return 'medium';
+  return 'fast';
+}
+
+function bulletProps(speed) {
+  const tier = bulletTier(speed);
+  if (tier === 'slow') return { size: 12, color: '#ff44cc', shape: 'circle' };
+  if (tier === 'medium') return { size: 8, color: '#ff9933', shape: 'diamond' };
+  return { size: 6, color: '#ff2222', shape: 'circle' };
+}
+
+function pushEnemyBullet(state, x, y, vx, vy) {
+  const speed = Math.hypot(vx, vy);
+  const props = bulletProps(speed);
+  const half = props.size / 2;
+  state.enemyBullets.push({
+    x: x - half, y: y - half,
+    w: props.size,
+    h: props.size,
+    vx, vy,
+    color: props.color,
+    shape: props.shape,
+  });
+}
+
+function spawnEnemyBullets(state, e, player) {
+  const cx = e.x + e.w / 2;
+  const cy = e.y + e.h - 8;
+  const px = player.x + player.w / 2;
+  const py = player.y + player.h / 2;
+  const baseSpeed = e.def.bulletSpeed * 2;
+
+  // Determine kind: normal enemies use def.kind, bosses use tier
+  const kind = e.tier === 'normal' ? (e.def.kind || 'fighter') : e.tier;
+
+  switch (kind) {
+    // --- Fighters / scouts: single aimed shot ---
+    case 'fighter': {
+      const dx = px - cx;
+      const dy = py - cy;
+      const dist = Math.hypot(dx, dy) || 1;
+      pushEnemyBullet(state, cx, cy, (dx / dist) * baseSpeed, (dy / dist) * baseSpeed);
+      break;
+    }
+
+    // --- Gunships: 3-round burst spread ---
+    case 'gunship': {
+      const dx = px - cx;
+      const dy = py - cy;
+      const angle = Math.atan2(dy, dx);
+      for (let i = -1; i <= 1; i++) {
+        const a = angle + i * 0.22;
+        pushEnemyBullet(state, cx, cy, Math.cos(a) * baseSpeed, Math.sin(a) * baseSpeed);
+      }
+      break;
+    }
+
+    // --- Bombers: slow large bombs that drop straight down ---
+    case 'bomber': {
+      const bombSpeed = Math.min(baseSpeed * 0.5, 2.8);
+      pushEnemyBullet(state, cx - 12, cy, 0, bombSpeed);
+      pushEnemyBullet(state, cx + 12, cy, 0, bombSpeed);
+      break;
+    }
+
+    // --- Subs: similar to bombers but with slight tracking ---
+    case 'sub': {
+      const dx = px - cx;
+      const dist = Math.abs(dx) || 1;
+      const trackVx = clamp(dx / dist * 1.2, -1.2, 1.2);
+      const bombSpeed = Math.min(baseSpeed * 0.55, 2.8);
+      pushEnemyBullet(state, cx, cy, trackVx, bombSpeed);
+      break;
+    }
+
+    // --- Mini bosses: rotating spiral pattern ---
+    case 'mini': {
+      const spiralCount = 5;
+      const baseAngle = (e.t * 0.08);
+      for (let i = 0; i < spiralCount; i++) {
+        const a = baseAngle + (i / spiralCount) * Math.PI * 2;
+        const spd = baseSpeed * 0.85;
+        pushEnemyBullet(state, cx, cy, Math.cos(a) * spd, Math.sin(a) * spd);
+      }
+      break;
+    }
+
+    // --- Final bosses: dense curtain with safe corridors ---
+    case 'final': {
+      const curtainCount = 9;
+      const gap = Math.floor(rand(1, curtainCount - 1)); // safe corridor index
+      const totalWidth = e.w + 80;
+      for (let i = 0; i < curtainCount; i++) {
+        if (i === gap || i === gap + 1) continue; // safe corridor
+        const offsetX = (i - (curtainCount - 1) / 2) * (totalWidth / curtainCount);
+        const spd = baseSpeed * 0.7;
+        pushEnemyBullet(state, cx + offsetX, cy, rand(-0.3, 0.3), spd);
+      }
+      // Also fire a couple of aimed shots through the corridor edges
+      const dx = px - cx;
+      const dy = py - cy;
+      const angle = Math.atan2(dy, dx);
+      const fastSpeed = baseSpeed * 1.1;
+      pushEnemyBullet(state, cx, cy, Math.cos(angle) * fastSpeed, Math.sin(angle) * fastSpeed);
+      break;
+    }
+
+    // Fallback: single aimed shot
+    default: {
+      const dx = px - cx;
+      const dy = py - cy;
+      const dist = Math.hypot(dx, dy) || 1;
+      pushEnemyBullet(state, cx, cy, (dx / dist) * baseSpeed, (dy / dist) * baseSpeed);
+      break;
+    }
+  }
+}
+
 function damagePlayer(state) {
   const p = state.player;
   if (p.invuln > 0 || p.shieldTimer > 0 || p.rollInvuln > 0) return;
@@ -635,22 +762,7 @@ function updateGame(state, game, input) {
     e.frame = Math.floor(e.animTimer / step) % e.def.anim.length;
 
     if (e.fireTimer <= 0 && !state.dialogue) {
-      const count = e.tier === 'normal' ? 1 : e.tier === 'mini' ? 3 : 5;
-      const cx = e.x + e.w / 2;
-      const cy = e.y + e.h - 8;
-      for (let i = 0; i < count; i++) {
-        const spread = count === 1 ? 0 : (i - (count - 1) / 2) * 1.1;
-        const vy = e.def.bulletSpeed * 2;
-        state.enemyBullets.push({
-          x: cx,
-          y: cy,
-          w: 8,
-          h: 16,
-          vx: spread,
-          vy,
-          color: '#ff7a7a',
-        });
-      }
+      spawnEnemyBullets(state, e, player);
       e.fireTimer = e.def.fireRate + rand(-8, 8);
       if (Math.random() < 0.25) sfx.enemyShoot();
     }
@@ -954,7 +1066,20 @@ export function createGame() {
     }
 
     for (const b of state.enemyBullets) {
-      renderer.fillRect(b.x, b.y, b.w, b.h, b.color);
+      const bcx = b.x + b.w / 2;
+      const bcy = b.y + b.h / 2;
+      if (b.shape === 'diamond') {
+        const half = b.w / 2;
+        renderer.fillPoly([
+          { x: bcx, y: bcy - half },
+          { x: bcx + half, y: bcy },
+          { x: bcx, y: bcy + half },
+          { x: bcx - half, y: bcy },
+        ], b.color);
+      } else {
+        // circle for slow and fast bullets
+        renderer.fillCircle(bcx, bcy, b.w / 2, b.color);
+      }
     }
 
     for (const enemy of state.enemies) {
