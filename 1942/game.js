@@ -167,6 +167,10 @@ function makeInitialState(planeId) {
     dialogue: null,
     pendingDialogue: [],
     flashTimer: 0,
+    waveClearTimer: 0,
+    waveClearBonusAwarded: false,
+    bossWarningTimer: 0,
+    pendingBossWave: false,
     shownMilestones: new Set(),
     scorePops: [],
   };
@@ -488,6 +492,10 @@ function moveToNextCampaign(state, game) {
   state.campaignIndex += 1;
   state.wave = 0;
   state.waveDelay = 80;
+  state.waveClearTimer = 0;
+  state.waveClearBonusAwarded = false;
+  state.bossWarningTimer = 0;
+  state.pendingBossWave = false;
   state.enemies.length = 0;
   state.enemyBullets.length = 0;
   state.bullets.length = 0;
@@ -735,10 +743,44 @@ function updateGame(state, game, input) {
   }
 
   if (state.enemies.length === 0 && game.state === 'playing') {
+    // Boss warning phase — count down, then spawn boss wave
+    if (state.bossWarningTimer > 0) {
+      state.bossWarningTimer -= 1;
+      if (state.bossWarningTimer <= 0) {
+        state.pendingBossWave = false;
+        spawnWave(state);
+        state.waveDelay = 120;
+      }
+      return;
+    }
+
+    // Wave clear display (only after wave 1+)
+    if (state.wave > 0 && !state.waveClearBonusAwarded) {
+      state.waveClearTimer = 90;
+      state.waveClearBonusAwarded = true;
+      state.score += 500;
+      state.scorePops.push({ x: W / 2 - 20, y: H / 2 + 30, text: '+500', life: 60 });
+    }
+
+    if (state.waveClearTimer > 0) {
+      state.waveClearTimer -= 1;
+      return;
+    }
+
     state.waveDelay -= 1;
     if (state.waveDelay <= 0) {
+      // Check if next wave is a boss wave
+      const campaign = getCampaign(state.campaignIndex);
+      const nextWave = state.wave + 1;
+      if (!state.pendingBossWave && (campaign.minibossWaves.includes(nextWave) || nextWave === campaign.finalWave)) {
+        state.bossWarningTimer = 180;
+        state.pendingBossWave = true;
+        return;
+      }
+      state.pendingBossWave = false;
+      state.waveClearBonusAwarded = false;
       spawnWave(state);
-      state.waveDelay = 50;
+      state.waveDelay = 120;
     }
   }
 
@@ -948,6 +990,21 @@ export function createGame() {
 
     for (const pt of state.particles) {
       renderer.fillRect(pt.x, pt.y, pt.r, pt.r, hexToRgba(pt.color.startsWith('#') ? pt.color : '#ff8f5c', clamp(pt.life / pt.maxLife, 0, 1)));
+    }
+
+    // Wave Clear text
+    if (state.waveClearTimer > 0 && state.wave > 0) {
+      const alpha = Math.min(state.waveClearTimer / 15, 1);
+      const color = `rgba(186,246,255,${alpha})`;
+      text.drawText('WAVE CLEAR', W / 2 - 80, H / 2 - 20, 28, color);
+    }
+
+    // Boss Warning overlay
+    if (state.bossWarningTimer > 0) {
+      renderer.fillRect(0, 0, W, H, 'rgba(0,0,0,0.3)');
+      if (Math.floor(state.bossWarningTimer / 12) % 2 === 0) {
+        text.drawText('WARNING', W / 2 - 70, H / 2 - 20, 32, '#ff2244');
+      }
     }
 
     updateAndDrawScorePops(text, state);
