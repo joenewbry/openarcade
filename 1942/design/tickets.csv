@@ -1,11 +1,11 @@
 ticket_id,designer,priority,title,description,status,pr_number,implemented_date
 ARCADE-001,miyamoto,critical,Implement Wordless Tutorial W1-4,Hand-script tutorial waves with gated mechanics: W1=move W2=dodge W3=powerups W4=roll,open,,
-ARCADE-002,miyamoto+kojima+okamoto,critical,Reduce to 2 Planes for v1,Remove Falcon and Lancer from PLANES array. Ship only Specter + Atlas per design doc,open,,
-ARCADE-003,miyamoto,critical,Add Movement Velocity Smoothing,Track player.vx/vy and lerp toward target speed for ~4 frame accel / ~6 frame decel,open,,
-ARCADE-004,miyamoto+ikeda+okamoto,important,Fix Score Values to Design Doc,Set small=100 medium=250 mini boss=5000 final boss=25000. Add floating score pop text at kills,open,,
-ARCADE-005,miyamoto+kojima+ikeda+okamoto,important,Add Wave Clear Transitions and Boss Warning,Show WAVE CLEAR text 90 frames + score bonus. Add 180-frame WARNING phase before bosses,open,,
+ARCADE-002,miyamoto+kojima+okamoto,critical,Reduce to 2 Planes for v1,Remove Falcon and Lancer from PLANES array. Ship only Specter + Atlas per design doc,implemented,2,2026-03-01
+ARCADE-003,miyamoto,critical,Add Movement Velocity Smoothing,Track player.vx/vy and lerp toward target speed for ~4 frame accel / ~6 frame decel,implemented,4,2026-03-01
+ARCADE-004,miyamoto+ikeda+okamoto,important,Fix Score Values to Design Doc,Set small=100 medium=250 mini boss=5000 final boss=25000. Add floating score pop text at kills,implemented,3,2026-03-01
+ARCADE-005,miyamoto+kojima+ikeda+okamoto,important,Add Wave Clear Transitions and Boss Warning,Show WAVE CLEAR text 90 frames + score bonus. Add 180-frame WARNING phase before bosses,implemented,5,2026-03-01
 ARCADE-006,miyamoto,important,Make Bombs Feel Powerful,Add 60-frame I-frames. Kill normals outright. Full-screen flash. 10pts per cancelled bullet,open,,
-ARCADE-007,miyamoto,important,Remove NOT- Prefix from Campaign Names/IDs,Find-replace in campaigns.js and dialogue.js to remove not_/NOT- prefixes,implemented,direct-merge,2026-03-01,,
+ARCADE-007,miyamoto,important,Remove NOT- Prefix from Campaign Names/IDs,Find-replace in campaigns.js and dialogue.js to remove not_/NOT- prefixes,implemented,direct-merge,2026-03-01
 ARCADE-008,miyamoto,important,Differentiate Enemy vs Player Bullet Visuals,Draw enemy bullets as diamonds/circles with white core. Keep player bullets rectangular,open,,
 ARCADE-009,miyamoto+kojima+ikeda+okamoto,important,Add Death Consequences,Reset all buff timers on death. Add 30-frame entity freeze + screen shake. Drop shot tier,open,,
 ARCADE-010,miyamoto,nice-to-have,Simplify Campaign Intro Phase,Remove campaign_intro phase. Add 3-second black screen with campaign name between campaigns,open,,
