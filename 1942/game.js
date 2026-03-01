@@ -166,6 +166,7 @@ function makeInitialState(planeId) {
     pendingDialogue: [],
     flashTimer: 0,
     shownMilestones: new Set(),
+    scorePops: [],
   };
 }
 
@@ -470,6 +471,7 @@ function killEnemy(state, enemy) {
   spawnExplosion(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ff8f5c', enemy.tier === 'normal' ? 10 : 24);
   sfx.explode();
   state.score += enemy.def.score;
+  state.scorePops.push({ x: enemy.x + enemy.w / 2, y: enemy.y, text: `${enemy.def.score}`, life: 30 });
   if (enemy.tier === 'normal') {
     if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
   } else {
@@ -772,6 +774,19 @@ function lerpHex(a, b, t) {
   return `rgb(${r},${g},${bch})`;
 }
 
+function updateAndDrawScorePops(text, state) {
+  for (let i = state.scorePops.length - 1; i >= 0; i--) {
+    const p = state.scorePops[i];
+    p.y -= 1;
+    p.life -= 1;
+    const alpha = Math.max(0, p.life / 30);
+    const r = 255, g = 255, b = 100;
+    const color = `rgba(${r},${g},${b},${alpha})`;
+    text.drawText(p.text, p.x - p.text.length * 3, p.y, 14, color);
+    if (p.life <= 0) state.scorePops.splice(i, 1);
+  }
+}
+
 function drawUI(renderer, text, state) {
   const p = state.player;
   const campaign = getCampaign(state.campaignIndex);
@@ -926,6 +941,7 @@ export function createGame() {
       renderer.fillRect(pt.x, pt.y, pt.r, pt.r, hexToRgba(pt.color.startsWith('#') ? pt.color : '#ff8f5c', clamp(pt.life / pt.maxLife, 0, 1)));
     }
 
+    updateAndDrawScorePops(text, state);
     drawUI(renderer, text, state);
   };
 
