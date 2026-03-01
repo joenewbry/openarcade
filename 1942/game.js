@@ -16,6 +16,8 @@ const ROLL_DURATION = 30;
 const ROLL_IFRAMES = 22;
 const ROLL_SPEED = 12.2;
 const ROLL_TRAIL_MAX = 4;
+const GRAZE_RADIUS = 56;
+const GRAZE_POINTS = 25;
 
 class Sfx {
   constructor() {
@@ -58,6 +60,7 @@ class Sfx {
     src.start();
   }
 
+  graze() { this.tone(1400, 'sine', 0.03, 0.05); }
   shoot() { this.tone(920, 'square', 0.05, 0.07); }
   enemyShoot() { this.tone(420, 'sawtooth', 0.06, 0.07); }
   hit() { this.noise(0.08, 0.12); }
@@ -173,6 +176,7 @@ function makeInitialState(planeId) {
     pendingBossWave: false,
     shownMilestones: new Set(),
     scorePops: [],
+    grazeCount: 0,
   };
 }
 
@@ -795,6 +799,40 @@ function updateGame(state, game, input) {
   }
   state.particles = state.particles.filter((p) => p.life > 0);
 
+  // -- Graze detection --
+  {
+    const pcx = player.x + player.w / 2;
+    const pcy = player.y + player.h / 2;
+    for (const eb of state.enemyBullets) {
+      if (eb.grazed) continue;
+      const bcx = eb.x + eb.w / 2;
+      const bcy = eb.y + eb.h / 2;
+      const dx = bcx - pcx;
+      const dy = bcy - pcy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < GRAZE_RADIUS && !rectHit(eb, player)) {
+        eb.grazed = true;
+        state.grazeCount += 1;
+        state.score += GRAZE_POINTS;
+        state.scorePops.push({ x: bcx, y: bcy, text: `+${GRAZE_POINTS}`, life: 20 });
+        // Spark particles
+        for (let s = 0; s < 4; s++) {
+          state.particles.push({
+            x: bcx,
+            y: bcy,
+            vx: rand(-3, 3),
+            vy: rand(-3, 3),
+            life: 10,
+            maxLife: 10,
+            color: s % 2 === 0 ? '#ffffff' : '#66ffff',
+            r: rand(2, 4),
+          });
+        }
+        sfx.graze();
+      }
+    }
+  }
+
   for (let i = state.bullets.length - 1; i >= 0; i--) {
     const b = state.bullets[i];
     for (let j = state.enemies.length - 1; j >= 0; j--) {
@@ -959,6 +997,8 @@ function drawUI(renderer, text, state) {
   text.drawText(`BOMBS ${p.bombs}`, 380, 60, 28, '#ffe1a2');
   text.drawText(`WAVE ${state.wave}/${campaign.finalWave}`, 680, 20, 36, '#f1fbff');
   text.drawText(campaign.name, 680, 60, 28, '#b6daf4');
+
+  if (state.grazeCount > 0) text.drawText(`GRAZE ${state.grazeCount}`, 680, 104, 24, '#66ffff');
 
   text.drawText(`PLANE ${p.plane.name}`, 24, H - 48, 28, p.plane.color);
   text.drawText(`SPECIAL ${p.plane.special.name}`, 440, H - 48, 28, '#d5e7ff');
