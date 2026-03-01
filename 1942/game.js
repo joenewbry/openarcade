@@ -6,15 +6,15 @@ import { ENEMIES, MINI_BOSSES, FINAL_BOSSES } from './content/enemies.js';
 import { getDialogue } from './content/dialogue.js';
 import { getSprite, colorForKey } from './content/sprites.js';
 
-const W = 480;
-const H = 640;
-const PLAYER_SCALE = 3;
-const ENEMY_SCALE = 3;
-const BOSS_SCALE = 4;
-const BULLET_SIZE = 4;
+const W = 960;
+const H = 1280;
+const PLAYER_SCALE = 6;
+const ENEMY_SCALE = 6;
+const BOSS_SCALE = 8;
+const BULLET_SIZE = 8;
 const ROLL_DURATION = 30;
 const ROLL_IFRAMES = 22;
-const ROLL_SPEED = 6.1;
+const ROLL_SPEED = 12.2;
 const ROLL_TRAIL_MAX = 4;
 
 class Sfx {
@@ -122,7 +122,7 @@ function makePlayer(planeId) {
     planeId: plane.id,
     plane,
     x: W / 2 - size.w / 2,
-    y: H - 120,
+    y: H - 240,
     w: size.w,
     h: size.h,
     lives: 3,
@@ -226,9 +226,9 @@ function spawnPowerup(state, x, y, fixedId = null) {
     id: def.id,
     x,
     y,
-    w: 21,
-    h: 21,
-    vy: 1.4,
+    w: 42,
+    h: 42,
+    vy: 2.8,
     bob: rand(0, Math.PI * 2),
   });
 }
@@ -238,33 +238,33 @@ function spawnExplosion(state, x, y, color = '#ff8f5c', count = 12) {
     state.particles.push({
       x,
       y,
-      vx: rand(-2.2, 2.2),
-      vy: rand(-2.2, 2.2),
+      vx: rand(-4.4, 4.4),
+      vy: rand(-4.4, 4.4),
       life: rand(18, 36),
       maxLife: rand(18, 36),
       color,
-      r: rand(2, 4),
+      r: rand(4, 8),
     });
   }
 }
 
 function enemyPatternVelocity(enemy, player) {
   const e = enemy;
-  const speed = e.def.speed;
+  const speed = e.def.speed * 2;
   const t = e.t * 0.045;
   switch (e.pattern) {
     case 'line': return { vx: 0, vy: speed };
-    case 'vee': return { vx: Math.sin(t) * 1.1, vy: speed };
-    case 'cross': return { vx: Math.sign(Math.sin(t)) * 1.5, vy: speed * 0.92 };
-    case 'stagger': return { vx: Math.sin(t * 1.8) * 1.4, vy: speed * 0.95 };
-    case 'swirl': return { vx: Math.cos(t) * 1.8, vy: speed * 0.88 };
-    case 'mini': return { vx: Math.sin(t * 0.8) * 1.4, vy: 0.6 };
+    case 'vee': return { vx: Math.sin(t) * 2.2, vy: speed };
+    case 'cross': return { vx: Math.sign(Math.sin(t)) * 3.0, vy: speed * 0.92 };
+    case 'stagger': return { vx: Math.sin(t * 1.8) * 2.8, vy: speed * 0.95 };
+    case 'swirl': return { vx: Math.cos(t) * 3.6, vy: speed * 0.88 };
+    case 'mini': return { vx: Math.sin(t * 0.8) * 2.8, vy: 1.2 };
     case 'boss': {
       const dx = player.x + player.w / 2 - (e.x + e.w / 2);
-      const clampV = clamp(dx * 0.02, -1.4, 1.4);
-      const yTarget = 80;
+      const clampV = clamp(dx * 0.02, -2.8, 2.8);
+      const yTarget = 160;
       const dy = yTarget - e.y;
-      return { vx: clampV, vy: clamp(dy * 0.03, -1.2, 1.2) };
+      return { vx: clampV, vy: clamp(dy * 0.03, -2.4, 2.4) };
     }
     default: return { vx: 0, vy: speed };
   }
@@ -281,7 +281,7 @@ function spawnWave(state) {
       state.shownMilestones.add(`${waveKey}:mini`);
       sfx.bossWarn();
     }
-    const mini = createEnemy(campaign.miniboss, W / 2 - 48, -90, 'mini', state.campaignIndex + 1, 'mini');
+    const mini = createEnemy(campaign.miniboss, W / 2 - 96, -180, 'mini', state.campaignIndex + 1, 'mini');
     state.enemies.push(mini);
     return;
   }
@@ -292,7 +292,7 @@ function spawnWave(state) {
       state.shownMilestones.add(`${waveKey}:boss`);
       sfx.bossWarn();
     }
-    const boss = createEnemy(campaign.finalBoss, W / 2 - 76, -120, 'boss', state.campaignIndex + 1, 'final');
+    const boss = createEnemy(campaign.finalBoss, W / 2 - 152, -240, 'boss', state.campaignIndex + 1, 'final');
     state.enemies.push(boss);
     return;
   }
@@ -301,16 +301,16 @@ function spawnWave(state) {
   const count = spec.count + Math.min(state.campaignIndex, 2);
   for (let i = 0; i < count; i++) {
     const id = spec.mix[i % spec.mix.length];
-    let x = 40 + (i % 6) * 70;
-    let y = -30 - Math.floor(i / 6) * 44;
+    let x = 80 + (i % 6) * 140;
+    let y = -60 - Math.floor(i / 6) * 88;
     if (spec.pattern === 'vee') {
       const col = i % 9;
-      x = W / 2 + (col - 4) * 26;
-      y = -30 - Math.abs(col - 4) * 14 - Math.floor(i / 9) * 52;
+      x = W / 2 + (col - 4) * 52;
+      y = -60 - Math.abs(col - 4) * 28 - Math.floor(i / 9) * 104;
     }
     if (spec.pattern === 'swirl') {
-      x = W / 2 + Math.sin(i * 0.8) * 120;
-      y = -30 - i * 34;
+      x = W / 2 + Math.sin(i * 0.8) * 240;
+      y = -60 - i * 68;
     }
     state.enemies.push(createEnemy(id, x, y, spec.pattern, state.campaignIndex + 1, 'normal'));
   }
@@ -321,7 +321,7 @@ function spawnAmbient(state, theme) {
   const r = Math.random();
   const type = theme.wildlife[Math.floor(rand(0, theme.wildlife.length))];
   if (r < 0.28) {
-    state.ambience.push({ type, x: rand(20, W - 60), y: -40, size: rand(22, 60), vy: rand(0.4, 1.2) });
+    state.ambience.push({ type, x: rand(40, W - 120), y: -80, size: rand(44, 120), vy: rand(0.8, 2.4) });
   }
 }
 
@@ -329,37 +329,37 @@ function drawAmbient(renderer, ambient, campaign) {
   const theme = campaign.theme;
   for (const a of ambient) {
     if (a.type === 'whale') {
-      renderer.fillRect(a.x, a.y, a.size, 10, '#3f6c8e');
-      renderer.fillRect(a.x + 8, a.y - 5, a.size * 0.35, 4, '#4e7ea3');
+      renderer.fillRect(a.x, a.y, a.size, 20, '#3f6c8e');
+      renderer.fillRect(a.x + 16, a.y - 10, a.size * 0.35, 8, '#4e7ea3');
     } else if (a.type === 'islands') {
-      renderer.fillRect(a.x, a.y, a.size, 8, '#d5bc84');
-      renderer.fillRect(a.x + 5, a.y - 11, a.size * 0.6, 11, '#4b7c45');
+      renderer.fillRect(a.x, a.y, a.size, 16, '#d5bc84');
+      renderer.fillRect(a.x + 10, a.y - 22, a.size * 0.6, 22, '#4b7c45');
     } else if (a.type === 'gulls' || a.type === 'birds') {
-      renderer.fillRect(a.x, a.y, 6, 2, '#eaeff7');
-      renderer.fillRect(a.x + 7, a.y + 1, 5, 2, '#eaeff7');
+      renderer.fillRect(a.x, a.y, 12, 4, '#eaeff7');
+      renderer.fillRect(a.x + 14, a.y + 2, 10, 4, '#eaeff7');
     } else if (a.type === 'treeline') {
-      renderer.fillRect(a.x, a.y, a.size, 10, '#27492d');
-      renderer.fillRect(a.x + 4, a.y - 12, 8, 12, '#446d31');
-      renderer.fillRect(a.x + 16, a.y - 16, 9, 16, '#4d7935');
+      renderer.fillRect(a.x, a.y, a.size, 20, '#27492d');
+      renderer.fillRect(a.x + 8, a.y - 24, 16, 24, '#446d31');
+      renderer.fillRect(a.x + 32, a.y - 32, 18, 32, '#4d7935');
     } else if (a.type === 'river') {
-      renderer.fillRect(a.x, a.y, a.size, 7, '#5f90bd');
+      renderer.fillRect(a.x, a.y, a.size, 14, '#5f90bd');
     } else if (a.type === 'dunes') {
-      renderer.fillRect(a.x, a.y, a.size, 8, '#be8a52');
-      renderer.fillRect(a.x + 10, a.y - 3, a.size * 0.4, 4, '#d4a065');
+      renderer.fillRect(a.x, a.y, a.size, 16, '#be8a52');
+      renderer.fillRect(a.x + 20, a.y - 6, a.size * 0.4, 8, '#d4a065');
     } else if (a.type === 'convoy') {
-      renderer.fillRect(a.x, a.y, a.size, 8, '#6e5743');
-      renderer.fillRect(a.x + 8, a.y - 8, a.size * 0.3, 8, '#92745b');
+      renderer.fillRect(a.x, a.y, a.size, 16, '#6e5743');
+      renderer.fillRect(a.x + 16, a.y - 16, a.size * 0.3, 16, '#92745b');
     } else if (a.type === 'storm') {
-      renderer.fillRect(a.x, a.y, a.size, 12, '#4b5578');
-      renderer.fillRect(a.x + 5, a.y + 10, a.size * 0.2, 6, '#68739a');
+      renderer.fillRect(a.x, a.y, a.size, 24, '#4b5578');
+      renderer.fillRect(a.x + 10, a.y + 20, a.size * 0.2, 12, '#68739a');
     } else if (a.type === 'subs') {
-      renderer.fillRect(a.x, a.y, a.size * 0.8, 7, '#596286');
-      renderer.fillRect(a.x + 3, a.y - 4, a.size * 0.25, 4, '#777fa3');
+      renderer.fillRect(a.x, a.y, a.size * 0.8, 14, '#596286');
+      renderer.fillRect(a.x + 6, a.y - 8, a.size * 0.25, 8, '#777fa3');
     } else if (a.type === 'lightning') {
-      renderer.fillRect(a.x, a.y, 3, a.size, '#d9e3ff');
-      renderer.fillRect(a.x + 3, a.y + 8, 3, a.size * 0.4, '#f5f8ff');
+      renderer.fillRect(a.x, a.y, 6, a.size, '#d9e3ff');
+      renderer.fillRect(a.x + 6, a.y + 16, 6, a.size * 0.4, '#f5f8ff');
     } else {
-      renderer.fillRect(a.x, a.y, a.size, 8, theme.hazard);
+      renderer.fillRect(a.x, a.y, a.size, 16, theme.hazard);
     }
   }
 }
@@ -389,26 +389,26 @@ function spawnPlayerBullets(state, mode = 'normal') {
   const p = state.player;
   const baseX = p.x + p.w / 2;
   const baseY = p.y;
-  const speed = -8.5;
+  const speed = -17;
 
   let pattern = [{ vx: 0, vy: speed, pierce: 0 }];
   if (mode === 'burst') {
     pattern = [
-      { vx: -2.0, vy: speed + 1.0, pierce: 0 },
-      { vx: -1.0, vy: speed, pierce: 0 },
+      { vx: -4.0, vy: speed + 2.0, pierce: 0 },
+      { vx: -2.0, vy: speed, pierce: 0 },
       { vx: 0, vy: speed, pierce: 0 },
-      { vx: 1.0, vy: speed, pierce: 0 },
-      { vx: 2.0, vy: speed + 1.0, pierce: 0 },
+      { vx: 2.0, vy: speed, pierce: 0 },
+      { vx: 4.0, vy: speed + 2.0, pierce: 0 },
     ];
   } else if (mode === 'rail') {
     pattern = [
-      { vx: -0.8, vy: speed - 1.0, pierce: 3 },
-      { vx: 0.8, vy: speed - 1.0, pierce: 3 },
+      { vx: -1.6, vy: speed - 2.0, pierce: 3 },
+      { vx: 1.6, vy: speed - 2.0, pierce: 3 },
     ];
   } else if (p.doubleShotTimer > 0) {
     pattern = [
-      { vx: -0.5, vy: speed, pierce: 0 },
-      { vx: 0.5, vy: speed, pierce: 0 },
+      { vx: -1.0, vy: speed, pierce: 0 },
+      { vx: 1.0, vy: speed, pierce: 0 },
     ];
   }
 
@@ -417,7 +417,7 @@ function spawnPlayerBullets(state, mode = 'normal') {
       x: baseX - BULLET_SIZE / 2,
       y: baseY,
       w: BULLET_SIZE,
-      h: 10,
+      h: 20,
       vx: b.vx,
       vy: b.vy,
       pierce: b.pierce,
@@ -443,7 +443,7 @@ function useSpecial(state) {
       const dx = enemy.x + enemy.w / 2 - (p.x + p.w / 2);
       const dy = enemy.y + enemy.h / 2 - (p.y + p.h / 2);
       const d2 = dx * dx + dy * dy;
-      if (d2 < 180 * 180) {
+      if (d2 < 360 * 360) {
         enemy.stunned = 90;
         enemy.hp -= 10;
       }
@@ -451,7 +451,7 @@ function useSpecial(state) {
     state.enemyBullets = state.enemyBullets.filter((b) => {
       const dx = b.x - (p.x + p.w / 2);
       const dy = b.y - (p.y + p.h / 2);
-      return dx * dx + dy * dy > 150 * 150;
+      return dx * dx + dy * dy > 300 * 300;
     });
     spawnExplosion(state, p.x + p.w / 2, p.y + p.h / 2, '#8ec5ff', 20);
   }
@@ -538,7 +538,7 @@ function updateGame(state, game, input) {
     if (state.dialogue.timer <= 0) state.dialogue = null;
   }
 
-  const speed = player.plane.speed + (player.speedBoostTimer > 0 ? 1.15 : 0);
+  const speed = (player.plane.speed + (player.speedBoostTimer > 0 ? 1.15 : 0)) * 2;
   let mx = 0;
   let my = 0;
   if (input.isDown('ArrowLeft')) mx -= 1;
@@ -568,8 +568,8 @@ function updateGame(state, game, input) {
     player.y += player.vy;
   }
 
-  player.x = clamp(player.x, 12, W - player.w - 12);
-  player.y = clamp(player.y, 44, H - player.h - 20);
+  player.x = clamp(player.x, 24, W - player.w - 24);
+  player.y = clamp(player.y, 88, H - player.h - 40);
 
   if (input.wasPressed('Shift')) startRoll(player, player.lastMoveX, player.lastMoveY);
 
@@ -587,7 +587,7 @@ function updateGame(state, game, input) {
   if (input.wasPressed('b') || input.wasPressed('B')) {
     if (player.bombs > 0) {
       player.bombs -= 1;
-      spawnExplosion(state, player.x + player.w / 2, player.y - 20, '#ffd27b', 24);
+      spawnExplosion(state, player.x + player.w / 2, player.y - 40, '#ffd27b', 24);
       state.enemies.forEach((enemy) => {
         enemy.hp -= enemy.tier === 'normal' ? 8 : 18;
       });
@@ -616,7 +616,7 @@ function updateGame(state, game, input) {
     b.x += b.vx;
     b.y += b.vy;
   }
-  state.bullets = state.bullets.filter((b) => b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20);
+  state.bullets = state.bullets.filter((b) => b.y > -40 && b.y < H + 40 && b.x > -40 && b.x < W + 40);
 
   for (const e of state.enemies) {
     e.t += 1;
@@ -637,15 +637,15 @@ function updateGame(state, game, input) {
     if (e.fireTimer <= 0 && !state.dialogue) {
       const count = e.tier === 'normal' ? 1 : e.tier === 'mini' ? 3 : 5;
       const cx = e.x + e.w / 2;
-      const cy = e.y + e.h - 4;
+      const cy = e.y + e.h - 8;
       for (let i = 0; i < count; i++) {
-        const spread = count === 1 ? 0 : (i - (count - 1) / 2) * 0.55;
-        const vy = e.def.bulletSpeed;
+        const spread = count === 1 ? 0 : (i - (count - 1) / 2) * 1.1;
+        const vy = e.def.bulletSpeed * 2;
         state.enemyBullets.push({
           x: cx,
           y: cy,
-          w: 4,
-          h: 8,
+          w: 8,
+          h: 16,
           vx: spread,
           vy,
           color: '#ff7a7a',
@@ -660,19 +660,19 @@ function updateGame(state, game, input) {
     eb.x += eb.vx;
     eb.y += eb.vy;
   }
-  state.enemyBullets = state.enemyBullets.filter((b) => b.y < H + 30 && b.x > -20 && b.x < W + 20);
+  state.enemyBullets = state.enemyBullets.filter((b) => b.y < H + 60 && b.x > -40 && b.x < W + 40);
 
   for (const p of state.powerups) {
     p.y += p.vy;
     p.bob += 0.09;
-    p.x += Math.sin(p.bob) * 0.4;
+    p.x += Math.sin(p.bob) * 0.8;
   }
-  state.powerups = state.powerups.filter((p) => p.y < H + 30);
+  state.powerups = state.powerups.filter((p) => p.y < H + 60);
 
   for (const a of state.ambience) {
     a.y += a.vy;
   }
-  state.ambience = state.ambience.filter((a) => a.y < H + 60);
+  state.ambience = state.ambience.filter((a) => a.y < H + 120);
 
   for (const pt of state.particles) {
     pt.x += pt.vx;
@@ -728,7 +728,7 @@ function updateGame(state, game, input) {
       }
       continue;
     }
-    if (e.y > H + 30) state.enemies.splice(i, 1);
+    if (e.y > H + 60) state.enemies.splice(i, 1);
   }
 
   for (let i = state.powerups.length - 1; i >= 0; i--) {
@@ -759,7 +759,7 @@ function updateGame(state, game, input) {
       state.waveClearTimer = 90;
       state.waveClearBonusAwarded = true;
       state.score += 500;
-      state.scorePops.push({ x: W / 2 - 20, y: H / 2 + 30, text: '+500', life: 60 });
+      state.scorePops.push({ x: W / 2 - 40, y: H / 2 + 60, text: '+500', life: 60 });
     }
 
     if (state.waveClearTimer > 0) {
@@ -793,15 +793,15 @@ function drawBackground(renderer, campaign, flashTimer) {
   const t = campaign.theme;
   renderer.fillRect(0, 0, W, H, t.low);
 
-  for (let y = 0; y < H; y += 8) {
+  for (let y = 0; y < H; y += 16) {
     const pct = y / H;
     const mix = 0.35 + pct * 0.65;
     const c = lerpHex(t.sky, t.sea, mix);
-    renderer.fillRect(0, y, W, 8, c);
+    renderer.fillRect(0, y, W, 16, c);
   }
 
-  for (let y = 0; y < H; y += 32) {
-    renderer.fillRect(0, y + 6, W, 1, hexToRgba(t.accent, 0.15));
+  for (let y = 0; y < H; y += 64) {
+    renderer.fillRect(0, y + 12, W, 2, hexToRgba(t.accent, 0.15));
   }
 
   if (flashTimer > 0) {
@@ -827,12 +827,12 @@ function lerpHex(a, b, t) {
 function updateAndDrawScorePops(text, state) {
   for (let i = state.scorePops.length - 1; i >= 0; i--) {
     const p = state.scorePops[i];
-    p.y -= 1;
+    p.y -= 2;
     p.life -= 1;
     const alpha = Math.max(0, p.life / 30);
     const r = 255, g = 255, b = 100;
     const color = `rgba(${r},${g},${b},${alpha})`;
-    text.drawText(p.text, p.x - p.text.length * 3, p.y, 14, color);
+    text.drawText(p.text, p.x - p.text.length * 6, p.y, 28, color);
     if (p.life <= 0) state.scorePops.splice(i, 1);
   }
 }
@@ -841,33 +841,33 @@ function drawUI(renderer, text, state) {
   const p = state.player;
   const campaign = getCampaign(state.campaignIndex);
 
-  text.drawText(`SCORE ${state.score}`, 12, 10, 18, '#f1fbff');
-  text.drawText(`BEST ${Math.max(state.best, state.score)}`, 12, 30, 14, '#b6daf4');
-  text.drawText(`LIVES ${p.lives}`, 190, 10, 18, '#f1fbff');
-  text.drawText(`BOMBS ${p.bombs}`, 190, 30, 14, '#ffe1a2');
-  text.drawText(`WAVE ${state.wave}/${campaign.finalWave}`, 340, 10, 18, '#f1fbff');
-  text.drawText(campaign.name, 340, 30, 14, '#b6daf4');
+  text.drawText(`SCORE ${state.score}`, 24, 20, 36, '#f1fbff');
+  text.drawText(`BEST ${Math.max(state.best, state.score)}`, 24, 60, 28, '#b6daf4');
+  text.drawText(`LIVES ${p.lives}`, 380, 20, 36, '#f1fbff');
+  text.drawText(`BOMBS ${p.bombs}`, 380, 60, 28, '#ffe1a2');
+  text.drawText(`WAVE ${state.wave}/${campaign.finalWave}`, 680, 20, 36, '#f1fbff');
+  text.drawText(campaign.name, 680, 60, 28, '#b6daf4');
 
-  text.drawText(`PLANE ${p.plane.name}`, 12, H - 24, 14, p.plane.color);
-  text.drawText(`SPECIAL ${p.plane.special.name}`, 220, H - 24, 14, '#d5e7ff');
+  text.drawText(`PLANE ${p.plane.name}`, 24, H - 48, 28, p.plane.color);
+  text.drawText(`SPECIAL ${p.plane.special.name}`, 440, H - 48, 28, '#d5e7ff');
 
   const cdPct = p.specialCooldown / p.plane.special.cooldown;
-  const cdW = 120;
-  renderer.fillRect(350, H - 26, cdW, 8, '#334f66');
-  renderer.fillRect(350, H - 26, Math.floor(cdW * (1 - cdPct)), 8, '#79c7ff');
+  const cdW = 240;
+  renderer.fillRect(700, H - 52, cdW, 16, '#334f66');
+  renderer.fillRect(700, H - 52, Math.floor(cdW * (1 - cdPct)), 16, '#79c7ff');
 
-  if (p.doubleShotTimer > 0) text.drawText('DOUBLE', 12, 52, 12, '#ffe48d');
-  if (p.speedBoostTimer > 0) text.drawText('SPEED', 80, 52, 12, '#8effb5');
-  if (p.shieldTimer > 0) text.drawText('SHIELD', 140, 52, 12, '#9bc8ff');
+  if (p.doubleShotTimer > 0) text.drawText('DOUBLE', 24, 104, 24, '#ffe48d');
+  if (p.speedBoostTimer > 0) text.drawText('SPEED', 160, 104, 24, '#8effb5');
+  if (p.shieldTimer > 0) text.drawText('SHIELD', 280, 104, 24, '#9bc8ff');
 
   if (state.dialogue) {
     const alpha = clamp(state.dialogue.timer / state.dialogue.hold, 0.2, 1);
-    renderer.fillRect(14, 68, W - 28, 58, `rgba(8,16,26,${(alpha * 0.8).toFixed(2)})`);
-    renderer.fillRect(20, 74, W - 40, 2, '#7ec7ff');
+    renderer.fillRect(28, 136, W - 56, 116, `rgba(8,16,26,${(alpha * 0.8).toFixed(2)})`);
+    renderer.fillRect(40, 148, W - 80, 4, '#7ec7ff');
     const lineA = state.dialogue.lines[0] || '';
     const lineB = state.dialogue.lines[1] || '';
-    text.drawText(lineA, 24, 82, 13, '#eef7ff');
-    text.drawText(lineB, 24, 98, 13, '#b8ddff');
+    text.drawText(lineA, 48, 164, 26, '#eef7ff');
+    text.drawText(lineB, 48, 196, 26, '#b8ddff');
   }
 }
 
@@ -946,7 +946,7 @@ export function createGame() {
     drawAmbient(renderer, state.ambience, campaign);
 
     for (const p of state.powerups) {
-      drawPixelSprite(renderer, buildPowerupSprite(p.id), p.x, p.y, 3, '#ffd166');
+      drawPixelSprite(renderer, buildPowerupSprite(p.id), p.x, p.y, 6, '#ffd166');
     }
 
     for (const b of state.bullets) {
@@ -966,8 +966,8 @@ export function createGame() {
       if (enemy.tier !== 'normal') {
         const w = enemy.w;
         const hpPct = clamp(enemy.hp / enemy.maxHp, 0, 1);
-        renderer.fillRect(enemy.x, enemy.y - 8, w, 3, '#2f3148');
-        renderer.fillRect(enemy.x, enemy.y - 8, Math.floor(w * hpPct), 3, '#ff8f7a');
+        renderer.fillRect(enemy.x, enemy.y - 16, w, 6, '#2f3148');
+        renderer.fillRect(enemy.x, enemy.y - 16, Math.floor(w * hpPct), 6, '#ff8f7a');
       }
     }
 
@@ -981,11 +981,11 @@ export function createGame() {
       : `plane_${state.player.plane.id}`;
 
     const playerAlpha = state.player.invuln > 0 && state.tick % 6 < 3 ? 0.55 : 1;
-    const bankOffset = clamp(state.player.vx * 0.4, -1, 1);
+    const bankOffset = clamp(state.player.vx * 0.4, -2, 2);
     drawPixelSprite(renderer, playerSprite, state.player.x + bankOffset, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
 
     if (state.player.shieldTimer > 0) {
-      renderer.fillCircle(state.player.x + state.player.w / 2, state.player.y + state.player.h / 2, 24, 'rgba(132,188,255,0.2)');
+      renderer.fillCircle(state.player.x + state.player.w / 2, state.player.y + state.player.h / 2, 48, 'rgba(132,188,255,0.2)');
     }
 
     for (const pt of state.particles) {
@@ -996,7 +996,7 @@ export function createGame() {
     if (state.waveClearTimer > 0 && state.wave > 0) {
       const alpha = Math.min(state.waveClearTimer / 15, 1);
       const color = `rgba(186,246,255,${alpha})`;
-      text.drawText('WAVE CLEAR', W / 2 - 80, H / 2 - 20, 28, color);
+      text.drawText('WAVE CLEAR', W / 2 - 160, H / 2 - 40, 56, color);
     }
 
     // Boss Warning overlay
