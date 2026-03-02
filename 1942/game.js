@@ -91,8 +91,7 @@ const POWERUP_SPRITE_MAP = {
 };
 
 function getPlayerSpriteName(planeId, vx) {
-  if (vx > 1) return `${planeId}-bank-right`;
-  if (vx < -1) return `${planeId}-bank-left`;
+  // ARCADE-069: Completely removed banking/tilt. Plane always uses idle sprite — slides flat.
   return `${planeId}-idle`;
 }
 
@@ -2054,125 +2053,159 @@ export function createGame() {
 
   // ── In-canvas Plane Selection Screen ──
   function drawPlaneSelect(renderer, text, tick) {
-    // ARCADE-046: Vibrant background with animated gradient feel
-    renderer.fillRect(0, 0, W, H, '#0b1228');
-    // Animated starfield/particle backdrop
-    for (let i = 0; i < 40; i++) {
-      const sx = ((i * 137 + tick * 0.3) % W);
-      const sy = ((i * 211 + tick * 0.5) % H);
-      const alpha = (0.2 + Math.sin(tick * 0.03 + i) * 0.15).toFixed(2);
-      renderer.fillRect(sx, sy, 2, 2, `rgba(100,180,255,${alpha})`);
+    // ARCADE-065: Vibrant, saturated background — no gray tones
+    renderer.fillRect(0, 0, W, H, '#050d1e');
+    // Vivid animated starfield — more stars, brighter
+    for (let i = 0; i < 80; i++) {
+      const sx = ((i * 137 + tick * 0.4) % W);
+      const sy = ((i * 211 + tick * 0.7) % H);
+      const alpha = (0.4 + Math.sin(tick * 0.04 + i) * 0.3).toFixed(2);
+      const size = i % 5 === 0 ? 3 : 2;
+      const starColors = ['rgba(120,200,255,', 'rgba(255,220,140,', 'rgba(200,160,255,'];
+      renderer.fillRect(sx, sy, size, size, `${starColors[i % 3]}${alpha})`);
     }
-    // Subtle gradient overlay at top
-    renderer.fillRect(0, 0, W, 200, 'rgba(20,40,80,0.6)');
+    // Rich gradient overlays for depth
+    renderer.fillRect(0, 0, W, 180, 'rgba(10,30,80,0.5)');
+    renderer.fillRect(0, H - 200, W, 200, 'rgba(10,20,60,0.4)');
 
-    // Title — vibrant pulsing color
+    // Title — bright, saturated, pulsing
     const titleHue = 200 + Math.sin(tick * 0.025) * 30;
-    const titleColor = `hsl(${titleHue}, 90%, 70%)`;
+    const titleColor = `hsl(${titleHue}, 100%, 75%)`;
     text.drawText('1942', W / 2 - 100, 50, 72, titleColor);
-    text.drawText('PIXEL CAMPAIGNS', W / 2 - 190, 130, 36, '#88ccff');
+    text.drawText('PIXEL CAMPAIGNS', W / 2 - 190, 130, 36, '#66ddff');
 
-    // Subtitle — bright white
+    // Subtitle — bright white with glow effect
     text.drawText('SELECT YOUR PLANE', W / 2 - 180, 200, 34, '#ffffff');
+    // ARCADE-067: Arrow key hint
+    text.drawText('\u25C0  \u25B6', W / 2 - 24, 240, 28, '#88bbdd');
 
     // Two plane cards side by side — CONTAINED within bounds
     const cardW = 400;
-    const cardH = 720;
+    const cardH = 700;
     const cardGap = 32;
     const totalW = cardW * 2 + cardGap;
     const cardStartX = (W - totalW) / 2;
-    const cardY = 250;
-    // Clamp cards so text doesn't overflow canvas
-    const textPad = 24; // internal padding for text within card
+    const cardY = 270;
+    const textPad = 28; // internal padding for text within card
 
     for (let i = 0; i < PLANES.length && i < 2; i++) {
       const plane = PLANES[i];
       const cx = cardStartX + i * (cardW + cardGap);
       const isSelected = i === selectedPlaneIndex;
 
-      // Card background — vibrant, not grayed out
+      // ARCADE-065: Card backgrounds — selected is VIBRANT, unselected is visible but dimmer
       if (isSelected) {
-        // Selected: bright glow border + rich dark blue interior
-        const pulse = 0.6 + Math.sin(tick * 0.06) * 0.3;
-        const rgb = plane.color === '#9fb8ff' ? '159,184,255' : '158,233,198';
-        renderer.fillRect(cx - 6, cardY - 6, cardW + 12, cardH + 12,
-          `rgba(${rgb},${(pulse * 0.35).toFixed(2)})`);
-        renderer.fillRect(cx - 3, cardY - 3, cardW + 6, cardH + 6, plane.color);
-        renderer.fillRect(cx, cardY, cardW, cardH, '#0f1d3a');
+        // Selected: strong animated glow border + saturated interior
+        const pulse = 0.7 + Math.sin(tick * 0.06) * 0.3;
+        const rgb = plane.color === '#9fb8ff' ? '130,170,255' : '100,230,170';
+        // Outer glow
+        renderer.fillRect(cx - 8, cardY - 8, cardW + 16, cardH + 16,
+          `rgba(${rgb},${(pulse * 0.5).toFixed(2)})`);
+        // Bright border
+        renderer.fillRect(cx - 4, cardY - 4, cardW + 8, cardH + 8, plane.color);
+        // Rich dark blue interior
+        renderer.fillRect(cx, cardY, cardW, cardH, '#0a1530');
+        // Top accent bar
+        renderer.fillRect(cx, cardY, cardW, 4, plane.color);
       } else {
-        // Unselected: visible but muted border
-        renderer.fillRect(cx - 2, cardY - 2, cardW + 4, cardH + 4, '#334466');
-        renderer.fillRect(cx, cardY, cardW, cardH, '#111a2e');
+        // Unselected: still visible, not grayed
+        renderer.fillRect(cx - 2, cardY - 2, cardW + 4, cardH + 4, '#445577');
+        renderer.fillRect(cx, cardY, cardW, cardH, '#0d1628');
+        renderer.fillRect(cx, cardY, cardW, 3, '#445577');
       }
 
-      // Plane sprite preview (centered in card, contained)
-      const previewScale = 12;
+      // ARCADE-068: Plane sprite preview — proper sizing with aspect ratio preservation
       const spriteName = `${plane.id}-idle`;
-      const spriteW = Math.min(previewScale * 12, cardW - textPad * 2);
-      const spriteH = previewScale * 14;
+      const maxSpriteW = cardW - textPad * 2;
+      const maxSpriteH = 200;
+      let spriteW, spriteH;
+      const img = SPRITE_IMAGES[spriteName];
+      if (img && img.naturalWidth && img.naturalHeight) {
+        // Use actual image aspect ratio to avoid squares
+        const aspect = img.naturalWidth / img.naturalHeight;
+        if (aspect > maxSpriteW / maxSpriteH) {
+          spriteW = maxSpriteW;
+          spriteH = Math.floor(maxSpriteW / aspect);
+        } else {
+          spriteH = maxSpriteH;
+          spriteW = Math.floor(maxSpriteH * aspect);
+        }
+      } else {
+        spriteW = Math.min(144, maxSpriteW);
+        spriteH = 168;
+      }
       const spriteX = cx + (cardW - spriteW) / 2;
-      const spriteY = cardY + 20;
+      const spriteY = cardY + 24;
 
       if (renderer.hasSpriteTexture(spriteName)) {
         renderer.drawSprite(spriteName, spriteX, spriteY, spriteW, spriteH, 1);
       } else {
-        renderer.fillRect(spriteX, spriteY, spriteW, spriteH, plane.color);
+        // ARCADE-068: Better fallback — draw pixel-art plane silhouette, not a square
+        const fallbackId = `plane_${plane.id}`;
+        drawPixelSprite(renderer, fallbackId, spriteX + spriteW / 2 - 60, spriteY, 12, plane.color, 1);
       }
 
       // Plane name — contained within card bounds
-      const nameY = spriteY + spriteH + 16;
-      text.drawText(plane.name, cx + textPad, nameY, 28, plane.color);
+      const nameY = spriteY + maxSpriteH + 20;
+      text.drawText(plane.name, cx + textPad, nameY, 28, isSelected ? '#ffffff' : plane.color);
 
-      // Key hint — right side of card, contained
-      text.drawText(`[${i + 1}]`, cx + cardW - textPad - 40, nameY, 24, '#88aacc');
+      // Key hint — right side
+      const keyLabel = `[${i + 1}]`;
+      text.drawText(keyLabel, cx + cardW - textPad - 40, nameY, 24, '#88aacc');
 
-      // Stats bars — contained within card
+      // ARCADE-066: Stats bars — labels and values CONTAINED within card bounds
       const statY = nameY + 42;
-      const barX = cx + textPad + 90;
-      const barW = cardW - textPad * 2 - 130; // contained bar width
+      const labelW = 80; // fixed label width
+      const barX = cx + textPad + labelW + 8;
+      const valueW = 32; // space reserved for value text on right
+      const barW = cardW - textPad * 2 - labelW - 8 - valueW - 8; // fully contained
       const barH = 16;
 
       // Speed stat
-      text.drawText('SPEED', cx + textPad, statY, 20, '#bbccdd');
+      text.drawText('SPD', cx + textPad, statY, 18, '#bbccdd');
       const speedPct = plane.speed / 5.0;
       renderer.fillRect(barX, statY + 2, barW, barH, '#1a2535');
       renderer.fillRect(barX, statY + 2, Math.floor(barW * speedPct), barH, '#44ee88');
-      text.drawText(String(plane.speed), barX + barW + 8, statY, 20, '#44ee88');
+      // Value text inside the bar area, not overflowing
+      const speedLabel = plane.speed >= 4 ? 'HI' : plane.speed >= 3 ? 'MED' : 'LO';
+      text.drawText(speedLabel, barX + barW + 4, statY, 16, '#44ee88');
 
       // Fire Rate stat
-      const frY = statY + 32;
-      text.drawText('FIRE', cx + textPad, frY, 20, '#bbccdd');
-      const frPct = (15 - plane.fireRate) / 10;
+      const frY = statY + 30;
+      text.drawText('FIRE', cx + textPad, frY, 18, '#bbccdd');
+      const frPct = Math.min(1, (15 - plane.fireRate) / 10);
       renderer.fillRect(barX, frY + 2, barW, barH, '#1a2535');
       renderer.fillRect(barX, frY + 2, Math.floor(barW * frPct), barH, '#ffbb44');
-      const frLabel = plane.fireRate <= 10 ? 'FAST' : 'MED';
-      text.drawText(frLabel, barX + barW + 8, frY, 20, '#ffbb44');
+      const frLabel = plane.fireRate <= 8 ? 'HI' : plane.fireRate <= 12 ? 'MED' : 'LO';
+      text.drawText(frLabel, barX + barW + 4, frY, 16, '#ffbb44');
 
       // Agility stat
-      const rcY = frY + 32;
-      text.drawText('AGILITY', cx + textPad, rcY, 20, '#bbccdd');
-      const rcPct = (100 - plane.rollCooldown) / 50;
+      const rcY = frY + 30;
+      text.drawText('AGI', cx + textPad, rcY, 18, '#bbccdd');
+      const rcPct = Math.min(1, (100 - plane.rollCooldown) / 50);
       renderer.fillRect(barX, rcY + 2, barW, barH, '#1a2535');
       renderer.fillRect(barX, rcY + 2, Math.floor(barW * rcPct), barH, '#44bbff');
-      const rcLabel = plane.rollCooldown <= 70 ? 'HIGH' : 'MED';
-      text.drawText(rcLabel, barX + barW + 8, rcY, 20, '#44bbff');
+      const rcLabel = plane.rollCooldown <= 60 ? 'HI' : plane.rollCooldown <= 80 ? 'MED' : 'LO';
+      text.drawText(rcLabel, barX + barW + 4, rcY, 16, '#44bbff');
 
-      // Special ability section — contained with word wrap within card
-      const specY = rcY + 48;
-      text.drawText('SPECIAL', cx + textPad, specY, 22, '#eef4ff');
-      text.drawText(plane.special.name, cx + textPad, specY + 28, 26, '#ffcc44');
+      // Special ability section — contained with word wrap
+      const specY = rcY + 44;
+      text.drawText('SPECIAL', cx + textPad, specY, 20, '#eef4ff');
+      text.drawText(plane.special.name, cx + textPad, specY + 26, 24, '#ffcc44');
 
       // Description — word wrap within card bounds
       const desc = plane.special.description;
-      const maxCharsPerLine = Math.floor((cardW - textPad * 2) / 10); // ~10px per char at size 18
+      const maxTextW = cardW - textPad * 2;
+      const charW = 9; // approx pixels per char at size 16
+      const maxCharsPerLine = Math.floor(maxTextW / charW);
       const words = desc.split(' ');
       let line = '';
       let lineIdx = 0;
-      const maxLines = 4; // limit lines to prevent overflow
+      const maxLines = 4;
       for (const word of words) {
         if ((line + ' ' + word).trim().length > maxCharsPerLine && line.length > 0) {
           if (lineIdx < maxLines) {
-            text.drawText(line.trim(), cx + textPad, specY + 60 + lineIdx * 24, 18, '#99aabb');
+            text.drawText(line.trim(), cx + textPad, specY + 56 + lineIdx * 22, 16, '#99bbcc');
           }
           lineIdx++;
           line = word;
@@ -2181,35 +2214,34 @@ export function createGame() {
         }
       }
       if (line.trim() && lineIdx < maxLines) {
-        text.drawText(line.trim(), cx + textPad, specY + 60 + lineIdx * 24, 18, '#99aabb');
+        text.drawText(line.trim(), cx + textPad, specY + 56 + lineIdx * 22, 16, '#99bbcc');
       }
     }
 
     // Controls hint at bottom — contained and centered
-    const ctrlY = cardY + cardH + 20;
-    text.drawText('PRESS [1] or [2] to select', W / 2 - 200, Math.min(ctrlY, H - 130), 24, '#7799bb');
+    const ctrlY = cardY + cardH + 16;
+    text.drawText('\u25C0 \u25B6  or [1] [2] to select', W / 2 - 200, Math.min(ctrlY, H - 130), 22, '#7799bb');
     const blinkOn = tick % 60 < 40;
     if (blinkOn) {
-      text.drawText('PRESS SPACE TO LAUNCH', W / 2 - 190, Math.min(ctrlY + 36, H - 90), 30, '#ffffff');
+      text.drawText('PRESS SPACE TO LAUNCH', W / 2 - 190, Math.min(ctrlY + 32, H - 100), 30, '#ffffff');
     }
 
     // Multiplayer section
-    const mpY = H - 70;
+    const mpY = H - 60;
     if (mpStatus === 'none') {
-      text.drawText('PRESS [M] FOR MULTIPLAYER', W / 2 - 210, mpY, 26, '#77aadd');
+      text.drawText('PRESS [M] FOR MULTIPLAYER', W / 2 - 210, mpY, 24, '#77aadd');
     } else if (mpStatus === 'hosting') {
-      text.drawText('ROOM CODE:', W / 2 - 200, mpY - 20, 24, '#77aadd');
-      text.drawText(mp.roomCode || '...', W / 2 - 40, mpY - 20, 32, '#ffcc44');
-      text.drawText('WAITING FOR PLAYER 2...', W / 2 - 190, mpY + 16, 22, '#888888');
-      // Show URL hint
-      text.drawText('SHARE URL TO INVITE', W / 2 - 160, mpY + 42, 18, '#556677');
+      text.drawText('ROOM CODE:', W / 2 - 200, mpY - 20, 22, '#77aadd');
+      text.drawText(mp.roomCode || '...', W / 2 - 40, mpY - 20, 30, '#ffcc44');
+      text.drawText('WAITING FOR PLAYER 2...', W / 2 - 180, mpY + 14, 20, '#999999');
+      text.drawText('SHARE URL TO INVITE', W / 2 - 150, mpY + 38, 16, '#556677');
     } else if (mpStatus === 'joining') {
-      text.drawText('JOINING ROOM...', W / 2 - 140, mpY, 28, '#ffcc44');
+      text.drawText('JOINING ROOM...', W / 2 - 130, mpY, 26, '#ffcc44');
     } else if (mpStatus === 'connected') {
-      text.drawText('PLAYER 2 CONNECTED!', W / 2 - 170, mpY, 28, '#44ff88');
+      text.drawText('PLAYER 2 CONNECTED!', W / 2 - 160, mpY, 26, '#44ff88');
     } else if (mpStatus === 'error') {
-      text.drawText(`ERROR: ${mpError}`, W / 2 - 160, mpY, 24, '#ff4444');
-      text.drawText('PRESS [M] TO RETRY', W / 2 - 150, mpY + 30, 22, '#888888');
+      text.drawText(`ERROR: ${mpError}`, W / 2 - 150, mpY, 22, '#ff4444');
+      text.drawText('PRESS [M] TO RETRY', W / 2 - 140, mpY + 28, 20, '#888888');
     }
   }
 
@@ -2237,6 +2269,9 @@ export function createGame() {
     if (game.state === 'waiting') {
       if (input.wasPressed('1')) { selectedPlaneIndex = 0; updateOverlayText(); }
       if (input.wasPressed('2')) { selectedPlaneIndex = 1; updateOverlayText(); }
+      // ARCADE-067: Arrow keys toggle between planes
+      if (input.wasPressed('ArrowLeft')) { selectedPlaneIndex = Math.max(0, selectedPlaneIndex - 1); updateOverlayText(); }
+      if (input.wasPressed('ArrowRight')) { selectedPlaneIndex = Math.min(PLANES.length - 1, selectedPlaneIndex + 1); updateOverlayText(); }
       if (input.wasPressed(' ')) {
         resetRun();
         game.setState('playing');
