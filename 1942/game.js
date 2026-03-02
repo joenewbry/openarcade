@@ -10,7 +10,8 @@ const W = 960;
 const H = 1280;
 const PLAYER_SCALE = 6;
 const ENEMY_SCALE = 6;
-const BOSS_SCALE = 8;
+const MINI_BOSS_SCALE = 12;
+const FINAL_BOSS_SCALE = 16;
 
 // ── Sprite image preloader ──
 const SPRITE_IMAGE_FILES = [
@@ -330,7 +331,7 @@ function createEnemy(enemyId, x, y, pattern, difficulty = 1, tier = 'normal') {
       ? MINI_BOSSES[enemyId]
       : FINAL_BOSSES[enemyId];
   const anim = def.anim[0];
-  const scale = tier === 'normal' ? ENEMY_SCALE : BOSS_SCALE;
+  const scale = tier === 'normal' ? ENEMY_SCALE : (tier === 'mini' ? MINI_BOSS_SCALE : FINAL_BOSS_SCALE);
   const size = spriteSize(anim, scale);
   const enemy = {
     id: enemyId,
@@ -1545,19 +1546,56 @@ function updateGame(state, game, input) {
   }
 }
 
-function drawBackground(renderer, campaign, flashTimer) {
+// ── Parallax scrolling tile background ──
+// Two layers: slow ground/water tiles + faster cloud/detail layer
+function drawBackground(renderer, campaign, flashTimer, tick) {
   const t = campaign.theme;
+  // Base fill
   renderer.fillRect(0, 0, W, H, t.low);
 
-  for (let y = 0; y < H; y += 16) {
-    const pct = y / H;
-    const mix = 0.35 + pct * 0.65;
-    const c = lerpHex(t.sky, t.sea, mix);
-    renderer.fillRect(0, y, W, 16, c);
+  // Layer 1: slow scrolling ground/water tiles (0.5 px/frame)
+  const tileH = 128;
+  const tileW = 128;
+  const scrollSpeed1 = 0.5;
+  const offset1 = (tick * scrollSpeed1) % tileH;
+
+  for (let row = -1; row < Math.ceil(H / tileH) + 1; row++) {
+    for (let col = 0; col < Math.ceil(W / tileW); col++) {
+      const tx = col * tileW;
+      const ty = row * tileH + offset1;
+      // Alternate tile colors for visual pattern
+      const isAlt = (row + col) % 2 === 0;
+      const baseColor = isAlt ? t.sea : t.low;
+      renderer.fillRect(tx, ty, tileW, tileH, baseColor);
+      // Tile border accent lines
+      renderer.fillRect(tx, ty, tileW, 2, hexToRgba(t.accent, 0.08));
+      renderer.fillRect(tx, ty, 2, tileH, hexToRgba(t.accent, 0.05));
+      // Detail: small terrain features
+      if (isAlt) {
+        const detailX = tx + 20 + (col * 37 + row * 53) % 60;
+        const detailY = ty + 30 + (col * 41 + row * 29) % 50;
+        renderer.fillRect(detailX, detailY, 24, 12, hexToRgba(t.accent, 0.12));
+        renderer.fillRect(detailX + 4, detailY + 2, 16, 8, hexToRgba(t.accent, 0.08));
+      }
+    }
   }
 
-  for (let y = 0; y < H; y += 64) {
-    renderer.fillRect(0, y + 12, W, 2, hexToRgba(t.accent, 0.15));
+  // Layer 2: faster scrolling cloud/detail layer (1.5 px/frame, semi-transparent)
+  const cloudH = 200;
+  const scrollSpeed2 = 1.5;
+  const offset2 = (tick * scrollSpeed2) % cloudH;
+
+  for (let row = -1; row < Math.ceil(H / cloudH) + 1; row++) {
+    const cy = row * cloudH + offset2;
+    // Scattered cloud patches using deterministic positions
+    for (let i = 0; i < 3; i++) {
+      const seed = (row * 7 + i * 13) & 0xFF;
+      const cx = (seed * 3.7) % W;
+      const cw = 80 + (seed % 60);
+      const ch = 20 + (seed % 16);
+      renderer.fillRect(cx, cy + i * 50, cw, ch, hexToRgba('#ffffff', 0.06));
+      renderer.fillRect(cx + 10, cy + i * 50 + 4, cw - 20, ch - 8, hexToRgba('#ffffff', 0.04));
+    }
   }
 
   if (flashTimer > 0) {
@@ -1742,7 +1780,7 @@ export function createGame() {
     }
 
     const campaign = getCampaign(state.campaignIndex);
-    drawBackground(renderer, campaign, state.flashTimer);
+    drawBackground(renderer, campaign, state.flashTimer, state.tick);
 
     // ARCADE-016: Bomb darken overlay
     if (state.bombDarkenTimer > 0) {
@@ -1833,7 +1871,7 @@ export function createGame() {
       if (enemySprite && renderer.hasSpriteTexture(enemySprite)) {
         renderer.drawSprite(enemySprite, enemy.x, enemy.y, enemy.w, enemy.h, alpha);
       } else {
-        drawPixelSprite(renderer, frameId, enemy.x, enemy.y, enemy.tier === 'normal' ? ENEMY_SCALE : BOSS_SCALE, tint, alpha);
+        drawPixelSprite(renderer, frameId, enemy.x, enemy.y, enemy.tier === 'normal' ? ENEMY_SCALE : (enemy.tier === 'mini' ? MINI_BOSS_SCALE : FINAL_BOSS_SCALE), tint, alpha);
       }
 
       if (enemy.tier !== 'normal') {
