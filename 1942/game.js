@@ -788,6 +788,13 @@ function spawnEnemyBullets(state, e, player) {
   const py = player.y + player.h / 2;
   const baseSpeed = e.def.bulletSpeed * 2;
 
+  // ARCADE-024: Early waves in C1 — all normal enemies fire straight down (no aiming)
+  const isEarlyWave = state.campaignIndex === 0 && state.wave <= 5;
+  if (isEarlyWave && e.tier === 'normal') {
+    pushEnemyBullet(state, cx, cy, 0, baseSpeed);
+    return;
+  }
+
   // Determine kind: normal enemies use def.kind, bosses use tier
   const kind = e.tier === 'normal' ? (e.def.kind || 'fighter') : e.tier;
 
