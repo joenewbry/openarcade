@@ -5,6 +5,7 @@ import { CAMPAIGNS, getCampaign } from './content/campaigns.js';
 import { ENEMIES, MINI_BOSSES, FINAL_BOSSES } from './content/enemies.js';
 import { getDialogue } from './content/dialogue.js';
 import { getSprite, colorForKey } from './content/sprites.js';
+import { MultiplayerManager } from './multiplayer.js';
 
 const W = 960;
 const H = 1280;
@@ -322,6 +323,9 @@ function makeInitialState(planeId) {
     nextLifeAt: 100000,
     oneUpTimer: 0,
     focusActive: false,
+    // Multiplayer
+    player2: null,
+    isMultiplayer: false,
   };
 }
 
@@ -1812,6 +1816,71 @@ export function createGame() {
   let selectedPlaneIndex = 0;
   let state = makeInitialState(PLANES[selectedPlaneIndex].id);
 
+  // ── Multiplayer ──
+  const mp = new MultiplayerManager();
+  let mpStatus = 'none'; // none | hosting | joining | connected | error
+  let mpShareURL = '';
+  let mpError = '';
+  let mpGuestState = null; // for guest: received state from host
+
+  // Check if joining via URL
+  const joinRoom = MultiplayerManager.getRoomFromURL();
+
+  mp.onGuestJoined = () => {
+    mpStatus = 'connected';
+    console.log('[Game] Guest joined!');
+    // Create player 2
+    state.isMultiplayer = true;
+    state.player2 = makePlayer(PLANES[1 - selectedPlaneIndex].id);
+    state.player2.x = W / 2 + 60;
+    state.player2.y = H - 240;
+  };
+
+  mp.onDisconnect = () => {
+    mpStatus = 'none';
+    state.isMultiplayer = false;
+    state.player2 = null;
+  };
+
+  mp.onError = (errType) => {
+    mpStatus = 'error';
+    mpError = errType === 'peer-unavailable' ? 'Room not found' : errType;
+  };
+
+  // Guest: receive state from host
+  mp.onHostState = (remoteState) => {
+    mpGuestState = remoteState;
+  };
+
+  async function startHosting() {
+    mpStatus = 'hosting';
+    try {
+      const code = await mp.hostGame();
+      mpShareURL = mp.getShareURL();
+      mpStatus = 'hosting'; // waiting for guest
+    } catch (e) {
+      mpStatus = 'error';
+      mpError = e.message;
+    }
+  }
+
+  async function joinAsGuest(roomCode) {
+    mpStatus = 'joining';
+    try {
+      await mp.joinGame(roomCode);
+      mpStatus = 'connected';
+      state.isMultiplayer = true;
+    } catch (e) {
+      mpStatus = 'error';
+      mpError = e.message;
+    }
+  }
+
+  // Auto-join if room code in URL
+  if (joinRoom) {
+    joinAsGuest(joinRoom);
+  }
+
   function updateOverlayText() {
     // Clear the HTML overlay — we draw the plane select screen on canvas
     game.showOverlay('', '');
@@ -1934,10 +2003,29 @@ export function createGame() {
     }
 
     // Controls hint at bottom
-    text.drawText('PRESS [1] or [2] to select', W / 2 - 200, H - 110, 26, '#667799');
+    text.drawText('PRESS [1] or [2] to select', W / 2 - 200, H - 140, 26, '#667799');
     const blinkOn = tick % 60 < 40;
     if (blinkOn) {
-      text.drawText('PRESS SPACE TO LAUNCH', W / 2 - 190, H - 60, 32, '#ffffff');
+      text.drawText('PRESS SPACE TO LAUNCH', W / 2 - 190, H - 100, 32, '#ffffff');
+    }
+
+    // Multiplayer section
+    const mpY = H - 70;
+    if (mpStatus === 'none') {
+      text.drawText('PRESS [M] FOR MULTIPLAYER', W / 2 - 210, mpY, 26, '#77aadd');
+    } else if (mpStatus === 'hosting') {
+      text.drawText('ROOM CODE:', W / 2 - 200, mpY - 20, 24, '#77aadd');
+      text.drawText(mp.roomCode || '...', W / 2 - 40, mpY - 20, 32, '#ffcc44');
+      text.drawText('WAITING FOR PLAYER 2...', W / 2 - 190, mpY + 16, 22, '#888888');
+      // Show URL hint
+      text.drawText('SHARE URL TO INVITE', W / 2 - 160, mpY + 42, 18, '#556677');
+    } else if (mpStatus === 'joining') {
+      text.drawText('JOINING ROOM...', W / 2 - 140, mpY, 28, '#ffcc44');
+    } else if (mpStatus === 'connected') {
+      text.drawText('PLAYER 2 CONNECTED!', W / 2 - 170, mpY, 28, '#44ff88');
+    } else if (mpStatus === 'error') {
+      text.drawText(`ERROR: ${mpError}`, W / 2 - 160, mpY, 24, '#ff4444');
+      text.drawText('PRESS [M] TO RETRY', W / 2 - 150, mpY + 30, 22, '#888888');
     }
   }
 
