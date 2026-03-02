@@ -222,6 +222,29 @@ export function generateTilemap(campaignId, mapRows = 120) {
 // ── Tilemap Renderer ──
 // Draws a section of the tilemap visible on screen, with parallax per layer.
 
+const TILE_ATLASES = {};
+function preloadTileAtlas(campaignId) {
+  if (TILE_ATLASES[campaignId]) return;
+  const base = `assets/tiles/${campaignId}`;
+  const waterImg = new Image();
+  waterImg.src = `${base}/water.png`;
+  const terrainImg = new Image();
+  terrainImg.src = `${base}/terrain.png`;
+  const cloudsImg = new Image();
+  cloudsImg.src = `assets/tiles/shared/clouds.png`;
+  // Load metadata asynchronously
+  const waterMetaPromise = fetch(`${base}/water.json`).then(r => r.json());
+  const terrainMetaPromise = fetch(`${base}/terrain.json`).then(r => r.json());
+  const cloudsMetaPromise = fetch(`assets/tiles/shared/clouds.json`).then(r => r.json());
+  Promise.all([waterMetaPromise, terrainMetaPromise, cloudsMetaPromise]).then(([waterMeta, terrainMeta, cloudsMeta]) => {
+    TILE_ATLASES[campaignId] = {
+      water: {img: waterImg, meta: waterMeta},
+      terrain: {img: terrainImg, meta: terrainMeta},
+      clouds: {img: cloudsImg, meta: cloudsMeta},
+    };
+  });
+}
+
 export function drawTilemapLayer(renderer, tilemap, layerName, palette, scrollY, alpha = 1) {
   const layer = tilemap[layerName];
   const ts = TILE_SIZE;
@@ -252,31 +275,54 @@ export function drawTilemapLayer(renderer, tilemap, layerName, palette, scrollY,
 
       const screenX = c * ts;
 
-      if (layerName === 'terrainLayer') {
-        // Terrain tiles get more detail
-        renderer.fillRect(screenX, screenY, ts, ts, color);
-        // Add subtle edge highlights
-        if (tileType === 1) {
-          // Sand edge — lighter top
-          renderer.fillRect(screenX, screenY, ts, 3, palette.sand || color);
-        } else if (tileType === 2) {
-          // Vegetation — darker spots
-          renderer.fillRect(screenX + 8, screenY + 8, ts - 16, ts - 16,
-            colors[Math.min(tileType + 1, colors.length - 1)] || color);
+      // Determine atlas for this layer
+      const atlasInfo = TILE_ATLASES[tilemap.campaignId];
+      let img = null, meta = null;
+      if (layerName === 'terrainLayer' && atlasInfo && atlasInfo.terrain) {
+        img = atlasInfo.terrain.img;
+        meta = atlasInfo.terrain.meta;
+      } else if (layerName === 'waterLayer' && atlasInfo && atlasInfo.water) {
+        img = atlasInfo.water.img;
+        meta = atlasInfo.water.meta;
+      } else if (layerName === 'cloudLayer' && atlasInfo && atlasInfo.clouds) {
+        img = atlasInfo.clouds.img;
+        meta = atlasInfo.clouds.meta;
+      }
+
+      if (img && meta && typeof renderer.drawImageRegion === 'function') {
+        const frame = meta.frames[tileType];
+        if (frame) {
+          renderer.drawImageRegion(img, frame.x, frame.y, frame.w, frame.h,
+            screenX, screenY, ts, ts);
         }
-        // Shore effect around terrain
-        if (tileType >= 1) {
-          renderer.fillRect(screenX - 2, screenY - 2, ts + 4, ts + 4,
-            palette.shore ? palette.shore.replace(')', ',0.15)').replace('rgb', 'rgba') : 'rgba(100,200,255,0.08)');
-        }
-      } else if (layerName === 'cloudLayer') {
-        // Clouds: soft rectangles with alpha
-        const cloudAlpha = tileType === 1 ? 0.12 : tileType === 2 ? 0.22 : 0.18;
-        renderer.fillRect(screenX - 8, screenY - 4, ts + 16, ts + 8,
-          `rgba(255,255,255,${(cloudAlpha * alpha).toFixed(2)})`);
       } else {
-        // Water tiles
-        renderer.fillRect(screenX, screenY, ts, ts, color);
+        // Fallback rendering as before
+        if (layerName === 'terrainLayer') {
+          // Terrain tiles get more detail
+          renderer.fillRect(screenX, screenY, ts, ts, color);
+          // Add subtle edge highlights
+          if (tileType === 1) {
+            // Sand edge — lighter top
+            renderer.fillRect(screenX, screenY, ts, 3, palette.sand || color);
+          } else if (tileType === 2) {
+            // Vegetation — darker spots
+            renderer.fillRect(screenX + 8, screenY + 8, ts - 16, ts - 16,
+              colors[Math.min(tileType + 1, colors.length - 1)] || color);
+          }
+          // Shore effect around terrain
+          if (tileType >= 1) {
+            renderer.fillRect(screenX - 2, screenY - 2, ts + 4, ts + 4,
+              palette.shore ? palette.shore.replace(')', ',0.15)').replace('rgb', 'rgba') : 'rgba(100,200,255,0.08)');
+          }
+        } else if (layerName === 'cloudLayer') {
+          // Clouds: soft rectangles with alpha
+          const cloudAlpha = tileType === 1 ? 0.12 : tileType === 2 ? 0.22 : 0.18;
+          renderer.fillRect(screenX - 8, screenY - 4, ts + 16, ts + 8,
+            `rgba(255,255,255,${(cloudAlpha * alpha).toFixed(2)})`);
+        } else {
+          // Water tiles
+          renderer.fillRect(screenX, screenY, ts, ts, color);
+        }
       }
     }
   }
