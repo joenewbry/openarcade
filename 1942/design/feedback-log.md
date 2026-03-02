@@ -1,5 +1,65 @@
 # Design Feedback Log
 
+## GM Playtest Feedback (Round 2) - 2026-03-01
+
+### F1: Can't Shoot Until First Wave Arrives
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-022
+- **Description:** Players can't shoot immediately when game starts. Root cause: intro dialogue queued in `resetRun()` blocks shooting via `!state.dialogue` condition in fire check. Players should be able to shoot during dialogue.
+- **Implementation approach:** Remove `!state.dialogue` guard from the player shooting condition in updateGame, or don't queue dialogue until after a short delay.
+
+### F2: First Wave Should Be Single Planes
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-023
+- **Description:** First wave spawns 8 scout_zero in vee pattern — too many, too confusing for wave 1. Should be 3-4 single planes in a simple line pattern.
+- **Implementation approach:** Change campaigns.js wave[0] for coral_front to `{ pattern: 'line', mix: ['scout_zero'], count: 3 }`.
+
+### F3: Early Enemy Bullets Should Go Straight Down
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-024
+- **Description:** All fighters fire aimed shots at player from wave 1. Early enemies should fire straight down (no tracking). Aimed shots for later waves/campaigns.
+- **Implementation approach:** In `spawnEnemyBullets`, check campaign index and wave number. If C1 and wave <= 5, fire straight down (vx=0, vy=baseSpeed) instead of aimed.
+
+### F4: HUD Not Displaying
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-025
+- **Description:** All HUD text at top (score, lives, bombs, chain, graze, roll stocks) not showing. Icons not visible. The `drawUI` function calls `text.drawText()` but nothing renders.
+- **Implementation approach:** Debug the text rendering pipeline in the engine. Check if `text` object methods are working. May need fallback to canvas 2D text.
+
+### F5: Background Needs Parallax Scrolling Tiles
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-026
+- **Description:** Background currently shows a horizon gradient view. Should be top-down scrolling tiled background with parallax depth layers.
+- **Implementation approach:** Replace `drawBackground` with a parallax tile system. Two layers: slow ocean/ground tiles, faster cloud/detail layer. Scroll based on tick count.
+
+### F6: First Boss Is Way Too Small
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-027
+- **Description:** Bosses take up almost no screen space. BOSS_SCALE=8 with small pixel sprites = tiny bosses.
+- **Implementation approach:** Increase BOSS_SCALE from 8 to 14-16 for final bosses, 10-12 for mini bosses. Ensure hit zones scale proportionally.
+
+### F7: Moving/Shooting Should NOT Slow the Plane
+- **Priority:** critical
+- **Status:** open
+- **Ticket:** ARCADE-028
+- **Description:** Holding Space to shoot also activates focus mode (`state.focusActive = input.isDown(' ')`), which reduces speed to 3px/frame. This means every time you shoot you slow down. Space is overloaded as both shoot AND focus.
+- **Implementation approach:** Separate focus mode to a different key (e.g., 'f' or 'z' key). Space should only shoot. Or: remove focus mode speed penalty and make it a visual-only feature.
+
+### F8: Sprites Need Improvement
+- **Priority:** important
+- **Status:** open
+- **Ticket:** ARCADE-029
+- **Description:** Generated sprite graphics aren't quite right. Planes don't look clearly top-down. Enemies appear clustered rather than as single distinct entities.
+- **Implementation approach:** Regenerate problem sprites using nano-banana with better prompts specifying top-down view, single entities, clear silhouettes.
+
+---
+
 ## Miyamoto (Shigeru Miyamoto lens) - 2026-03-01
 
 ### Feedback 1: Implement Wordless Tutorial (W1-4)
