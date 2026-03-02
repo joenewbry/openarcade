@@ -375,3 +375,33 @@
 - **Description:** No lives ever gained. Design doc says 1-up at 100k, then every 200k. Creates mid-session goals.
 - **Implementation approach:** Track nextLifeAt in state (100000, +200000). On threshold: grant life (max 5), play distinctive sound, flash "1-UP" text.
 - **PR:**
+
+---
+
+## GM Playtest Feedback (Round 4) - 2026-03-01
+
+### Visual/UI Fixes
+- **F1: Mini boss needs to be bigger** — ARCADE-045 — Still too small. Scale up MINI_BOSS_SCALE significantly.
+- **F2: Plane select screen grayed/text overflow** — ARCADE-046 — UI washed out, text overflowing bounds.
+- **F3: Remove plane tilt on movement** — ARCADE-047 — Remove bank offset when moving left/right.
+- **F4: Enemy bullets need sprites** — ARCADE-048 — Make them red/pink sprite-based, not primitive shapes.
+- **F5: Clouds should match art style** — ARCADE-049 — Cloud visuals need to match plane sprite quality.
+- **F6: Enemy planes need to be bigger** — ARCADE-050 — Still hard to see, scale up more.
+- **F7: Bullets should be bigger** — ARCADE-051 — Both player and enemy projectiles larger.
+
+### Gameplay Mechanics
+- **F8: Decrease first mini boss HP** — ARCADE-052 — reef_guardian too hard, reduce HP.
+- **F9: Mini boss should drop more loot** — ARCADE-053 — More generous drops.
+- **F10: Small planes NO targeted shots** — ARCADE-054 — Fighter-class enemies STRAIGHT DOWN only. RECURRING.
+- **F11: Add homing missiles power-up** — ARCADE-055 — Homing missiles weapon type as pickup.
+- **F12: Add different weapon types** — ARCADE-056 — Spread shot, laser, homing missiles.
+- **F13: Power-ups should stack and last longer** — ARCADE-057 — Stack + longer duration.
+- **F14: Bomb should clear ALL enemy shots** — ARCADE-058 — Verify full bullet clear.
+- **F15: Remove whale signature moment** — ARCADE-059 — Remove whale crossing in C1.
+
+### Background/Map System (CRITICAL)
+- **F16: Need tiled background** — ARCADE-060 — Hand-designed tiles, not generative.
+- **F17: Fix parallax layer order** — ARCADE-061 — Ocean→Islands→Clouds, correct speeds.
+- **F18: Islands fixed to map** — ARCADE-062 — Part of terrain, not floating objects.
+- **F19: Topography = flying over land** — ARCADE-063 — Top-down terrain perspective.
+- **F20: Designer pacing review** — ARCADE-064 — All 4 designers review difficulty curve.
