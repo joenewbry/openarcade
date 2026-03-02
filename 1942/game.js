@@ -23,7 +23,6 @@ const SPRITE_IMAGE_FILES = [
   'boss-coral', 'boss-desert', 'boss-arctic', 'boss-storm',
   'powerup-shot', 'powerup-speed', 'powerup-shield', 'powerup-bomb', 'powerup-double',
   'explosion-small', 'explosion-large', 'explosion-boss',
-  'cloud-1', 'cloud-2', 'cloud-3',
   'enemy-bullet',
 ];
 
@@ -2032,33 +2031,16 @@ function drawBackground(renderer, campaign, flashTimer, tick) {
   // Draw ground enemies (bunkers, ships) attached to terrain scroll
   drawGroundEnemies(renderer, null, tilemap, palette, terrainScrollY, tick);
 
-  // Layer 2: Clouds — fast scroll (2.0 px/frame), drawn ABOVE everything
-  const cloudScrollY = (tick * 2.0) % totalMapH;
-  drawTilemapLayer(renderer, tilemap, 'cloudLayer', palette, cloudScrollY, 0.8);
-
-  // Cloud sprites overlay (existing cloud images on top of tile clouds)
-  const cloudSprites = ['cloud-1', 'cloud-2', 'cloud-3'];
-  const cloudLayerH = 600;
-  const cloudOffset = (tick * 1.8) % cloudLayerH;
-  for (let row = -1; row < Math.ceil(H / cloudLayerH) + 2; row++) {
-    const baseY = row * cloudLayerH + cloudOffset;
-    const rng = seededRand(row * 1597 + 101);
-    const count = 1 + Math.floor(rng() * 2);
-    for (let i = 0; i < count; i++) {
-      const cx = Math.floor(rng() * (W + 80) - 40);
-      const cy = Math.floor(baseY + rng() * (cloudLayerH - 100));
-      const cw = Math.floor(140 + rng() * 200);
-      const ch = Math.floor(cw * 0.4);
-      const spriteIdx = Math.floor(rng() * cloudSprites.length);
-      const spriteName = cloudSprites[spriteIdx];
-      const alpha = 0.25 + rng() * 0.2;
-
-      if (renderer.hasSpriteTexture(spriteName)) {
-        renderer.drawSprite(spriteName, cx, cy, cw, ch, alpha);
-      } else {
-        renderer.fillRect(cx, cy, cw, ch, `rgba(255,255,255,${(alpha * 0.3).toFixed(2)})`);
-      }
-    }
+  // Layer 2: Shadow effects — subtle moving shadows for realism
+  const shadowH = 800;
+  const shadowOffset = (tick * 0.8) % shadowH;
+  for (let s = 0; s < 4; s++) {
+    const sx = (s * 240) + Math.sin(tick * 0.01 + s) * 50;
+    const sy = (s * shadowH / 4) + shadowOffset - shadowH;
+    const sw = 150 + Math.sin(tick * 0.008 + s * 2) * 30;
+    const sh = 80 + Math.cos(tick * 0.012 + s * 1.5) * 20;
+    const alpha = 0.12 + Math.sin(tick * 0.006 + s) * 0.04;
+    renderer.fillRect(sx, sy, sw, sh, `rgba(0,0,0,${alpha.toFixed(3)})`);
   }
 
   if (flashTimer > 0) {

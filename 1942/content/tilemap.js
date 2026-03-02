@@ -6,15 +6,13 @@
 //   - TILE_SIZE: 64px base tile size
 //   - Map width: 15 tiles (960px / 64px)
 //   - Map height: variable (longer maps = longer levels)
-//   - 3 parallax layers with different scroll speeds:
+//   - 2 parallax layers with different scroll speeds:
 //     Layer 0 (water): scrolls at 0.2x — deep water base
 //     Layer 1 (terrain): scrolls at 0.5x — islands, land masses
-//     Layer 2 (clouds): scrolls at 2.0x — cloud cover overlay
 //
 // Tile types per layer:
 //   Water layer: 0=deep water, 1=shallow water, 2=dark water, 3=foam/surf
 //   Terrain layer: 0=empty, 1=sand/beach, 2=grass/vegetation, 3=rock, 4=structure
-//   Cloud layer: 0=empty, 1=thin cloud, 2=thick cloud, 3=storm cloud
 
 export const TILE_SIZE = 64;
 export const MAP_COLS = 15; // 960 / 64
@@ -25,7 +23,6 @@ const TILE_PALETTES = {
   coral_front: {
     water: ['#19466b', '#1c5d8f', '#16547a', '#22729e'],
     terrain: ['transparent', '#d5bc84', '#4b7c45', '#8a7a5e', '#6b5d42'],
-    cloud: ['transparent', 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0.25)', 'rgba(200,220,255,0.20)'],
     reef: '#3a8a6e',
     sand: '#e8d5a0',
     shore: '#7ec4d6',
@@ -33,7 +30,6 @@ const TILE_PALETTES = {
   jungle_spear: {
     water: ['#25442f', '#3a6a4f', '#1e3a28', '#2d5a3e'],
     terrain: ['transparent', '#5a8842', '#2d5420', '#6e7c55', '#4a3f2d'],
-    cloud: ['transparent', 'rgba(200,255,200,0.12)', 'rgba(180,220,180,0.20)', 'rgba(150,180,150,0.18)'],
     reef: '#5f90bd',
     sand: '#8a7a52',
     shore: '#4a8a62',
@@ -41,7 +37,6 @@ const TILE_PALETTES = {
   dust_convoy: {
     water: ['#68452b', '#91643d', '#7a5530', '#a47848'],
     terrain: ['transparent', '#be8a52', '#d4a065', '#9a7040', '#786030'],
-    cloud: ['transparent', 'rgba(255,240,200,0.12)', 'rgba(255,220,180,0.20)', 'rgba(220,180,140,0.18)'],
     reef: '#6e5743',
     sand: '#d4b878',
     shore: '#a08450',
@@ -49,7 +44,6 @@ const TILE_PALETTES = {
   iron_monsoon: {
     water: ['#1d2238', '#2e3455', '#252b42', '#3a4268'],
     terrain: ['transparent', '#4b5578', '#596286', '#3d4560', '#68739a'],
-    cloud: ['transparent', 'rgba(180,200,255,0.15)', 'rgba(160,180,240,0.25)', 'rgba(140,160,220,0.30)'],
     reef: '#68739a',
     sand: '#5a6080',
     shore: '#3a4a68',
@@ -58,7 +52,7 @@ const TILE_PALETTES = {
 
 // ── Procedural map generator ──
 // Generates a tilemap for a campaign with predefined island layouts, channels, and terrain features.
-// Returns { waterLayer, terrainLayer, cloudLayer, cols, rows, groundEnemies }
+// Returns { waterLayer, terrainLayer, cols, rows, groundEnemies }
 
 function seededRand(seed) {
   let s = seed | 0;
@@ -116,22 +110,18 @@ export function generateTilemap(campaignId, mapRows = 120) {
   // Initialize empty layers
   const waterLayer = [];
   const terrainLayer = [];
-  const cloudLayer = [];
   const groundEnemySlots = []; // { col, row, type: 'bunker'|'ship' }
 
   for (let r = 0; r < mapRows; r++) {
     const waterRow = [];
     const terrainRow = [];
-    const cloudRow = [];
     for (let c = 0; c < MAP_COLS; c++) {
       // Water: mix of deep(0) and shallow(1) with some variation
       waterRow.push(rng() < 0.3 ? 1 : (rng() < 0.1 ? 2 : 0));
       terrainRow.push(0); // empty by default
-      cloudRow.push(0);
     }
     waterLayer.push(waterRow);
     terrainLayer.push(terrainRow);
-    cloudLayer.push(cloudRow);
   }
 
   // Water channels — create visual flow
@@ -189,23 +179,7 @@ export function generateTilemap(campaignId, mapRows = 120) {
     }
   }
 
-  // Cloud layer — scattered cloud patches
-  for (let i = 0; i < 30; i++) {
-    const row = Math.floor(rng() * mapRows);
-    const col = Math.floor(rng() * MAP_COLS);
-    const cloudW = 2 + Math.floor(rng() * 4);
-    const cloudH = 1 + Math.floor(rng() * 2);
-    const cloudType = 1 + Math.floor(rng() * 2);
-    for (let dy = 0; dy < cloudH; dy++) {
-      for (let dx = 0; dx < cloudW; dx++) {
-        const r = row + dy;
-        const c = col + dx;
-        if (r >= 0 && r < mapRows && c >= 0 && c < MAP_COLS) {
-          cloudLayer[r][c] = cloudType;
-        }
-      }
-    }
-  }
+  // Cloud layer removed per overhaul requirements
 
   return {
     campaignId,
@@ -214,7 +188,6 @@ export function generateTilemap(campaignId, mapRows = 120) {
     tileSize: TILE_SIZE,
     waterLayer,
     terrainLayer,
-    cloudLayer,
     groundEnemySlots,
   };
 }
@@ -230,17 +203,13 @@ function preloadTileAtlas(campaignId) {
   waterImg.src = `${base}/water.png`;
   const terrainImg = new Image();
   terrainImg.src = `${base}/terrain.png`;
-  const cloudsImg = new Image();
-  cloudsImg.src = `assets/tiles/shared/clouds.png`;
   // Load metadata asynchronously
   const waterMetaPromise = fetch(`${base}/water.json`).then(r => r.json());
   const terrainMetaPromise = fetch(`${base}/terrain.json`).then(r => r.json());
-  const cloudsMetaPromise = fetch(`assets/tiles/shared/clouds.json`).then(r => r.json());
-  Promise.all([waterMetaPromise, terrainMetaPromise, cloudsMetaPromise]).then(([waterMeta, terrainMeta, cloudsMeta]) => {
+  Promise.all([waterMetaPromise, terrainMetaPromise]).then(([waterMeta, terrainMeta]) => {
     TILE_ATLASES[campaignId] = {
       water: {img: waterImg, meta: waterMeta},
       terrain: {img: terrainImg, meta: terrainMeta},
-      clouds: {img: cloudsImg, meta: cloudsMeta},
     };
   });
 }
@@ -250,7 +219,7 @@ export function drawTilemapLayer(renderer, tilemap, layerName, palette, scrollY,
   const ts = TILE_SIZE;
   const colors = layerName === 'waterLayer' ? palette.water
     : layerName === 'terrainLayer' ? palette.terrain
-    : palette.cloud;
+    : null;
 
   // Calculate which rows are visible
   const startRow = Math.floor(scrollY / ts) - 1;
@@ -284,9 +253,6 @@ export function drawTilemapLayer(renderer, tilemap, layerName, palette, scrollY,
       } else if (layerName === 'waterLayer' && atlasInfo && atlasInfo.water) {
         img = atlasInfo.water.img;
         meta = atlasInfo.water.meta;
-      } else if (layerName === 'cloudLayer' && atlasInfo && atlasInfo.clouds) {
-        img = atlasInfo.clouds.img;
-        meta = atlasInfo.clouds.meta;
       }
 
       if (img && meta && typeof renderer.drawImageRegion === 'function') {
@@ -314,11 +280,6 @@ export function drawTilemapLayer(renderer, tilemap, layerName, palette, scrollY,
             renderer.fillRect(screenX - 2, screenY - 2, ts + 4, ts + 4,
               palette.shore ? palette.shore.replace(')', ',0.15)').replace('rgb', 'rgba') : 'rgba(100,200,255,0.08)');
           }
-        } else if (layerName === 'cloudLayer') {
-          // Clouds: soft rectangles with alpha
-          const cloudAlpha = tileType === 1 ? 0.12 : tileType === 2 ? 0.22 : 0.18;
-          renderer.fillRect(screenX - 8, screenY - 4, ts + 16, ts + 8,
-            `rgba(255,255,255,${(cloudAlpha * alpha).toFixed(2)})`);
         } else {
           // Water tiles
           renderer.fillRect(screenX, screenY, ts, ts, color);
@@ -357,37 +318,67 @@ export function drawGroundEnemies(renderer, text, tilemap, palette, scrollY, tic
       renderer.fillRect(Math.min(cx, ex), Math.min(cy, ey),
         Math.abs(ex - cx) + 3, Math.abs(ey - cy) + 3, '#333');
     } else if (slot.type === 'ship' || slot.type === 'battleship') {
-      // Ship on water
-      const sx = screenX;
+      // Larger naval vessels with multiple turrets
+      const shipScale = slot.type === 'battleship' ? 3.5 : 2.2;
+      const sx = screenX - (ts * 0.3); // Center larger ships
       const sy = screenY;
-      const sw = ts;
-      const sh = slot.type === 'battleship' ? ts * 2 : ts * 1.5;
+      const sw = ts * shipScale;
+      const sh = ts * (shipScale * 0.8);
 
-      // Hull
-      renderer.fillRect(sx + 8, sy, sw - 16, sh, '#6a6a6a');
-      renderer.fillRect(sx + 12, sy + 4, sw - 24, sh - 8, '#5a5a5a');
-      // Bow
-      renderer.fillRect(sx + sw / 2 - 6, sy - 8, 12, 12, '#6a6a6a');
+      // Main hull (dark steel gray)
+      renderer.fillRect(sx + 4, sy + 8, sw - 8, sh - 16, '#4a4a4a');
+      renderer.fillRect(sx + 8, sy + 12, sw - 16, sh - 24, '#3a3a3a');
+      
+      // Ship deck (lighter)
+      renderer.fillRect(sx + 12, sy + 16, sw - 24, sh - 32, '#5a5a5a');
+      
+      // Bridge/superstructure (center)
+      const bridgeW = sw * 0.3;
+      const bridgeX = sx + sw / 2 - bridgeW / 2;
+      renderer.fillRect(bridgeX, sy + sh * 0.3, bridgeW, sh * 0.2, '#606060');
+      
+      // Bow (pointed front)
+      renderer.fillRect(sx + sw / 2 - 8, sy - 6, 16, 14, '#4a4a4a');
+      renderer.fillRect(sx + sw / 2 - 4, sy - 10, 8, 10, '#4a4a4a');
 
-      // Turrets
-      const turretCount = slot.type === 'battleship' ? 3 : 1;
+      // Enhanced turrets with more detail
+      const turretCount = slot.type === 'battleship' ? 4 : 2;
       for (let t = 0; t < turretCount; t++) {
-        const ty = sy + 12 + t * (sh / (turretCount + 1));
-        const tx = sx + sw / 2;
-        // Turret base
-        renderer.fillRect(tx - 8, ty - 8, 16, 16, '#4a4a4a');
-        // Rotating barrel
-        const angle = Math.sin(tick * 0.025 + slot.col + t * 2) * Math.PI * 0.4;
-        const barrelLen = 12;
-        const ex = tx + Math.sin(angle) * barrelLen;
-        const ey = ty + Math.cos(angle) * barrelLen;
-        renderer.fillRect(Math.min(tx, ex), Math.min(ty, ey),
-          Math.abs(ex - tx) + 2, Math.abs(ey - ty) + 2, '#333');
+        const spacing = sh / (turretCount + 1);
+        const ty = sy + 20 + t * spacing;
+        const tx = sx + sw / 2 + (t % 2 === 0 ? -16 : 16); // Staggered positions
+        
+        // Larger turret base
+        renderer.fillRect(tx - 12, ty - 12, 24, 24, '#3a3a3a');
+        renderer.fillRect(tx - 10, ty - 10, 20, 20, '#4a4a4a');
+        
+        // Twin gun barrels
+        const angle = Math.sin(tick * 0.02 + slot.col + t * 1.5) * Math.PI * 0.3;
+        const barrelLen = 18;
+        const gunOffset = 3;
+        
+        // Gun barrel 1
+        const ex1 = tx - gunOffset + Math.sin(angle) * barrelLen;
+        const ey1 = ty + Math.cos(angle) * barrelLen;
+        renderer.fillRect(Math.min(tx - gunOffset, ex1), Math.min(ty, ey1),
+          Math.abs(ex1 - (tx - gunOffset)) + 3, Math.abs(ey1 - ty) + 3, '#2a2a2a');
+        
+        // Gun barrel 2  
+        const ex2 = tx + gunOffset + Math.sin(angle) * barrelLen;
+        const ey2 = ty + Math.cos(angle) * barrelLen;
+        renderer.fillRect(Math.min(tx + gunOffset, ex2), Math.min(ty, ey2),
+          Math.abs(ex2 - (tx + gunOffset)) + 3, Math.abs(ey2 - ty) + 3, '#2a2a2a');
       }
 
-      // Wake (foam behind ship)
-      renderer.fillRect(sx + sw / 2 - 4, sy + sh, 8, 16, 'rgba(255,255,255,0.2)');
-      renderer.fillRect(sx + sw / 2 - 6, sy + sh + 12, 12, 8, 'rgba(255,255,255,0.1)');
+      // Enhanced wake effects
+      const wakeW = sw * 0.6;
+      const wakeX = sx + sw / 2 - wakeW / 2;
+      renderer.fillRect(wakeX, sy + sh, wakeW, 20, 'rgba(255,255,255,0.25)');
+      renderer.fillRect(wakeX + 8, sy + sh + 16, wakeW - 16, 16, 'rgba(255,255,255,0.15)');
+      
+      // Side wakes
+      renderer.fillRect(sx + 8, sy + sh * 0.8, 8, sh * 0.3, 'rgba(255,255,255,0.1)');
+      renderer.fillRect(sx + sw - 16, sy + sh * 0.8, 8, sh * 0.3, 'rgba(255,255,255,0.1)');
     }
   }
 }

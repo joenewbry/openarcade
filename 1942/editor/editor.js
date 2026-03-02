@@ -6,29 +6,24 @@ const PALETTES = {
   coral_front: {
     water: { 0: '#1c5d8f', 1: '#2980b9', 2: '#19466b', 3: '#7ee8ff' },
     terrain: { 0: 'transparent', 1: '#e6c88a', 2: '#5daa5d', 3: '#8b8680', 4: '#707070' },
-    clouds: { 0: 'transparent', 1: 'rgba(255,255,255,0.15)', 2: 'rgba(255,255,255,0.3)', 3: 'rgba(200,210,230,0.25)' },
   },
   jungle_spear: {
     water: { 0: '#3a6a4f', 1: '#4d8c65', 2: '#25442f', 3: '#8ed4a0' },
     terrain: { 0: 'transparent', 1: '#8b7355', 2: '#2d6e2d', 3: '#6b6b60', 4: '#555550' },
-    clouds: { 0: 'transparent', 1: 'rgba(200,230,200,0.12)', 2: 'rgba(200,230,200,0.25)', 3: 'rgba(150,180,150,0.2)' },
   },
   dust_convoy: {
     water: { 0: '#91643d', 1: '#b8884d', 2: '#68452b', 3: '#d4a860' },
     terrain: { 0: 'transparent', 1: '#d4a860', 2: '#a08050', 3: '#8b7355', 4: '#808080' },
-    clouds: { 0: 'transparent', 1: 'rgba(255,240,200,0.12)', 2: 'rgba(255,240,200,0.25)', 3: 'rgba(220,200,160,0.2)' },
   },
   iron_monsoon: {
     water: { 0: '#2e3455', 1: '#3d4570', 2: '#1d2238', 3: '#6070a0' },
     terrain: { 0: 'transparent', 1: '#606878', 2: '#4a5260', 3: '#555d6b', 4: '#707880' },
-    clouds: { 0: 'transparent', 1: 'rgba(180,190,210,0.15)', 2: 'rgba(150,160,180,0.3)', 3: 'rgba(100,110,130,0.35)' },
   },
 };
 
 const TILE_NAMES = {
   water: { 0: 'deep', 1: 'shallow', 2: 'dark', 3: 'foam' },
   terrain: { 0: 'empty', 1: 'sand', 2: 'grass', 3: 'rock', 4: 'structure' },
-  clouds: { 0: 'empty', 1: 'thin', 2: 'thick', 3: 'storm' },
 };
 
 const COLS = 15;
@@ -39,7 +34,7 @@ const DEFAULT_ROWS = 150;
 let state = {
   campaign: 'coral_front',
   rows: DEFAULT_ROWS,
-  layers: { water: null, terrain: null, clouds: null },
+  layers: { water: null, terrain: null },
   activeLayer: 'water',
   selectedTile: 0,
   tool: 'brush',
@@ -49,7 +44,7 @@ let state = {
   painting: false,
   undoStack: [],
   redoStack: [],
-  layerVisibility: { water: true, terrain: true, clouds: true },
+  layerVisibility: { water: true, terrain: true },
 };
 
 // ── DOM refs ──
@@ -69,7 +64,6 @@ function newLevel(campaign, rows) {
   state.rows = rows || DEFAULT_ROWS;
   state.layers.water = new Int8Array(COLS * state.rows).fill(0);
   state.layers.terrain = new Int8Array(COLS * state.rows).fill(0);
-  state.layers.clouds = new Int8Array(COLS * state.rows).fill(0);
   // Fill water layer with deep water by default
   state.layers.water.fill(0); // 0 = deep water
   state.undoStack = [];
@@ -116,7 +110,7 @@ function render() {
   const ts = TILE_SIZE * z;
 
   // Draw each visible layer
-  for (const layerName of ['water', 'terrain', 'clouds']) {
+  for (const layerName of ['water', 'terrain']) {
     if (!state.layerVisibility[layerName]) continue;
     const data = state.layers[layerName];
     if (!data) continue;
@@ -252,7 +246,6 @@ function serializeLevel() {
     layers: {
       water: { data: Array.from(state.layers.water), encoding: 'raw' },
       terrain: { data: Array.from(state.layers.terrain), encoding: 'raw' },
-      clouds: { data: Array.from(state.layers.clouds), encoding: 'raw' },
     },
   }, null, 2);
 }
@@ -277,7 +270,6 @@ function loadLevel(json) {
     state.rows = data.meta?.rows || DEFAULT_ROWS;
     state.layers.water = new Int8Array(data.layers.water.data);
     state.layers.terrain = new Int8Array(data.layers.terrain.data);
-    state.layers.clouds = new Int8Array(data.layers.clouds.data);
     state.undoStack = [];
     state.redoStack = [];
     document.getElementById('campaignSelect').value = state.campaign;
@@ -400,9 +392,9 @@ document.querySelectorAll('input[name="activeLayer"]').forEach(radio => {
   });
 });
 
-['waterVis', 'terrainVis', 'cloudsVis'].forEach(id => {
+['waterVis', 'terrainVis'].forEach(id => {
   const layer = id.replace('Vis', '').replace('s$', '');
-  const layerMap = { waterVis: 'water', terrainVis: 'terrain', cloudsVis: 'clouds' };
+  const layerMap = { waterVis: 'water', terrainVis: 'terrain' };
   document.getElementById(id).addEventListener('change', (e) => {
     state.layerVisibility[layerMap[id]] = e.target.checked;
     render();
