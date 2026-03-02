@@ -332,6 +332,9 @@ function makeInitialState(planeId) {
     nextLifeAt: 100000,
     oneUpTimer: 0,
     focusActive: false,
+    // ARCADE-076/077/078: Ground enemies (bunkers, ships) attached to tilemap
+    groundEnemies: [],
+    groundEnemiesSpawned: new Set(), // track which tilemap slots have been activated
     // Multiplayer
     player2: null,
     isMultiplayer: false,
@@ -1112,6 +1115,21 @@ function activateBomb(state, game) {
     }
   }
 
+  // --- ARCADE-076: Bomb damages ground enemies too ---
+  for (const ge of state.groundEnemies) {
+    if (ge.dead) continue;
+    ge.hp -= Math.ceil(ge.maxHp * 0.4); // 40% damage to ground targets
+    if (ge.hp <= 0) {
+      ge.dead = true;
+      state.score += ge.score;
+      state.scorePops.push({
+        x: ge.col * TILE_SIZE + TILE_SIZE / 2,
+        y: ge.row * TILE_SIZE,
+        text: `+${ge.score}`, life: 30,
+      });
+    }
+  }
+
   // --- ARCADE-058: Cancel ALL enemy bullets, award 10 points per bullet (flat, no chain) ---
   // Verified: state.enemyBullets.length = 0 clears every bullet on screen
   const cancelledBullets = state.enemyBullets.length;
@@ -1612,6 +1630,124 @@ function updateGame(state, game, input) {
         state.enemyBullets.splice(i, 1);
       }
     }
+  }
+
+  // ── ARCADE-076/077/078: Ground enemy update ──
+  // Spawn ground enemies from tilemap as terrain scrolls into view
+  {
+    const campaign = getCampaign(state.campaignIndex);
+    const tilemap = getOrCreateTilemap(campaign.id);
+    const terrainScrollY = (state.tick * 0.5) % (tilemap.rows * TILE_SIZE);
+
+    for (let i = 0; i < tilemap.groundEnemySlots.length; i++) {
+      const slot = tilemap.groundEnemySlots[i];
+      const slotKey = `${state.campaignIndex}:${i}`;
+      if (state.groundEnemiesSpawned.has(slotKey)) continue;
+
+      const screenY = slot.row * TILE_SIZE - terrainScrollY;
+      // Activate when scrolling into view
+      if (screenY > -TILE_SIZE && screenY < H + TILE_SIZE) {
+        state.groundEnemiesSpawned.add(slotKey);
+        const turretCount = slot.type === 'battleship' ? 3 : 1;
+        state.groundEnemies.push({
+          slotIndex: i,
+          type: slot.type,
+          col: slot.col,
+          row: slot.row,
+          hp: slot.type === 'bunker' ? 15 : (slot.type === 'battleship' ? 40 : 25),
+          maxHp: slot.type === 'bunker' ? 15 : (slot.type === 'battleship' ? 40 : 25),
+          turretCount,
+          fireTimer: Math.floor(rand(30, 80)),
+          fireRate: slot.type === 'bunker' ? 70 : 55,
+          bulletSpeed: 2.8,
+          score: slot.type === 'bunker' ? 500 : (slot.type === 'battleship' ? 1500 : 800),
+          dead: false,
+        });
+      }
+    }
+
+    // Update ground enemies — they fire at the player
+    for (const ge of state.groundEnemies) {
+      if (ge.dead) continue;
+
+      const screenX = ge.col * TILE_SIZE + TILE_SIZE / 2;
+      const screenY = ge.row * TILE_SIZE - terrainScrollY;
+
+      // Remove if scrolled off bottom
+      if (screenY > H + TILE_SIZE * 2) {
+        ge.dead = true;
+        continue;
+      }
+
+      ge.fireTimer -= 1;
+      if (ge.fireTimer <= 0 && !state.dialogue && screenY > 0 && screenY < H) {
+        // Fire aimed shots at player
+        const dx = (player.x + player.w / 2) - screenX;
+        const dy = (player.y + player.h / 2) - screenY;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const bSpeed = ge.bulletSpeed;
+
+        for (let t = 0; t < ge.turretCount; t++) {
+          // Spread turret shots slightly
+          const spread = ge.turretCount > 1 ? (t - (ge.turretCount - 1) / 2) * 0.15 : 0;
+          const angle = Math.atan2(dy, dx) + spread;
+          state.enemyBullets.push({
+            x: screenX - 6,
+            y: screenY,
+            w: 10,
+            h: 10,
+            vx: Math.cos(angle) * bSpeed,
+            vy: Math.sin(angle) * bSpeed,
+            color: ge.type === 'bunker' ? '#ff6644' : '#ffaa22',
+          });
+        }
+        ge.fireTimer = ge.fireRate + rand(-10, 10);
+        if (Math.random() < 0.3) sfx.enemyShoot();
+      }
+
+      // Check player bullets hitting ground enemies
+      for (let bi = state.bullets.length - 1; bi >= 0; bi--) {
+        const b = state.bullets[bi];
+        const bx = b.x + b.w / 2;
+        const by = b.y + b.h / 2;
+        const hitDist = 32;
+        if (Math.abs(bx - screenX) < hitDist && Math.abs(by - screenY) < hitDist) {
+          ge.hp -= 1;
+          state.bullets.splice(bi, 1);
+          state.particles.push({
+            x: bx, y: by,
+            vx: rand(-2, 2), vy: rand(-3, 0),
+            life: 8, maxLife: 8,
+            color: '#ff8844', r: 4,
+          });
+          if (ge.hp <= 0) {
+            ge.dead = true;
+            state.score += ge.score;
+            state.scorePops.push({ x: screenX, y: screenY, text: `+${ge.score}`, life: 30 });
+            // Explosion particles
+            for (let p = 0; p < 12; p++) {
+              state.particles.push({
+                x: screenX + rand(-20, 20),
+                y: screenY + rand(-20, 20),
+                vx: rand(-4, 4), vy: rand(-4, 2),
+                life: 18, maxLife: 18,
+                color: ['#ff6644', '#ffaa22', '#ffffff'][Math.floor(Math.random() * 3)],
+                r: rand(3, 8),
+              });
+            }
+            sfx.explode();
+            // Chance to drop power-up
+            if (Math.random() < 0.25) {
+              spawnPowerup(state, screenX, screenY);
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    // Clean up dead ground enemies
+    state.groundEnemies = state.groundEnemies.filter(ge => !ge.dead);
   }
 
   for (const p of state.powerups) {
@@ -2389,6 +2525,32 @@ export function createGame() {
     }
 
     drawAmbient(renderer, state.ambience, campaign);
+
+    // ── ARCADE-076/077: Draw active ground enemies with HP bars ──
+    {
+      const tilemap = getOrCreateTilemap(campaign.id);
+      const terrainScrollY = (state.tick * 0.5) % (tilemap.rows * TILE_SIZE);
+      for (const ge of state.groundEnemies) {
+        const screenX = ge.col * TILE_SIZE;
+        const screenY = ge.row * TILE_SIZE - terrainScrollY;
+        if (screenY < -TILE_SIZE * 2 || screenY > H + TILE_SIZE) continue;
+
+        // HP bar for damaged ground enemies
+        if (ge.hp < ge.maxHp) {
+          const barW = TILE_SIZE - 8;
+          const hpPct = ge.hp / ge.maxHp;
+          renderer.fillRect(screenX + 4, screenY - 10, barW, 5, '#2f3148');
+          renderer.fillRect(screenX + 4, screenY - 10, Math.floor(barW * hpPct), 5,
+            ge.type === 'bunker' ? '#ff8844' : '#ffcc44');
+        }
+
+        // Hit flash effect
+        if (ge.hp < ge.maxHp && ge.hp > 0 && state.tick % 4 < 2) {
+          renderer.fillRect(screenX + 4, screenY + 4, TILE_SIZE - 8, TILE_SIZE - 8,
+            'rgba(255,255,255,0.15)');
+        }
+      }
+    }
 
     // Draw signature whale
     if (state.signatureWhale) {
