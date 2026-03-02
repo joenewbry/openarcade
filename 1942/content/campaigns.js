@@ -118,6 +118,7 @@ export const CAMPAIGNS = [
     miniboss: 'convoy_ram',
     finalBoss: 'dust_colossus',
     minibossWaves: [],                 // C3: no mini bosses — pure wave survival
+    signatureMoments: { 10: 'powerup_shower' },  // C3 midpoint break to fight fatigue
     finalBossScale: 1.5,               // extra-tough final boss
     finalWave: 20,
     // ── C3: Endurance — no minibosses, relentless waves, escalating density ──
