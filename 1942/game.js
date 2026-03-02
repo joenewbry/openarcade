@@ -6,6 +6,7 @@ import { ENEMIES, MINI_BOSSES, FINAL_BOSSES } from './content/enemies.js';
 import { getDialogue } from './content/dialogue.js';
 import { getSprite, colorForKey } from './content/sprites.js';
 import { MultiplayerManager } from './multiplayer.js';
+import { generateTilemap, drawTilemapLayer, drawGroundEnemies, getTilePalette, CAMPAIGN_MAP_ROWS, TILE_SIZE, MAP_COLS } from './content/tilemap.js';
 
 const W = 960;
 const H = 1280;
@@ -1817,96 +1818,47 @@ function seededRand(seed) {
 }
 
 // Campaign-specific terrain tile colors
-const TERRAIN_TILES = {
-  coral_front: {
-    base: '#19466b', water: '#1c5d8f',
-    island: '#d5bc84', islandDetail: '#4b7c45', reef: '#3a8a6e',
-  },
-  jungle_spear: {
-    base: '#25442f', water: '#3a6a4f',
-    island: '#4d7935', islandDetail: '#27492d', reef: '#5f90bd',
-  },
-  dust_convoy: {
-    base: '#68452b', water: '#91643d',
-    island: '#be8a52', islandDetail: '#d4a065', reef: '#6e5743',
-  },
-  iron_monsoon: {
-    base: '#1d2238', water: '#2e3455',
-    island: '#4b5578', islandDetail: '#596286', reef: '#68739a',
-  },
-};
+// ── ARCADE-073: Tilemap-based Background System ──
+// Pre-generated tilemaps are cached per campaign.
+const _tilemapCache = {};
+
+function getOrCreateTilemap(campaignId) {
+  if (!_tilemapCache[campaignId]) {
+    const rows = CAMPAIGN_MAP_ROWS[campaignId] || 120;
+    _tilemapCache[campaignId] = generateTilemap(campaignId, rows);
+  }
+  return _tilemapCache[campaignId];
+}
 
 function drawBackground(renderer, campaign, flashTimer, tick) {
-  const t = campaign.theme;
-  const tiles = TERRAIN_TILES[campaign.id] || TERRAIN_TILES.coral_front;
+  const tilemap = getOrCreateTilemap(campaign.id);
+  const palette = getTilePalette(campaign.id);
+  const totalMapH = tilemap.rows * TILE_SIZE;
 
-  // ── Layer 0: Ocean/ground base (very slow scroll — 0.2 px/frame) ──
-  const oceanTileH = 256;
-  const oceanSpeed = 0.2;
-  const oceanOffset = (tick * oceanSpeed) % oceanTileH;
+  // ── ARCADE-074: Multi-layer parallax with different scroll speeds ──
+  // Layer 0: Water — slow scroll (0.2 px/frame)
+  const waterScrollY = (tick * 0.2) % totalMapH;
+  drawTilemapLayer(renderer, tilemap, 'waterLayer', palette, waterScrollY);
 
-  renderer.fillRect(0, 0, W, H, tiles.base);
+  // Layer 1: Terrain — medium scroll (0.5 px/frame)
+  const terrainScrollY = (tick * 0.5) % totalMapH;
+  drawTilemapLayer(renderer, tilemap, 'terrainLayer', palette, terrainScrollY);
 
-  for (let row = -1; row < Math.ceil(H / oceanTileH) + 2; row++) {
-    const baseY = row * oceanTileH + oceanOffset;
-    const rng = seededRand(row * 773 + 17);
-    for (let col = 0; col < Math.ceil(W / 128); col++) {
-      const tx = col * 128;
-      if (rng() < 0.4) {
-        renderer.fillRect(tx, baseY, 128, oceanTileH, tiles.water);
-      }
-      renderer.fillRect(tx, baseY + oceanTileH - 1, 128, 1, hexToRgba(t.accent, 0.04));
-    }
-  }
+  // Draw ground enemies (bunkers, ships) attached to terrain scroll
+  drawGroundEnemies(renderer, null, tilemap, palette, terrainScrollY, tick);
 
-  // ── Layer 1: Islands / Terrain (slow scroll — 0.4 px/frame, ALL SAME SPEED) ──
-  // ARCADE-061/062: All islands at SAME speed. They are terrain, not floating objects.
-  const terrainTileH = 800;
-  const terrainSpeed = 0.4;
-  const terrainOffset = (tick * terrainSpeed) % terrainTileH;
+  // Layer 2: Clouds — fast scroll (2.0 px/frame), drawn ABOVE everything
+  const cloudScrollY = (tick * 2.0) % totalMapH;
+  drawTilemapLayer(renderer, tilemap, 'cloudLayer', palette, cloudScrollY, 0.8);
 
-  for (let row = -2; row < Math.ceil(H / terrainTileH) + 2; row++) {
-    const baseY = row * terrainTileH + terrainOffset;
-    const rng = seededRand(row * 997 + campaign.id.charCodeAt(0));
-    const featureCount = 2 + Math.floor(rng() * 3);
-    for (let f = 0; f < featureCount; f++) {
-      const fx = Math.floor(rng() * (W - 220)) + 40;
-      const fy = Math.floor(baseY + rng() * (terrainTileH - 140) + 20);
-      const fw = Math.floor(80 + rng() * 180);
-      const fh = Math.floor(40 + rng() * 80);
-
-      // Island body
-      renderer.fillRect(fx, fy, fw, fh, tiles.island);
-      // Vegetation / detail
-      const vegW = Math.floor(fw * 0.6);
-      const vegH = Math.floor(fh * 0.5);
-      renderer.fillRect(fx + Math.floor(fw * 0.15), fy + Math.floor(fh * 0.15), vegW, vegH, tiles.islandDetail);
-      // Beach/edge
-      renderer.fillRect(fx + 2, fy + fh - 6, fw - 4, 6, hexToRgba(tiles.island, 0.7));
-      // Drop shadow
-      renderer.fillRect(fx + 6, fy + fh, fw - 4, 8, hexToRgba('#000000', 0.1));
-
-      // Occasional reef near island
-      if (rng() < 0.4) {
-        const rx = fx + Math.floor(rng() * 60) - 30;
-        const ry = fy + fh + 10;
-        const rw = Math.floor(30 + rng() * 50);
-        renderer.fillRect(rx, ry, rw, 12, hexToRgba(tiles.reef, 0.3));
-      }
-    }
-  }
-
-  // ── Layer 2: Clouds (fast scroll — 1.8 px/frame, ABOVE everything) ──
-  // ARCADE-049/061: Clouds are the closest layer, above islands
-  const cloudLayerH = 600;
-  const cloudSpeed = 1.8;
-  const cloudOffset = (tick * cloudSpeed) % cloudLayerH;
+  // Cloud sprites overlay (existing cloud images on top of tile clouds)
   const cloudSprites = ['cloud-1', 'cloud-2', 'cloud-3'];
-
+  const cloudLayerH = 600;
+  const cloudOffset = (tick * 1.8) % cloudLayerH;
   for (let row = -1; row < Math.ceil(H / cloudLayerH) + 2; row++) {
     const baseY = row * cloudLayerH + cloudOffset;
     const rng = seededRand(row * 1597 + 101);
-    const count = 2 + Math.floor(rng() * 3);
+    const count = 1 + Math.floor(rng() * 2);
     for (let i = 0; i < count; i++) {
       const cx = Math.floor(rng() * (W + 80) - 40);
       const cy = Math.floor(baseY + rng() * (cloudLayerH - 100));
@@ -1914,13 +1866,12 @@ function drawBackground(renderer, campaign, flashTimer, tick) {
       const ch = Math.floor(cw * 0.4);
       const spriteIdx = Math.floor(rng() * cloudSprites.length);
       const spriteName = cloudSprites[spriteIdx];
-      const alpha = 0.3 + rng() * 0.25;
+      const alpha = 0.25 + rng() * 0.2;
 
       if (renderer.hasSpriteTexture(spriteName)) {
         renderer.drawSprite(spriteName, cx, cy, cw, ch, alpha);
       } else {
-        renderer.fillRect(cx, cy, cw, ch, hexToRgba('#ffffff', alpha * 0.35));
-        renderer.fillRect(cx + 16, cy + 6, cw - 32, ch - 12, hexToRgba('#ffffff', alpha * 0.25));
+        renderer.fillRect(cx, cy, cw, ch, `rgba(255,255,255,${(alpha * 0.3).toFixed(2)})`);
       }
     }
   }
