@@ -2,7 +2,7 @@ export const ENEMIES = {
   scout_zero: {
     id: 'scout_zero',
     kind: 'fighter',
-    hp: 3,
+    hp: 1,
     speed: 1.9,
     score: 100,
     fireRate: 95,
@@ -13,7 +13,7 @@ export const ENEMIES = {
   torpedo_gull: {
     id: 'torpedo_gull',
     kind: 'fighter',
-    hp: 5,
+    hp: 2,
     speed: 1.5,
     score: 100,
     fireRate: 88,

@@ -789,11 +789,24 @@ function spawnEnemyBullets(state, e, player) {
   const py = player.y + player.h / 2;
   const baseSpeed = e.def.bulletSpeed * 2;
 
-  // ARCADE-024: Early waves in C1 — all normal enemies fire straight down (no aiming)
-  const isEarlyWave = state.campaignIndex === 0 && state.wave <= 5;
-  if (isEarlyWave && e.tier === 'normal') {
-    pushEnemyBullet(state, cx, cy, 0, baseSpeed);
-    return;
+  // ARCADE-024/035: C1 normal enemies fire STRAIGHT DOWN — no aiming at player
+  // C1 waves 1-10: all normal enemies fire straight down only (vx=0)
+  // C1 waves 11-20: fighters get slight tracking, gunships/bombers still straight down
+  if (state.campaignIndex === 0 && e.tier === 'normal') {
+    if (state.wave <= 10) {
+      // Pure straight-down fire for first half of C1
+      pushEnemyBullet(state, cx, cy, 0, baseSpeed);
+      return;
+    } else if (e.def.kind === 'fighter') {
+      // Waves 11-20: fighters get slight lateral spread but mostly downward
+      const slight = clamp((px - cx) * 0.01, -0.8, 0.8);
+      pushEnemyBullet(state, cx, cy, slight, baseSpeed);
+      return;
+    } else {
+      // Gunships/bombers in late C1 still fire straight down
+      pushEnemyBullet(state, cx, cy, 0, baseSpeed);
+      return;
+    }
   }
 
   // Determine kind: normal enemies use def.kind, bosses use tier
