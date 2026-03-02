@@ -10,8 +10,8 @@ import { MultiplayerManager } from './multiplayer.js';
 const W = 960;
 const H = 1280;
 const PLAYER_SCALE = 9;
-const ENEMY_SCALE = 8;
-const MINI_BOSS_SCALE = 16;
+const ENEMY_SCALE = 12;
+const MINI_BOSS_SCALE = 24;
 const FINAL_BOSS_SCALE = 24;
 
 // ── Sprite image preloader ──
@@ -123,7 +123,7 @@ function drawSpriteImage(renderer, spriteName, x, y, w, h, alpha = 1, fallbackId
     drawPixelSprite(renderer, fallbackId, x, y, fallbackScale || PLAYER_SCALE, fallbackTint || '#ff6f6f', alpha);
   }
 }
-const BULLET_SIZE = 14;
+const BULLET_SIZE = 20;
 const ROLL_DURATION = 30;
 const ROLL_IFRAMES = 22;
 const ROLL_SPEED = 12.2;
@@ -717,7 +717,7 @@ function spawnPlayerBullets(state, mode = 'normal') {
       x: baseX - BULLET_SIZE / 2,
       y: baseY,
       w: BULLET_SIZE,
-      h: 28,
+      h: 36,
       vx: b.vx,
       vy: b.vy,
       pierce: b.pierce,
@@ -773,9 +773,9 @@ function bulletTier(speed) {
 
 function bulletProps(speed) {
   const tier = bulletTier(speed);
-  if (tier === 'slow') return { size: 18, color: '#ff44cc', shape: 'circle' };
-  if (tier === 'medium') return { size: 14, color: '#ff9933', shape: 'circle' };
-  return { size: 10, color: '#ff2222', shape: 'circle' };
+  if (tier === 'slow') return { size: 24, color: '#ff44cc', shape: 'circle' };
+  if (tier === 'medium') return { size: 20, color: '#ff9933', shape: 'circle' };
+  return { size: 16, color: '#ff2222', shape: 'circle' };
 }
 
 function pushEnemyBullet(state, x, y, vx, vy) {
@@ -1237,7 +1237,7 @@ function updateGame(state, game, input) {
         x: bx - BULLET_SIZE / 2,
         y: by,
         w: BULLET_SIZE,
-        h: 28,
+        h: 36,
         vx: 0,
         vy: -15,
         pierce: 0,
@@ -2222,7 +2222,7 @@ export function createGame() {
     }
 
     const playerAlpha = (state.player.invuln > 0 || state.player.bombInvuln > 0) && state.tick % 6 < 3 ? 0.55 : 1;
-    const bankOffset = clamp(state.player.vx * 0.4, -2, 2);
+    const bankOffset = 0; // ARCADE-047: removed tilt — plane slides smoothly
     const playerImgName = state.player.rollTimer > 0
       ? getPlayerSpriteName(state.player.plane.id, 0) // idle during roll
       : getPlayerSpriteName(state.player.plane.id, state.player.vx);
