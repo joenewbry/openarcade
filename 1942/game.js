@@ -314,6 +314,7 @@ function makeInitialState(planeId) {
     damageTakenThisWave: false,
     perfectWaveTimer: 0,
     bossWarningTimer: 0,
+    bossWarningIsFinal: false,
     pendingBossWave: false,
     shownMilestones: new Set(),
     scorePops: [],
@@ -332,6 +333,10 @@ function makeInitialState(planeId) {
     nextLifeAt: 100000,
     oneUpTimer: 0,
     focusActive: false,
+    // ARCADE-080: Debrief/victory screen between campaigns
+    debriefTimer: 0,
+    debriefData: null,
+    perfectWaveCount: 0,
     // ARCADE-076/077/078: Ground enemies (bunkers, ships) attached to tilemap
     groundEnemies: [],
     groundEnemiesSpawned: new Set(), // track which tilemap slots have been activated
@@ -1291,6 +1296,21 @@ function killEnemy(state, enemy) {
 
 function moveToNextCampaign(state, game) {
   const campaign = getCampaign(state.campaignIndex);
+
+  // ARCADE-080: Victory/debrief sequence — show stats before next campaign
+  state.debriefTimer = 360; // 6 seconds of debrief screen
+  state.debriefData = {
+    campaignName: campaign.name,
+    score: state.score,
+    wavesCleared: state.wave,
+    grazeCount: state.grazeCount,
+    livesRemaining: state.player.lives,
+    bombsRemaining: state.player.bombs,
+    perfectWaves: state.perfectWaveCount || 0,
+    // Brief story beat
+    storyText: getDebriefStory(state.campaignIndex),
+  };
+
   queueDialogue(state, getDialogue(campaign.id, 'clear'), 220);
 
   state.campaignIndex += 1;
@@ -1310,6 +1330,9 @@ function moveToNextCampaign(state, game) {
   state.ambience.length = 0;
   state.signatureWhale = null;
   state.signatureWingman = null;
+  // Reset ground enemies for new campaign
+  state.groundEnemies = [];
+  state.groundEnemiesSpawned = new Set();
 
   if (state.campaignIndex >= CAMPAIGNS.length) {
     game.setState('over');
@@ -1327,9 +1350,30 @@ function moveToNextCampaign(state, game) {
   queueDialogue(state, getDialogue(nextCampaign.id, 'intro'), 280);
 }
 
+// ARCADE-080: Debrief story beats between campaigns
+function getDebriefStory(campaignIndex) {
+  const stories = [
+    'The Coral Front has fallen. Enemy forces retreat deeper into the Pacific. Intelligence reports increased activity in the jungle regions...',
+    'Jungle Spear is neutralized. The enemy supply lines through the river delta are cut. But a massive convoy has been spotted crossing the desert...',
+    'The Dust Convoy is scattered. Their armored columns are in ruins. Only one challenge remains — the Iron Monsoon, their final stronghold...',
+    'The Iron Monsoon falls silent. Against all odds, you have prevailed. The skies are free once more. You are a legend of the Pacific Theater.',
+  ];
+  return stories[Math.min(campaignIndex, stories.length - 1)];
+}
+
 function updateGame(state, game, input) {
   const player = state.player;
   state.tick += 1;
+
+  // ARCADE-080: Debrief screen — pause gameplay, count down, allow skip
+  if (state.debriefTimer > 0) {
+    state.debriefTimer--;
+    // Allow skip after initial fade-in (first 2 seconds)
+    if (state.debriefTimer < 240 && input.wasPressed(' ')) {
+      state.debriefTimer = 0;
+    }
+    return;
+  }
 
   // ARCADE-010: Campaign intro screen — pause gameplay during transition
   if (state.campaignIntroTimer > 0) {
@@ -1919,8 +1963,13 @@ function updateGame(state, game, input) {
       const campaign = getCampaign(state.campaignIndex);
       const nextWave = state.wave + 1;
       if (!state.pendingBossWave && (campaign.minibossWaves.includes(nextWave) || nextWave === campaign.finalWave)) {
-        state.bossWarningTimer = 180;
+        // ARCADE-081: Longer, more dramatic boss warning
+        // Final boss gets 300 frames (5 sec), mini boss gets 210 frames (3.5 sec)
+        const isFinalBoss = nextWave === campaign.finalWave;
+        state.bossWarningTimer = isFinalBoss ? 300 : 210;
+        state.bossWarningIsFinal = isFinalBoss;
         state.pendingBossWave = true;
+        sfx.bossWarn();
         return;
       }
       state.pendingBossWave = false;
@@ -2490,6 +2539,71 @@ export function createGame() {
       return;
     }
 
+    // ARCADE-080: Victory/debrief screen between campaigns
+    if (state.debriefTimer > 0) {
+      renderer.fillRect(0, 0, W, H, '#050a18');
+      const fadeIn = Math.min(1, (360 - state.debriefTimer) / 40);
+      const fadeOut = Math.min(1, state.debriefTimer / 40);
+      const alpha = Math.min(fadeIn, fadeOut);
+      const d = state.debriefData;
+      if (d) {
+        const a = alpha.toFixed(2);
+        // Title
+        text.drawText('MISSION COMPLETE', W / 2 - 200, 100, 48, `rgba(255,215,0,${a})`);
+        text.drawText(d.campaignName, W / 2 - d.campaignName.length * 14, 170, 40, `rgba(100,200,255,${a})`);
+
+        // Stats
+        const sx = 200;
+        let sy = 280;
+        const statColor = `rgba(200,220,255,${a})`;
+        const valColor = `rgba(255,255,200,${a})`;
+        text.drawText('SCORE:', sx, sy, 28, statColor);
+        text.drawText(String(d.score), sx + 300, sy, 28, valColor);
+        sy += 48;
+        text.drawText('WAVES CLEARED:', sx, sy, 28, statColor);
+        text.drawText(String(d.wavesCleared), sx + 300, sy, 28, valColor);
+        sy += 48;
+        text.drawText('GRAZES:', sx, sy, 28, statColor);
+        text.drawText(String(d.grazeCount), sx + 300, sy, 28, valColor);
+        sy += 48;
+        text.drawText('LIVES:', sx, sy, 28, statColor);
+        text.drawText(String(d.livesRemaining), sx + 300, sy, 28, valColor);
+        sy += 48;
+        text.drawText('BOMBS:', sx, sy, 28, statColor);
+        text.drawText(String(d.bombsRemaining), sx + 300, sy, 28, valColor);
+
+        // Story beat
+        if (d.storyText && (360 - state.debriefTimer) > 80) {
+          const storyAlpha = Math.min(1, ((360 - state.debriefTimer) - 80) / 40).toFixed(2);
+          const storyColor = `rgba(180,200,220,${storyAlpha})`;
+          // Word wrap story
+          const words = d.storyText.split(' ');
+          let line = '';
+          let lineIdx = 0;
+          const maxChars = 50;
+          for (const word of words) {
+            if ((line + ' ' + word).trim().length > maxChars && line.length > 0) {
+              text.drawText(line.trim(), 120, 600 + lineIdx * 30, 22, storyColor);
+              lineIdx++;
+              line = word;
+            } else {
+              line = (line + ' ' + word).trim();
+            }
+          }
+          if (line.trim()) text.drawText(line.trim(), 120, 600 + lineIdx * 30, 22, storyColor);
+        }
+
+        // Progress indicator
+        if (state.debriefTimer < 120) {
+          const blinkOn = state.tick % 60 < 40;
+          if (blinkOn) {
+            text.drawText('PRESS SPACE TO CONTINUE', W / 2 - 210, H - 120, 28, `rgba(255,255,255,${a})`);
+          }
+        }
+      }
+      return;
+    }
+
     // ARCADE-010: Campaign intro screen — black screen with campaign name
     if (state.campaignIntroTimer > 0) {
       renderer.fillRect(0, 0, W, H, '#000000');
@@ -2710,12 +2824,32 @@ export function createGame() {
       }
     }
 
-    // Boss Warning overlay
+    // ARCADE-081: Enhanced Boss Warning overlay — longer, more dramatic
     if (state.bossWarningTimer > 0) {
-      renderer.fillRect(0, 0, W, H, 'rgba(0,0,0,0.3)');
-      if (Math.floor(state.bossWarningTimer / 12) % 2 === 0) {
-        text.drawText('WARNING', W / 2 - 70, H / 2 - 20, 32, '#ff2244');
+      const wt = state.bossWarningTimer;
+      const maxWt = state.bossWarningIsFinal ? 300 : 210;
+      const progress = 1 - (wt / maxWt); // 0→1 as warning progresses
+      // Darkening — gets darker over time
+      const darken = 0.2 + progress * 0.3;
+      renderer.fillRect(0, 0, W, H, `rgba(0,0,0,${darken.toFixed(2)})`);
+      // Red pulse bars at top and bottom
+      const pulseAlpha = (0.3 + Math.sin(state.tick * 0.1) * 0.2).toFixed(2);
+      const barH = 4 + Math.floor(progress * 20);
+      renderer.fillRect(0, 0, W, barH, `rgba(255,0,0,${pulseAlpha})`);
+      renderer.fillRect(0, H - barH, W, barH, `rgba(255,0,0,${pulseAlpha})`);
+      // Flashing WARNING text — gets bigger and more urgent
+      if (Math.floor(wt / 10) % 2 === 0) {
+        const fontSize = 36 + Math.floor(progress * 24);
+        const warnText = state.bossWarningIsFinal ? 'DANGER' : 'WARNING';
+        text.drawText(warnText, W / 2 - warnText.length * (fontSize / 4), H / 2 - 30, fontSize, '#ff2244');
       }
+      // Subtitle for final boss
+      if (state.bossWarningIsFinal && progress > 0.3) {
+        const subAlpha = Math.min(1, (progress - 0.3) / 0.3).toFixed(2);
+        text.drawText('BOSS APPROACHING', W / 2 - 160, H / 2 + 30, 28, `rgba(255,180,180,${subAlpha})`);
+      }
+      // Sound pulses
+      if (wt % 60 === 0) sfx.bossWarn();
     }
 
     // Chain display

@@ -14,7 +14,12 @@ export const CAMPAIGNS = [
     miniboss: 'reef_guardian',
     finalBoss: 'coral_dreadnought',
     minibossWaves: [5, 10, 15],       // C1: standard tutorial pacing
-    signatureMoments: {}, // ARCADE-059: whale_crossing removed
+    // ARCADE-083: Scripted interesting moments
+    signatureMoments: {
+      7: 'powerup_shower',   // Mid-act reward before tougher enemies
+      13: 'ambush_all_edges', // Surprise ambush in Act 3 — first time player sees this
+      18: 'wingman',         // Allied wingman for the final push
+    }
     finalWave: 20,
     // ── C1: Tutorial campaign — gentle ramp, teaches basics ──
     // ARCADE-071/072: All patterns are now smooth predefined paths. No side entries in C1.
@@ -120,7 +125,12 @@ export const CAMPAIGNS = [
     miniboss: 'convoy_ram',
     finalBoss: 'dust_colossus',
     minibossWaves: [],                 // C3: no mini bosses — pure wave survival
-    signatureMoments: { 10: 'powerup_shower' },  // C3 midpoint break to fight fatigue
+    // ARCADE-083: More scripted moments for endurance campaign
+    signatureMoments: {
+      5: 'wingman',           // Early wingman to help with lancers
+      10: 'powerup_shower',   // Midpoint break to fight fatigue
+      15: 'ambush_all_edges', // Late surprise
+    },
     finalBossScale: 1.5,               // extra-tough final boss
     finalWave: 20,
     // ── C3: Endurance — no minibosses, relentless waves, escalating density ──
@@ -171,7 +181,14 @@ export const CAMPAIGNS = [
     miniboss: 'monsoon_blade',
     finalBoss: 'iron_tempest',
     minibossWaves: [4, 8, 12, 16],    // C4: relentless — boss every 4 waves
-    signatureMoments: { 14: 'wingman' },
+    // ARCADE-083: Maximum scripted moments for final campaign
+    signatureMoments: {
+      3: 'powerup_shower',    // Early power-up boost for the gauntlet
+      7: 'ambush_all_edges',  // All-edge ambush
+      11: 'wingman',          // Wingman before W12 boss
+      14: 'wingman',          // Second wingman for endgame
+      17: 'powerup_shower',   // Final power-up boost before climax
+    },
     finalWave: 20,
     // ── C4: The Gauntlet — bosses every 4 waves, 4 enemy types, max chaos ──
     // ARCADE-071: Full path variety. All entry directions. Every pattern type used.
