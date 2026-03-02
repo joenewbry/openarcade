@@ -19,7 +19,7 @@ export const CAMPAIGNS = [
       7: 'powerup_shower',   // Mid-act reward before tougher enemies
       13: 'ambush_all_edges', // Surprise ambush in Act 3 — first time player sees this
       18: 'wingman',         // Allied wingman for the final push
-    }
+    },
     finalWave: 20,
     // ── C1: Tutorial campaign — gentle ramp, teaches basics ──
     // ARCADE-071/072: All patterns are now smooth predefined paths. No side entries in C1.
