@@ -1989,125 +1989,143 @@ export function createGame() {
 
   // ── In-canvas Plane Selection Screen ──
   function drawPlaneSelect(renderer, text, tick) {
-    // Dark background
-    renderer.fillRect(0, 0, W, H, '#0a0e1a');
+    // ARCADE-046: Vibrant background with animated gradient feel
+    renderer.fillRect(0, 0, W, H, '#0b1228');
+    // Animated starfield/particle backdrop
+    for (let i = 0; i < 40; i++) {
+      const sx = ((i * 137 + tick * 0.3) % W);
+      const sy = ((i * 211 + tick * 0.5) % H);
+      const alpha = (0.2 + Math.sin(tick * 0.03 + i) * 0.15).toFixed(2);
+      renderer.fillRect(sx, sy, 2, 2, `rgba(100,180,255,${alpha})`);
+    }
+    // Subtle gradient overlay at top
+    renderer.fillRect(0, 0, W, 200, 'rgba(20,40,80,0.6)');
 
-    // Title
-    const titleColor = `hsl(${200 + Math.sin(tick * 0.02) * 20}, 80%, 75%)`;
-    text.drawText('1942', W / 2 - 100, 60, 72, titleColor);
-    text.drawText('PIXEL CAMPAIGNS', W / 2 - 190, 140, 36, '#8ab4d7');
+    // Title — vibrant pulsing color
+    const titleHue = 200 + Math.sin(tick * 0.025) * 30;
+    const titleColor = `hsl(${titleHue}, 90%, 70%)`;
+    text.drawText('1942', W / 2 - 100, 50, 72, titleColor);
+    text.drawText('PIXEL CAMPAIGNS', W / 2 - 190, 130, 36, '#88ccff');
 
-    // Subtitle
-    text.drawText('SELECT YOUR PLANE', W / 2 - 160, 220, 32, '#ffffff');
+    // Subtitle — bright white
+    text.drawText('SELECT YOUR PLANE', W / 2 - 180, 200, 34, '#ffffff');
 
-    // Two plane cards side by side
-    const cardW = 380;
-    const cardH = 680;
-    const cardGap = 40;
-    const cardStartX = (W - cardW * 2 - cardGap) / 2;
-    const cardY = 270;
+    // Two plane cards side by side — CONTAINED within bounds
+    const cardW = 400;
+    const cardH = 720;
+    const cardGap = 32;
+    const totalW = cardW * 2 + cardGap;
+    const cardStartX = (W - totalW) / 2;
+    const cardY = 250;
+    // Clamp cards so text doesn't overflow canvas
+    const textPad = 24; // internal padding for text within card
 
     for (let i = 0; i < PLANES.length && i < 2; i++) {
       const plane = PLANES[i];
       const cx = cardStartX + i * (cardW + cardGap);
       const isSelected = i === selectedPlaneIndex;
 
-      // Card background
-      const bgColor = isSelected ? '#1a2844' : '#10152a';
-      const borderColor = isSelected ? plane.color : '#2a3050';
-      renderer.fillRect(cx - 2, cardY - 2, cardW + 4, cardH + 4, borderColor);
-      renderer.fillRect(cx, cardY, cardW, cardH, bgColor);
-
-      // Selection indicator — pulsing glow
+      // Card background — vibrant, not grayed out
       if (isSelected) {
-        const pulse = 0.5 + Math.sin(tick * 0.06) * 0.3;
-        renderer.fillRect(cx - 4, cardY - 4, cardW + 8, cardH + 8,
-          `rgba(${plane.color === '#9fb8ff' ? '159,184,255' : '158,233,198'},${(pulse * 0.15).toFixed(2)})`);
+        // Selected: bright glow border + rich dark blue interior
+        const pulse = 0.6 + Math.sin(tick * 0.06) * 0.3;
+        const rgb = plane.color === '#9fb8ff' ? '159,184,255' : '158,233,198';
+        renderer.fillRect(cx - 6, cardY - 6, cardW + 12, cardH + 12,
+          `rgba(${rgb},${(pulse * 0.35).toFixed(2)})`);
+        renderer.fillRect(cx - 3, cardY - 3, cardW + 6, cardH + 6, plane.color);
+        renderer.fillRect(cx, cardY, cardW, cardH, '#0f1d3a');
+      } else {
+        // Unselected: visible but muted border
+        renderer.fillRect(cx - 2, cardY - 2, cardW + 4, cardH + 4, '#334466');
+        renderer.fillRect(cx, cardY, cardW, cardH, '#111a2e');
       }
 
-      // Plane sprite preview (centered in card)
-      const previewScale = 14;
+      // Plane sprite preview (centered in card, contained)
+      const previewScale = 12;
       const spriteName = `${plane.id}-idle`;
-      const spriteW = previewScale * 12;
+      const spriteW = Math.min(previewScale * 12, cardW - textPad * 2);
       const spriteH = previewScale * 14;
       const spriteX = cx + (cardW - spriteW) / 2;
-      const spriteY = cardY + 30;
+      const spriteY = cardY + 20;
 
       if (renderer.hasSpriteTexture(spriteName)) {
         renderer.drawSprite(spriteName, spriteX, spriteY, spriteW, spriteH, 1);
       } else {
-        // Fallback colored rectangle
         renderer.fillRect(spriteX, spriteY, spriteW, spriteH, plane.color);
       }
 
-      // Plane name
-      const nameY = spriteY + spriteH + 20;
-      text.drawText(plane.name, cx + 20, nameY, 32, plane.color);
+      // Plane name — contained within card bounds
+      const nameY = spriteY + spriteH + 16;
+      text.drawText(plane.name, cx + textPad, nameY, 28, plane.color);
 
-      // Key hint
-      text.drawText(`[${i + 1}]`, cx + cardW - 60, nameY, 28, '#667799');
+      // Key hint — right side of card, contained
+      text.drawText(`[${i + 1}]`, cx + cardW - textPad - 40, nameY, 24, '#88aacc');
 
-      // Stats bars
-      const statY = nameY + 50;
-      const barX = cx + 120;
-      const barW = 220;
-      const barH = 18;
+      // Stats bars — contained within card
+      const statY = nameY + 42;
+      const barX = cx + textPad + 90;
+      const barW = cardW - textPad * 2 - 130; // contained bar width
+      const barH = 16;
 
       // Speed stat
-      text.drawText('SPEED', cx + 20, statY, 22, '#aabbcc');
-      const speedPct = plane.speed / 5.0; // max speed reference = 5
-      renderer.fillRect(barX, statY + 2, barW, barH, '#1a2030');
-      renderer.fillRect(barX, statY + 2, Math.floor(barW * speedPct), barH, '#44dd88');
-      text.drawText(String(plane.speed), barX + barW + 10, statY, 22, '#44dd88');
+      text.drawText('SPEED', cx + textPad, statY, 20, '#bbccdd');
+      const speedPct = plane.speed / 5.0;
+      renderer.fillRect(barX, statY + 2, barW, barH, '#1a2535');
+      renderer.fillRect(barX, statY + 2, Math.floor(barW * speedPct), barH, '#44ee88');
+      text.drawText(String(plane.speed), barX + barW + 8, statY, 20, '#44ee88');
 
       // Fire Rate stat
-      const frY = statY + 36;
-      text.drawText('FIRE', cx + 20, frY, 22, '#aabbcc');
-      const frPct = (15 - plane.fireRate) / 10; // lower = faster, normalize
-      renderer.fillRect(barX, frY + 2, barW, barH, '#1a2030');
-      renderer.fillRect(barX, frY + 2, Math.floor(barW * frPct), barH, '#ffaa44');
-      const frLabel = plane.fireRate <= 10 ? 'FAST' : 'NORMAL';
-      text.drawText(frLabel, barX + barW + 10, frY, 22, '#ffaa44');
+      const frY = statY + 32;
+      text.drawText('FIRE', cx + textPad, frY, 20, '#bbccdd');
+      const frPct = (15 - plane.fireRate) / 10;
+      renderer.fillRect(barX, frY + 2, barW, barH, '#1a2535');
+      renderer.fillRect(barX, frY + 2, Math.floor(barW * frPct), barH, '#ffbb44');
+      const frLabel = plane.fireRate <= 10 ? 'FAST' : 'MED';
+      text.drawText(frLabel, barX + barW + 8, frY, 20, '#ffbb44');
 
-      // Roll Cooldown stat
-      const rcY = frY + 36;
-      text.drawText('AGILITY', cx + 20, rcY, 22, '#aabbcc');
-      const rcPct = (100 - plane.rollCooldown) / 50; // lower CD = more agile
-      renderer.fillRect(barX, rcY + 2, barW, barH, '#1a2030');
-      renderer.fillRect(barX, rcY + 2, Math.floor(barW * rcPct), barH, '#44aaff');
-      const rcLabel = plane.rollCooldown <= 70 ? 'HIGH' : 'NORMAL';
-      text.drawText(rcLabel, barX + barW + 10, rcY, 22, '#44aaff');
+      // Agility stat
+      const rcY = frY + 32;
+      text.drawText('AGILITY', cx + textPad, rcY, 20, '#bbccdd');
+      const rcPct = (100 - plane.rollCooldown) / 50;
+      renderer.fillRect(barX, rcY + 2, barW, barH, '#1a2535');
+      renderer.fillRect(barX, rcY + 2, Math.floor(barW * rcPct), barH, '#44bbff');
+      const rcLabel = plane.rollCooldown <= 70 ? 'HIGH' : 'MED';
+      text.drawText(rcLabel, barX + barW + 8, rcY, 20, '#44bbff');
 
-      // Special ability section
-      const specY = rcY + 60;
-      text.drawText('SPECIAL', cx + 20, specY, 24, '#ddeeff');
-      text.drawText(plane.special.name, cx + 20, specY + 32, 28, '#ffcc44');
+      // Special ability section — contained with word wrap within card
+      const specY = rcY + 48;
+      text.drawText('SPECIAL', cx + textPad, specY, 22, '#eef4ff');
+      text.drawText(plane.special.name, cx + textPad, specY + 28, 26, '#ffcc44');
 
-      // Description (wrapped manually)
+      // Description — word wrap within card bounds
       const desc = plane.special.description;
-      const maxLineLen = 24;
+      const maxCharsPerLine = Math.floor((cardW - textPad * 2) / 10); // ~10px per char at size 18
       const words = desc.split(' ');
       let line = '';
       let lineIdx = 0;
+      const maxLines = 4; // limit lines to prevent overflow
       for (const word of words) {
-        if ((line + ' ' + word).trim().length > maxLineLen && line.length > 0) {
-          text.drawText(line.trim(), cx + 20, specY + 68 + lineIdx * 28, 20, '#8899aa');
+        if ((line + ' ' + word).trim().length > maxCharsPerLine && line.length > 0) {
+          if (lineIdx < maxLines) {
+            text.drawText(line.trim(), cx + textPad, specY + 60 + lineIdx * 24, 18, '#99aabb');
+          }
           lineIdx++;
           line = word;
         } else {
           line = (line + ' ' + word).trim();
         }
       }
-      if (line.trim()) {
-        text.drawText(line.trim(), cx + 20, specY + 68 + lineIdx * 28, 20, '#8899aa');
+      if (line.trim() && lineIdx < maxLines) {
+        text.drawText(line.trim(), cx + textPad, specY + 60 + lineIdx * 24, 18, '#99aabb');
       }
     }
 
-    // Controls hint at bottom
-    text.drawText('PRESS [1] or [2] to select', W / 2 - 200, H - 140, 26, '#667799');
+    // Controls hint at bottom — contained and centered
+    const ctrlY = cardY + cardH + 20;
+    text.drawText('PRESS [1] or [2] to select', W / 2 - 200, Math.min(ctrlY, H - 130), 24, '#7799bb');
     const blinkOn = tick % 60 < 40;
     if (blinkOn) {
-      text.drawText('PRESS SPACE TO LAUNCH', W / 2 - 190, H - 100, 32, '#ffffff');
+      text.drawText('PRESS SPACE TO LAUNCH', W / 2 - 190, Math.min(ctrlY + 36, H - 90), 30, '#ffffff');
     }
 
     // Multiplayer section
