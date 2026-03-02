@@ -3,27 +3,30 @@ export const POWERUPS = [
     id: 'double-shot',
     label: 'Double Shot',
     color: '#ffd166',
-    duration: 720,
+    duration: 1800,
     apply(state) {
-      state.player.doubleShotTimer = this.duration;
+      // ARCADE-057: Stack — add duration to existing timer instead of replacing
+      state.player.doubleShotTimer += this.duration;
     },
   },
   {
     id: 'speed-boost',
     label: 'Speed Boost',
     color: '#7cf3a2',
-    duration: 600,
+    duration: 1500,
     apply(state) {
-      state.player.speedBoostTimer = this.duration;
+      // ARCADE-057: Stack — add duration
+      state.player.speedBoostTimer += this.duration;
     },
   },
   {
     id: 'shield',
     label: 'Shield',
     color: '#89c2ff',
-    duration: 540,
+    duration: 1200,
     apply(state) {
-      state.player.shieldTimer = this.duration;
+      // ARCADE-057: Stack — add duration
+      state.player.shieldTimer += this.duration;
     },
   },
   {

@@ -14,7 +14,7 @@ export const CAMPAIGNS = [
     miniboss: 'reef_guardian',
     finalBoss: 'coral_dreadnought',
     minibossWaves: [5, 10, 15],       // C1: standard tutorial pacing
-    signatureMoments: { 7: 'whale_crossing' },
+    signatureMoments: {}, // ARCADE-059: whale_crossing removed
     finalWave: 20,
     // ── C1: Tutorial campaign — gentle ramp, teaches basics ──
     waves: [

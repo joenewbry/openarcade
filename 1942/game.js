@@ -500,16 +500,8 @@ function spawnWave(state) {
 
   // Check for signature moments
   const sigMoment = campaign.signatureMoments && campaign.signatureMoments[state.wave];
-  if (sigMoment === 'whale_crossing') {
-    state.signatureWhale = {
-      x: -320,
-      y: H * 0.4,
-      w: 320,
-      h: 80,
-      vx: 7.2,
-    };
-    queueDialogue(state, ['A massive whale surfaces below...', 'Use it as cover!']);
-  } else if (sigMoment === 'wingman') {
+  // ARCADE-059: whale_crossing removed — skip it entirely
+  if (sigMoment === 'wingman') {
     state.signatureWingman = {
       x: state.player.x + 80,
       y: state.player.y,
@@ -799,24 +791,11 @@ function spawnEnemyBullets(state, e, player) {
   const py = player.y + player.h / 2;
   const baseSpeed = e.def.bulletSpeed * 2;
 
-  // ARCADE-024/035: C1 normal enemies fire STRAIGHT DOWN — no aiming at player
-  // C1 waves 1-10: all normal enemies fire straight down only (vx=0)
-  // C1 waves 11-20: fighters get slight tracking, gunships/bombers still straight down
-  if (state.campaignIndex === 0 && e.tier === 'normal') {
-    if (state.wave <= 10) {
-      // Pure straight-down fire for first half of C1
-      pushEnemyBullet(state, cx, cy, 0, baseSpeed);
-      return;
-    } else if (e.def.kind === 'fighter') {
-      // Waves 11-20: fighters get slight lateral spread but mostly downward
-      const slight = clamp((px - cx) * 0.01, -0.8, 0.8);
-      pushEnemyBullet(state, cx, cy, slight, baseSpeed);
-      return;
-    } else {
-      // Gunships/bombers in late C1 still fire straight down
-      pushEnemyBullet(state, cx, cy, 0, baseSpeed);
-      return;
-    }
+  // ARCADE-054: ALL fighter-class normal enemies fire STRAIGHT DOWN — no aiming at player
+  // This applies across ALL campaigns, not just C1. Fighters = straight down only.
+  if (e.tier === 'normal' && e.def.kind === 'fighter') {
+    pushEnemyBullet(state, cx, cy, 0, baseSpeed);
+    return;
   }
 
   // Determine kind: normal enemies use def.kind, bosses use tier
@@ -941,7 +920,8 @@ function activateBomb(state, game) {
     }
   }
 
-  // --- Cancel ALL enemy bullets, award 10 points per bullet (flat, no chain) ---
+  // --- ARCADE-058: Cancel ALL enemy bullets, award 10 points per bullet (flat, no chain) ---
+  // Verified: state.enemyBullets.length = 0 clears every bullet on screen
   const cancelledBullets = state.enemyBullets.length;
   if (cancelledBullets > 0) {
     const bulletPoints = cancelledBullets * 10;
@@ -1080,8 +1060,17 @@ function killEnemy(state, enemy) {
 
   if (enemy.tier === 'normal') {
     if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+  } else if (enemy.tier === 'mini') {
+    // ARCADE-053: Mini bosses drop 3 power-ups — their designated drop + 2 random
+    spawnPowerup(state, enemy.x + enemy.w / 2 - 40, enemy.y + enemy.h / 2, enemy.def.drop);
+    spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2 + 20);
+    spawnPowerup(state, enemy.x + enemy.w / 2 + 40, enemy.y + enemy.h / 2);
   } else {
-    spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, enemy.def.drop);
+    // Final bosses: designated drop + 3 random
+    spawnPowerup(state, enemy.x + enemy.w / 2 - 60, enemy.y + enemy.h / 2, enemy.def.drop);
+    spawnPowerup(state, enemy.x + enemy.w / 2 - 20, enemy.y + enemy.h / 2 + 20);
+    spawnPowerup(state, enemy.x + enemy.w / 2 + 20, enemy.y + enemy.h / 2);
+    spawnPowerup(state, enemy.x + enemy.w / 2 + 60, enemy.y + enemy.h / 2 + 20);
   }
 }
 
