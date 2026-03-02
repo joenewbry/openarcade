@@ -47,10 +47,41 @@ export const POWERUPS = [
       state.player.bombs = Math.min(5, state.player.bombs + 2);
     },
   },
+  // ARCADE-055/056: New weapon power-ups
+  {
+    id: 'spread-shot',
+    label: 'Spread Shot',
+    color: '#ff8844',
+    duration: 1800,
+    apply(state) {
+      state.player.weaponType = 'spread';
+      state.player.weaponTimer += this.duration;
+    },
+  },
+  {
+    id: 'laser',
+    label: 'Laser',
+    color: '#44ffaa',
+    duration: 1800,
+    apply(state) {
+      state.player.weaponType = 'laser';
+      state.player.weaponTimer += this.duration;
+    },
+  },
+  {
+    id: 'homing',
+    label: 'Homing Missiles',
+    color: '#ff44ff',
+    duration: 1500,
+    apply(state) {
+      state.player.weaponType = 'homing';
+      state.player.weaponTimer += this.duration;
+    },
+  },
 ];
 
 export function rollPowerup() {
-  const weights = [25, 24, 20, 12, 19];
+  const weights = [20, 18, 16, 10, 15, 8, 6, 7]; // spread, laser, homing added
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
   for (let i = 0; i < POWERUPS.length; i++) {

@@ -84,6 +84,9 @@ const POWERUP_SPRITE_MAP = {
   'shield': 'powerup-shield',
   'repair': 'powerup-shield',       // reuse shield sprite for repair
   'bomb': 'powerup-bomb',
+  'spread-shot': 'powerup-shot',    // reuse shot sprite for new weapons
+  'laser': 'powerup-speed',         // reuse speed sprite (green) for laser
+  'homing': 'powerup-bomb',         // reuse bomb sprite for homing
 };
 
 function getPlayerSpriteName(planeId, vx) {
@@ -277,6 +280,9 @@ function makePlayer(planeId) {
     lastMoveX: 0,
     lastMoveY: -1,
     autoBomb: false,
+    // ARCADE-055/056: Weapon system
+    weaponType: 'normal', // 'normal' | 'spread' | 'laser' | 'homing'
+    weaponTimer: 0,
   };
 }
 
@@ -683,38 +689,100 @@ function spawnPlayerBullets(state, mode = 'normal') {
   const baseY = p.y;
   const speed = -17;
 
-  let pattern = [{ vx: 0, vy: speed, pierce: 0 }];
+  // ARCADE-055/056: Weapon type system
+  const weaponType = p.weaponType || 'normal';
+
+  // Special modes (burst/rail from plane specials) override weapon type
   if (mode === 'burst') {
-    pattern = [
+    const pattern = [
       { vx: -4.0, vy: speed + 2.0, pierce: 0 },
       { vx: -2.0, vy: speed, pierce: 0 },
       { vx: 0, vy: speed, pierce: 0 },
       { vx: 2.0, vy: speed, pierce: 0 },
       { vx: 4.0, vy: speed + 2.0, pierce: 0 },
     ];
-  } else if (mode === 'rail') {
-    pattern = [
+    for (const b of pattern) {
+      state.bullets.push({
+        x: baseX - BULLET_SIZE / 2, y: baseY,
+        w: BULLET_SIZE, h: 36, vx: b.vx, vy: b.vy, pierce: b.pierce,
+        color: '#9df2ff',
+      });
+    }
+    sfx.shoot();
+    return;
+  }
+  if (mode === 'rail') {
+    const pattern = [
       { vx: -1.6, vy: speed - 2.0, pierce: 3 },
       { vx: 1.6, vy: speed - 2.0, pierce: 3 },
     ];
-  } else if (p.doubleShotTimer > 0) {
-    pattern = [
-      { vx: -1.0, vy: speed, pierce: 0 },
-      { vx: 1.0, vy: speed, pierce: 0 },
-    ];
+    for (const b of pattern) {
+      state.bullets.push({
+        x: baseX - BULLET_SIZE / 2, y: baseY,
+        w: BULLET_SIZE, h: 36, vx: b.vx, vy: b.vy, pierce: b.pierce,
+        color: '#b8d4ff',
+      });
+    }
+    sfx.shoot();
+    return;
   }
 
-  for (const b of pattern) {
+  // Weapon-type-based firing
+  if (weaponType === 'spread') {
+    // Spread shot: 5 bullets in a fan
+    const angles = [-0.35, -0.17, 0, 0.17, 0.35];
+    for (const angle of angles) {
+      state.bullets.push({
+        x: baseX - BULLET_SIZE / 2, y: baseY,
+        w: BULLET_SIZE, h: 36,
+        vx: Math.sin(angle) * 8, vy: speed * Math.cos(angle),
+        pierce: 0, color: '#ff9944',
+      });
+    }
+  } else if (weaponType === 'laser') {
+    // Laser: 2 piercing beams, tall and narrow
     state.bullets.push({
-      x: baseX - BULLET_SIZE / 2,
-      y: baseY,
-      w: BULLET_SIZE,
-      h: 36,
-      vx: b.vx,
-      vy: b.vy,
-      pierce: b.pierce,
-      color: mode === 'rail' ? '#b8d4ff' : '#9df2ff',
+      x: baseX - 4, y: baseY,
+      w: 8, h: 60,
+      vx: 0, vy: speed - 4,
+      pierce: 5, color: '#44ffaa',
     });
+    state.bullets.push({
+      x: baseX - 4, y: baseY - 50,
+      w: 8, h: 60,
+      vx: 0, vy: speed - 4,
+      pierce: 5, color: '#44ffaa',
+    });
+  } else if (weaponType === 'homing') {
+    // Homing missiles: 2 missiles that track nearest enemy
+    state.bullets.push({
+      x: baseX - 16, y: baseY,
+      w: BULLET_SIZE, h: 36,
+      vx: -3, vy: speed * 0.7,
+      pierce: 0, color: '#ff44ff', homing: true,
+    });
+    state.bullets.push({
+      x: baseX + 4, y: baseY,
+      w: BULLET_SIZE, h: 36,
+      vx: 3, vy: speed * 0.7,
+      pierce: 0, color: '#ff44ff', homing: true,
+    });
+  } else {
+    // Normal / double shot
+    let pattern = [{ vx: 0, vy: speed, pierce: 0 }];
+    if (p.doubleShotTimer > 0) {
+      pattern = [
+        { vx: -1.0, vy: speed, pierce: 0 },
+        { vx: 1.0, vy: speed, pierce: 0 },
+      ];
+    }
+    for (const b of pattern) {
+      state.bullets.push({
+        x: baseX - BULLET_SIZE / 2, y: baseY,
+        w: BULLET_SIZE, h: 36, vx: b.vx, vy: b.vy, pierce: b.pierce,
+        color: '#9df2ff',
+      });
+    }
   }
   sfx.shoot();
 }
@@ -976,6 +1044,8 @@ function damagePlayer(state) {
   p.speedBoostTimer = 0;
   p.shieldTimer = 0;
   p.specialTimer = 0;
+  p.weaponType = 'normal';
+  p.weaponTimer = 0;
 
   // Reset chain
   state.chainCount = 0;
@@ -1151,6 +1221,11 @@ function updateGame(state, game, input) {
   if (player.doubleShotTimer > 0) player.doubleShotTimer--;
   if (player.speedBoostTimer > 0) player.speedBoostTimer--;
   if (player.shieldTimer > 0) player.shieldTimer--;
+  // ARCADE-055/056: Weapon timer — revert to normal when expired
+  if (player.weaponTimer > 0) {
+    player.weaponTimer--;
+    if (player.weaponTimer <= 0) player.weaponType = 'normal';
+  }
   if (state.flashTimer > 0) state.flashTimer--;
   if (state.screenShakeTimer > 0) state.screenShakeTimer--;
   if (state.bombDarkenTimer > 0) state.bombDarkenTimer--;
@@ -1328,6 +1403,36 @@ function updateGame(state, game, input) {
   state.bulletTrails = state.bulletTrails.filter((t) => t.life > 0);
 
   for (const b of state.bullets) {
+    // ARCADE-055: Homing missile tracking
+    if (b.homing && state.enemies.length > 0) {
+      const bcx = b.x + b.w / 2;
+      const bcy = b.y + b.h / 2;
+      let nearest = null;
+      let nearestDist = Infinity;
+      for (const e of state.enemies) {
+        const dx = (e.x + e.w / 2) - bcx;
+        const dy = (e.y + e.h / 2) - bcy;
+        const dist = dx * dx + dy * dy;
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = e;
+        }
+      }
+      if (nearest) {
+        const dx = (nearest.x + nearest.w / 2) - bcx;
+        const dy = (nearest.y + nearest.h / 2) - bcy;
+        const angle = Math.atan2(dy, dx);
+        const homingSpeed = 14;
+        const turnRate = 0.12;
+        const currentAngle = Math.atan2(b.vy, b.vx);
+        let diff = angle - currentAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        const newAngle = currentAngle + clamp(diff, -turnRate, turnRate);
+        b.vx = Math.cos(newAngle) * homingSpeed;
+        b.vy = Math.sin(newAngle) * homingSpeed;
+      }
+    }
     b.x += b.vx;
     b.y += b.vy;
   }
@@ -1764,6 +1869,13 @@ function drawUI(renderer, text, state) {
   if (p.doubleShotTimer > 0) { text.drawText('DOUBLE', bufX, 88, 22, '#ffe48d'); bufX += 110; }
   if (p.speedBoostTimer > 0) { text.drawText('SPEED', bufX, 88, 22, '#8effb5'); bufX += 100; }
   if (p.shieldTimer > 0) { text.drawText('SHIELD', bufX, 88, 22, '#9bc8ff'); bufX += 100; }
+  // ARCADE-055/056: Weapon type indicator
+  if (p.weaponType !== 'normal' && p.weaponTimer > 0) {
+    const wColors = { spread: '#ff9944', laser: '#44ffaa', homing: '#ff44ff' };
+    const wNames = { spread: 'SPREAD', laser: 'LASER', homing: 'HOMING' };
+    text.drawText(wNames[p.weaponType] || p.weaponType.toUpperCase(), bufX, 88, 22, wColors[p.weaponType] || '#ffffff');
+    bufX += 110;
+  }
 
   // ARCADE-020: Roll stock icons (below bombs, center area)
   const rollIconY = 84;
@@ -2150,12 +2262,13 @@ export function createGame() {
       renderer.fillRect(t.x, t.y, t.w, t.h, `rgba(0,255,255,${alpha})`);
     }
 
-    // Player bullets: bright cyan body with white core stripe
+    // Player bullets: colored body with white core stripe
     for (const b of state.bullets) {
+      const bulletColor = b.color || '#00ffff';
       // Outer glow
-      renderer.setGlow('#00ffff', 0.5);
-      // Cyan body
-      renderer.fillRect(b.x, b.y, b.w, b.h, '#00ffff');
+      renderer.setGlow(bulletColor, 0.5);
+      // Body
+      renderer.fillRect(b.x, b.y, b.w, b.h, bulletColor);
       renderer.setGlow(null);
       // White core stripe (centered, 2px wide)
       const coreW = 2;
