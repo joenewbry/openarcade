@@ -142,7 +142,8 @@ uniform sampler2D u_texture;
 out vec4 fragColor;
 
 void main() {
-  float alpha = texture(u_texture, v_texCoord).a;
+  // Sample red channel — atlas is white text on black background (alpha=1 everywhere)
+  float alpha = texture(u_texture, v_texCoord).r;
   if (alpha < 0.1) discard;
   fragColor = vec4(v_color.rgb, v_color.a * alpha);
 }

@@ -2,7 +2,7 @@
 
 import { textVert, textFrag } from './shaders.js';
 
-const ATLAS_SIZE = 512;
+const ATLAS_SIZE = 1024;
 const MAX_TEXT_VERTS = 4096;
 
 function compileShader(gl, type, source) {
@@ -39,6 +39,11 @@ function parseColor(str) {
     if (hex.length >= 6) {
       return [parseInt(hex.slice(0,2), 16) / 255, parseInt(hex.slice(2,4), 16) / 255, parseInt(hex.slice(4,6), 16) / 255, 1];
     }
+  }
+  // Handle rgba() and rgb() color strings
+  const m = str.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\)/);
+  if (m) {
+    return [+m[1] / 255, +m[2] / 255, +m[3] / 255, m[4] !== undefined ? +m[4] : 1];
   }
   return [1, 1, 1, 1];
 }
@@ -95,7 +100,7 @@ export class TextRenderer {
 
     // We generate glyphs for multiple font sizes
     // Key format: "size:char"
-    this._fontSizes = [12, 14, 16, 20, 24, 32, 40, 48, 64, 80];
+    this._fontSizes = [12, 14, 16, 20, 24, 26, 28, 32, 36, 40, 48, 56, 64, 80];
     const chars = ' !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~';
 
     ctx.fillStyle = '#000';
