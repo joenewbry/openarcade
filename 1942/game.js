@@ -11,6 +11,115 @@ const H = 1280;
 const PLAYER_SCALE = 6;
 const ENEMY_SCALE = 6;
 const BOSS_SCALE = 8;
+
+// ── Sprite image preloader ──
+const SPRITE_IMAGE_FILES = [
+  'specter-idle', 'specter-bank-left', 'specter-bank-right',
+  'atlas-idle', 'atlas-bank-left', 'atlas-bank-right',
+  'enemy-scout', 'enemy-torpedo', 'enemy-raider', 'enemy-gunship', 'enemy-bomber',
+  'boss-coral', 'boss-desert', 'boss-arctic', 'boss-storm',
+  'powerup-shot', 'powerup-speed', 'powerup-shield', 'powerup-bomb', 'powerup-double',
+  'explosion-small', 'explosion-large', 'explosion-boss',
+];
+
+const SPRITE_IMAGES = {}; // name → Image (set when loaded)
+let spritesLoaded = false;
+
+function preloadSpriteImages(onAllLoaded) {
+  let remaining = SPRITE_IMAGE_FILES.length;
+  for (const name of SPRITE_IMAGE_FILES) {
+    const img = new Image();
+    img.onload = () => {
+      SPRITE_IMAGES[name] = img;
+      remaining--;
+      if (remaining === 0) {
+        spritesLoaded = true;
+        if (onAllLoaded) onAllLoaded();
+      }
+    };
+    img.onerror = () => {
+      console.warn(`Failed to load sprite: ${name}`);
+      remaining--;
+      if (remaining === 0) {
+        spritesLoaded = true;
+        if (onAllLoaded) onAllLoaded();
+      }
+    };
+    img.src = `assets/sprites/${name}.png`;
+  }
+}
+
+// Entity-to-sprite mappings
+const ENEMY_SPRITE_MAP = {
+  'scout_zero': 'enemy-scout',
+  'torpedo_gull': 'enemy-torpedo',
+  'canopy_raider': 'enemy-raider',
+  'gunship_hornet': 'enemy-gunship',
+  'rail_bomber': 'enemy-bomber',
+  'dune_lancer': 'enemy-raider',    // fallback: reuse raider
+  'storm_wraith': 'enemy-scout',    // fallback: reuse scout
+  'sub_spear': 'enemy-torpedo',     // fallback: reuse torpedo
+};
+
+const MINI_BOSS_SPRITE_MAP = {
+  'reef_guardian': 'boss-coral',
+  'river_bastion': 'boss-desert',
+  'convoy_ram': 'boss-arctic',
+  'monsoon_blade': 'boss-storm',
+};
+
+const FINAL_BOSS_SPRITE_MAP = {
+  'coral_dreadnought': 'boss-coral',
+  'jungle_citadel': 'boss-desert',
+  'dust_colossus': 'boss-arctic',
+  'iron_tempest': 'boss-storm',
+};
+
+const POWERUP_SPRITE_MAP = {
+  'double-shot': 'powerup-double',
+  'speed-boost': 'powerup-speed',
+  'shield': 'powerup-shield',
+  'repair': 'powerup-shield',       // reuse shield sprite for repair
+  'bomb': 'powerup-bomb',
+};
+
+function getPlayerSpriteName(planeId, vx) {
+  if (vx > 1) return `${planeId}-bank-right`;
+  if (vx < -1) return `${planeId}-bank-left`;
+  return `${planeId}-idle`;
+}
+
+function getEnemySpriteName(enemy) {
+  if (enemy.tier === 'final') return FINAL_BOSS_SPRITE_MAP[enemy.id] || null;
+  if (enemy.tier === 'mini') return MINI_BOSS_SPRITE_MAP[enemy.id] || null;
+  return ENEMY_SPRITE_MAP[enemy.id] || null;
+}
+
+function getPowerupSpriteName(pickupId) {
+  return POWERUP_SPRITE_MAP[pickupId] || null;
+}
+
+// Upload loaded images to WebGL renderer as textures (called once renderer is available)
+let spritesUploaded = false;
+function uploadSpriteTextures(renderer) {
+  if (spritesUploaded) return;
+  for (const name of SPRITE_IMAGE_FILES) {
+    const img = SPRITE_IMAGES[name];
+    if (img && !renderer.hasSpriteTexture(name)) {
+      renderer.loadSpriteTexture(name, img);
+    }
+  }
+  spritesUploaded = true;
+}
+
+// Draw a sprite image, falling back to pixel art if not loaded
+function drawSpriteImage(renderer, spriteName, x, y, w, h, alpha = 1, fallbackId, fallbackScale, fallbackTint) {
+  if (spriteName && renderer.hasSpriteTexture(spriteName)) {
+    renderer.drawSprite(spriteName, x, y, w, h, alpha);
+  } else if (fallbackId !== undefined) {
+    drawPixelSprite(renderer, fallbackId, x, y, fallbackScale || PLAYER_SCALE, fallbackTint || '#ff6f6f', alpha);
+  }
+}
 const BULLET_SIZE = 8;
 const ROLL_DURATION = 30;
 const ROLL_IFRAMES = 22;
@@ -1560,6 +1669,9 @@ export function createGame() {
     spawnWave(state);
   }
 
+  // Start preloading sprite images immediately
+  preloadSpriteImages();
+
   game.onInit = () => {
     updateOverlayText();
     scoreEl.textContent = '0';
@@ -1598,6 +1710,11 @@ export function createGame() {
   };
 
   game.onDraw = (renderer, text) => {
+    // Upload sprite textures to GPU once images are loaded
+    if (spritesLoaded && !spritesUploaded) {
+      uploadSpriteTextures(renderer);
+    }
+
     // ARCADE-010: Campaign intro screen — black screen with campaign name
     if (state.campaignIntroTimer > 0) {
       renderer.fillRect(0, 0, W, H, '#000000');
@@ -1657,7 +1774,12 @@ export function createGame() {
     }
 
     for (const p of state.powerups) {
-      drawPixelSprite(renderer, buildPowerupSprite(p.id), p.x, p.y, 6, '#ffd166');
+      const puSprite = getPowerupSpriteName(p.id);
+      if (puSprite && renderer.hasSpriteTexture(puSprite)) {
+        renderer.drawSprite(puSprite, p.x, p.y, p.w, p.h, 1);
+      } else {
+        drawPixelSprite(renderer, buildPowerupSprite(p.id), p.x, p.y, 6, '#ffd166');
+      }
     }
 
     // Player bullet glow trails (afterimage)
@@ -1700,7 +1822,12 @@ export function createGame() {
       const frameId = enemyFrameId(enemy);
       const tint = enemy.tier === 'normal' ? '#ff6f6f' : '#ff4f65';
       const alpha = enemy.stunned > 0 ? 0.55 : 1;
-      drawPixelSprite(renderer, frameId, enemy.x, enemy.y, enemy.tier === 'normal' ? ENEMY_SCALE : BOSS_SCALE, tint, alpha);
+      const enemySprite = getEnemySpriteName(enemy);
+      if (enemySprite && renderer.hasSpriteTexture(enemySprite)) {
+        renderer.drawSprite(enemySprite, enemy.x, enemy.y, enemy.w, enemy.h, alpha);
+      } else {
+        drawPixelSprite(renderer, frameId, enemy.x, enemy.y, enemy.tier === 'normal' ? ENEMY_SCALE : BOSS_SCALE, tint, alpha);
+      }
 
       if (enemy.tier !== 'normal') {
         const w = enemy.w;
@@ -1711,17 +1838,29 @@ export function createGame() {
     }
 
     for (const tr of state.player.rollTrail) {
-      const frame = tr.life % 2 ? 'roll_1' : 'roll_2';
-      drawPixelSprite(renderer, frame, tr.x, tr.y, PLAYER_SCALE, state.player.plane.color, tr.life / 18 * 0.45);
+      const trailAlpha = tr.life / 18 * 0.45;
+      const trailSprite = getPlayerSpriteName(state.player.plane.id, 0); // idle for trail
+      if (renderer.hasSpriteTexture(trailSprite)) {
+        renderer.drawSprite(trailSprite, tr.x, tr.y, state.player.w, state.player.h, trailAlpha);
+      } else {
+        const frame = tr.life % 2 ? 'roll_1' : 'roll_2';
+        drawPixelSprite(renderer, frame, tr.x, tr.y, PLAYER_SCALE, state.player.plane.color, trailAlpha);
+      }
     }
-
-    const playerSprite = state.player.rollTimer > 0
-      ? (Math.floor(state.player.rollTimer / 6) % 2 ? 'roll_1' : 'roll_2')
-      : `plane_${state.player.plane.id}`;
 
     const playerAlpha = (state.player.invuln > 0 || state.player.bombInvuln > 0) && state.tick % 6 < 3 ? 0.55 : 1;
     const bankOffset = clamp(state.player.vx * 0.4, -2, 2);
-    drawPixelSprite(renderer, playerSprite, state.player.x + bankOffset, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
+    const playerImgName = state.player.rollTimer > 0
+      ? getPlayerSpriteName(state.player.plane.id, 0) // idle during roll
+      : getPlayerSpriteName(state.player.plane.id, state.player.vx);
+    if (renderer.hasSpriteTexture(playerImgName)) {
+      renderer.drawSprite(playerImgName, state.player.x + bankOffset, state.player.y, state.player.w, state.player.h, playerAlpha);
+    } else {
+      const playerSprite = state.player.rollTimer > 0
+        ? (Math.floor(state.player.rollTimer / 6) % 2 ? 'roll_1' : 'roll_2')
+        : `plane_${state.player.plane.id}`;
+      drawPixelSprite(renderer, playerSprite, state.player.x + bankOffset, state.player.y, PLAYER_SCALE, state.player.plane.color, playerAlpha);
+    }
 
     // ARCADE-015: Focus mode — draw hitbox dot and FOCUS text
     if (state.focusActive) {
@@ -1736,7 +1875,12 @@ export function createGame() {
     // Draw signature wingman
     if (state.signatureWingman) {
       const wm = state.signatureWingman;
-      drawPixelSprite(renderer, `plane_${state.player.plane.id}`, wm.x, wm.y, PLAYER_SCALE, '#66ff88', 0.85);
+      const wmSprite = getPlayerSpriteName(state.player.plane.id, 0);
+      if (renderer.hasSpriteTexture(wmSprite)) {
+        renderer.drawSprite(wmSprite, wm.x, wm.y, wm.w, wm.h, 0.85);
+      } else {
+        drawPixelSprite(renderer, `plane_${state.player.plane.id}`, wm.x, wm.y, PLAYER_SCALE, '#66ff88', 0.85);
+      }
       // Engine glow
       renderer.fillRect(wm.x + wm.w / 2 - 4, wm.y + wm.h, 8, 12, '#ffaa44');
     }

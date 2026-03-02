@@ -4,6 +4,7 @@ import {
   batchVert, batchFrag,
   dashedVert, dashedFrag,
   triVert, triFrag,
+  spriteVert, spriteFrag,
   fullscreenVert,
   bloomExtractFrag, bloomBlurFrag, bloomCompositeFrag,
 } from './shaders.js';
@@ -99,8 +100,15 @@ export class Renderer {
     this.triProg = createProgram(gl, triVert, triFrag);
     this._initTris();
 
+    // ── Sprite (textured quad) program ──
+    this.spriteProg = createProgram(gl, spriteVert, spriteFrag);
+    this._initSprite();
+
     // ── Bloom pipeline ──
     this._initBloom();
+
+    // ── Sprite texture cache ──
+    this._spriteTextures = new Map(); // name → { tex, width, height }
 
     // ── State ──
     this._instanceData = new Float32Array(MAX_INSTANCES * FLOATS_PER_INSTANCE);
@@ -219,6 +227,93 @@ export class Renderer {
 
     gl.useProgram(prog);
     this.u_tri_resolution = gl.getUniformLocation(prog, 'u_resolution');
+  }
+
+  _initSprite() {
+    const gl = this.gl;
+    const prog = this.spriteProg;
+
+    this.spriteVAO = gl.createVertexArray();
+    gl.bindVertexArray(this.spriteVAO);
+
+    // 6 verts (2 triangles) × 4 floats (pos.xy + uv.xy)
+    this.spriteVertBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteVertBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, 6 * 4 * 4, gl.DYNAMIC_DRAW);
+
+    const stride = 16; // 4 floats × 4 bytes
+    const aPos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, stride, 0);
+
+    const aTexCoord = gl.getAttribLocation(prog, 'a_texCoord');
+    gl.enableVertexAttribArray(aTexCoord);
+    gl.vertexAttribPointer(aTexCoord, 2, gl.FLOAT, false, stride, 8);
+
+    gl.bindVertexArray(null);
+
+    gl.useProgram(prog);
+    this.u_sprite_resolution = gl.getUniformLocation(prog, 'u_resolution');
+    this.u_sprite_texture = gl.getUniformLocation(prog, 'u_texture');
+    this.u_sprite_alpha = gl.getUniformLocation(prog, 'u_alpha');
+  }
+
+  // ── Sprite texture management ──
+
+  loadSpriteTexture(name, image) {
+    const gl = this.gl;
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    this._spriteTextures.set(name, { tex, width: image.width, height: image.height });
+  }
+
+  hasSpriteTexture(name) {
+    return this._spriteTextures.has(name);
+  }
+
+  drawSprite(name, x, y, w, h, alpha = 1) {
+    const entry = this._spriteTextures.get(name);
+    if (!entry) return false; // texture not loaded
+
+    // Flush pending batches so sprite draws in correct z-order
+    this._flushBatch();
+    this._flushDashed();
+    this._flushTris();
+
+    const gl = this.gl;
+    gl.useProgram(this.spriteProg);
+    gl.uniform2f(this.u_sprite_resolution, this.width, this.height);
+    gl.uniform1f(this.u_sprite_alpha, alpha);
+    gl.uniform1i(this.u_sprite_texture, 0);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, entry.tex);
+
+    // Build quad: 2 triangles (pos.xy + uv.xy)
+    const verts = new Float32Array([
+      // Triangle 1: top-left, top-right, bottom-right
+      x,     y,     0, 0,
+      x + w, y,     1, 0,
+      x + w, y + h, 1, 1,
+      // Triangle 2: top-left, bottom-right, bottom-left
+      x,     y,     0, 0,
+      x + w, y + h, 1, 1,
+      x,     y + h, 0, 1,
+    ]);
+
+    gl.bindVertexArray(this.spriteVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteVertBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, verts);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindVertexArray(null);
+
+    return true;
   }
 
   // ── Bloom FBOs ──

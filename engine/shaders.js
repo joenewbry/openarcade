@@ -236,6 +236,42 @@ void main() {
 }
 `;
 
+// ── Sprite shader: renders textured quads with alpha modulation ──
+export const spriteVert = `#version 300 es
+precision highp float;
+
+in vec2 a_pos;
+in vec2 a_texCoord;
+
+uniform vec2 u_resolution;
+
+out vec2 v_texCoord;
+
+void main() {
+  vec2 clip = (a_pos / u_resolution) * 2.0 - 1.0;
+  clip.y = -clip.y;
+  gl_Position = vec4(clip, 0.0, 1.0);
+  v_texCoord = a_texCoord;
+}
+`;
+
+export const spriteFrag = `#version 300 es
+precision highp float;
+
+in vec2 v_texCoord;
+
+uniform sampler2D u_texture;
+uniform float u_alpha;
+
+out vec4 fragColor;
+
+void main() {
+  vec4 color = texture(u_texture, v_texCoord);
+  if (color.a < 0.01) discard;
+  fragColor = vec4(color.rgb, color.a * u_alpha);
+}
+`;
+
 export const bloomCompositeFrag = `#version 300 es
 precision highp float;
 
