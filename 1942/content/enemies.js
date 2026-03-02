@@ -92,7 +92,7 @@ export const ENEMIES = {
 export const MINI_BOSSES = {
   reef_guardian: {
     id: 'reef_guardian',
-    hp: 90,
+    hp: 40,
     speed: 0.7,
     score: 5000,
     fireRate: 40,
