@@ -311,6 +311,8 @@ function makeInitialState(planeId) {
     flashTimer: 0,
     waveClearTimer: 0,
     waveClearBonusAwarded: false,
+    damageTakenThisWave: false,
+    perfectWaveTimer: 0,
     bossWarningTimer: 0,
     pendingBossWave: false,
     shownMilestones: new Set(),
@@ -589,6 +591,23 @@ function spawnWave(state) {
     return;
   }
 
+  // Signature moment: power-up shower — spawn multiple powerups across the screen
+  if (sigMoment === 'powerup_shower') {
+    // Spawn a shower of power-ups as a midpoint reward/break
+    const positions = [
+      { x: W * 0.2, y: -40 },
+      { x: W * 0.4, y: -80 },
+      { x: W * 0.5, y: -20 },
+      { x: W * 0.6, y: -60 },
+      { x: W * 0.8, y: -40 },
+    ];
+    for (const pos of positions) {
+      spawnPowerup(state, pos.x, pos.y);
+    }
+    queueDialogue(state, ['Supply drop incoming!', 'Grab everything you can!']);
+    // Still spawn a normal (lighter) wave alongside
+  }
+
   const spec = campaign.waves[(state.wave - 1) % campaign.waves.length];
   const count = spec.count + Math.min(state.campaignIndex, 2);
   for (let i = 0; i < count; i++) {
@@ -860,10 +879,18 @@ function spawnEnemyBullets(state, e, player) {
   const py = player.y + player.h / 2;
   const baseSpeed = e.def.bulletSpeed * 2;
 
-  // ARCADE-054: ALL fighter-class normal enemies fire STRAIGHT DOWN — no aiming at player
-  // This applies across ALL campaigns, not just C1. Fighters = straight down only.
+  // ARCADE-054 revision: Campaign 1 fighters fire straight down, C2+ use aimed shots
   if (e.tier === 'normal' && e.def.kind === 'fighter') {
-    pushEnemyBullet(state, cx, cy, 0, baseSpeed);
+    if (state.campaignIndex === 0) {
+      // C1: straight down only (tutorial-friendly)
+      pushEnemyBullet(state, cx, cy, 0, baseSpeed);
+    } else {
+      // C2+: aimed/tracking shots at the player
+      const dx = px - cx;
+      const dy = py - cy;
+      const dist = Math.hypot(dx, dy) || 1;
+      pushEnemyBullet(state, cx, cy, (dx / dist) * baseSpeed, (dy / dist) * baseSpeed);
+    }
     return;
   }
 
@@ -974,7 +1001,7 @@ function activateBomb(state, game) {
       state.score += enemy.def.score;
       state.scorePops.push({ x: enemy.x + enemy.w / 2, y: enemy.y, text: `${enemy.def.score}`, life: 30 });
       spawnExplosion(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#ff8f5c', 10);
-      if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+      if (Math.random() < 0.20) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
       state.enemies.splice(i, 1);
     } else {
       enemy.hp -= Math.ceil(enemy.maxHp * 0.15);
@@ -1028,6 +1055,9 @@ function activateBomb(state, game) {
 function damagePlayer(state) {
   const p = state.player;
   if (p.invuln > 0 || p.shieldTimer > 0 || p.rollInvuln > 0 || p.bombInvuln > 0) return;
+
+  // Track damage for perfect wave bonus
+  state.damageTakenThisWave = true;
 
   // --- Auto-bomb: if enabled and player has bombs, use bomb instead of dying ---
   if (p.autoBomb && p.bombs > 0) {
@@ -1116,7 +1146,7 @@ function killEnemy(state, enemy) {
     }
     // Brief slowdown for final bosses
     if (enemy.tier === 'final') {
-      state.bossSlowTimer = 60;
+      state.bossSlowTimer = 30;
     }
     state.screenShakeTimer = Math.max(state.screenShakeTimer, 20);
   }
@@ -1130,7 +1160,7 @@ function killEnemy(state, enemy) {
   state.scorePops.push({ x: enemy.x + enemy.w / 2, y: enemy.y, text: popText, life: 30 });
 
   if (enemy.tier === 'normal') {
-    if (Math.random() < 0.14) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+    if (Math.random() < 0.20) spawnPowerup(state, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
   } else if (enemy.tier === 'mini') {
     // ARCADE-053: Mini bosses drop 3 power-ups — their designated drop + 2 random
     spawnPowerup(state, enemy.x + enemy.w / 2 - 40, enemy.y + enemy.h / 2, enemy.def.drop);
@@ -1154,6 +1184,8 @@ function moveToNextCampaign(state, game) {
   state.waveDelay = 80;
   state.waveClearTimer = 0;
   state.waveClearBonusAwarded = false;
+  state.damageTakenThisWave = false;
+  state.perfectWaveTimer = 0;
   state.bossWarningTimer = 0;
   state.pendingBossWave = false;
   state.enemies.length = 0;
@@ -1633,8 +1665,15 @@ function updateGame(state, game, input) {
     if (state.wave > 0 && !state.waveClearBonusAwarded) {
       state.waveClearTimer = 90;
       state.waveClearBonusAwarded = true;
-      state.score += 500;
-      state.scorePops.push({ x: W / 2 - 40, y: H / 2 + 60, text: '+500', life: 60 });
+      // Perfect wave bonus: 2x score if no damage taken this wave
+      if (!state.damageTakenThisWave) {
+        state.score += 1000; // 2x the normal 500
+        state.scorePops.push({ x: W / 2 - 40, y: H / 2 + 60, text: '+1000', life: 60 });
+        state.perfectWaveTimer = 90;
+      } else {
+        state.score += 500;
+        state.scorePops.push({ x: W / 2 - 40, y: H / 2 + 60, text: '+500', life: 60 });
+      }
     }
 
     if (state.waveClearTimer > 0) {
@@ -1654,6 +1693,8 @@ function updateGame(state, game, input) {
       }
       state.pendingBossWave = false;
       state.waveClearBonusAwarded = false;
+      state.damageTakenThisWave = false;
+      state.perfectWaveTimer = 0;
       spawnWave(state);
       state.waveDelay = 120;
     }
@@ -2416,6 +2457,13 @@ export function createGame() {
       const alpha = Math.min(state.waveClearTimer / 15, 1);
       const color = `rgba(186,246,255,${alpha})`;
       text.drawText('WAVE CLEAR', W / 2 - 160, H / 2 - 40, 56, color);
+      // Perfect wave bonus text
+      if (state.perfectWaveTimer > 0) {
+        const pAlpha = Math.min(state.perfectWaveTimer / 15, 1);
+        const goldColor = `rgba(255,215,0,${pAlpha})`;
+        text.drawText('PERFECT!', W / 2 - 120, H / 2 + 20, 48, goldColor);
+        state.perfectWaveTimer -= 1;
+      }
     }
 
     // Boss Warning overlay
