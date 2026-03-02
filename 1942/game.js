@@ -1647,35 +1647,81 @@ function updateAndDrawScorePops(text, state) {
 function drawUI(renderer, text, state) {
   const p = state.player;
   const campaign = getCampaign(state.campaignIndex);
+  const pad = 16; // safe padding from canvas edges
 
-  text.drawText(`SCORE ${state.score}`, 24, 20, 36, '#f1fbff');
-  text.drawText(`BEST ${Math.max(state.best, state.score)}`, 24, 60, 28, '#b6daf4');
-  text.drawText(`LIVES ${p.lives}`, 380, 20, 36, '#f1fbff');
-  text.drawText(`BOMBS ${p.bombs}`, 380, 60, 28, '#ffe1a2');
-  if (p.autoBomb) text.drawText('AUTO', 560, 60, 24, '#ff6666');
-  text.drawText(`WAVE ${state.wave}/${campaign.finalWave}`, 680, 20, 36, '#f1fbff');
-  text.drawText(campaign.name, 680, 60, 28, '#b6daf4');
+  // --- Top-left: Score ---
+  text.drawText(`SCORE ${state.score}`, pad, 20, 32, '#f1fbff');
+  text.drawText(`BEST ${Math.max(state.best, state.score)}`, pad, 56, 24, '#b6daf4');
 
-  if (state.grazeCount > 0) text.drawText(`GRAZE ${state.grazeCount}`, 680, 104, 24, '#66ffff');
+  // --- Top-center: Lives as hearts ---
+  const heartSize = 28;
+  const heartGap = 6;
+  const maxLives = 5;
+  const heartsW = maxLives * heartSize + (maxLives - 1) * heartGap;
+  const heartStartX = (W - heartsW) / 2;
+  const heartY = 18;
+  for (let i = 0; i < maxLives; i++) {
+    const hx = heartStartX + i * (heartSize + heartGap);
+    if (i < p.lives) {
+      // Filled heart — bright red
+      renderer.fillCircle(hx + heartSize * 0.25, heartY + heartSize * 0.3, heartSize * 0.28, '#ff2255');
+      renderer.fillCircle(hx + heartSize * 0.75, heartY + heartSize * 0.3, heartSize * 0.28, '#ff2255');
+      renderer.fillPoly([
+        { x: hx, y: heartY + heartSize * 0.4 },
+        { x: hx + heartSize / 2, y: heartY + heartSize },
+        { x: hx + heartSize, y: heartY + heartSize * 0.4 },
+      ], '#ff2255');
+      // Highlight
+      renderer.fillCircle(hx + heartSize * 0.3, heartY + heartSize * 0.28, heartSize * 0.12, 'rgba(255,255,255,0.35)');
+    } else {
+      // Empty heart — dark outline
+      renderer.fillCircle(hx + heartSize * 0.25, heartY + heartSize * 0.3, heartSize * 0.28, '#3a2233');
+      renderer.fillCircle(hx + heartSize * 0.75, heartY + heartSize * 0.3, heartSize * 0.28, '#3a2233');
+      renderer.fillPoly([
+        { x: hx, y: heartY + heartSize * 0.4 },
+        { x: hx + heartSize / 2, y: heartY + heartSize },
+        { x: hx + heartSize, y: heartY + heartSize * 0.4 },
+      ], '#3a2233');
+    }
+  }
+  text.drawText(`BOMBS ${p.bombs}`, (W - heartsW) / 2, 56, 24, '#ffe1a2');
+  if (p.autoBomb) text.drawText('AUTO', (W + heartsW) / 2 - 80, 56, 22, '#ff6666');
 
-  text.drawText(`PLANE ${p.plane.name}`, 24, H - 48, 28, p.plane.color);
-  text.drawText(`SPECIAL ${p.plane.special.name}`, 440, H - 48, 28, '#d5e7ff');
+  // --- Top-right: Wave / Campaign (right-aligned with safe padding) ---
+  const waveStr = `W${state.wave}/${campaign.finalWave}`;
+  text.drawText(waveStr, W - pad - waveStr.length * 18, 20, 32, '#f1fbff');
+  const campName = campaign.name;
+  text.drawText(campName, W - pad - campName.length * 14, 56, 24, '#b6daf4');
 
+  if (state.grazeCount > 0) {
+    const grazeStr = `GRAZE ${state.grazeCount}`;
+    text.drawText(grazeStr, W - pad - grazeStr.length * 12, 88, 22, '#66ffff');
+  }
+
+  // --- Bottom-left: Plane info (with safe padding from bottom) ---
+  text.drawText(`${p.plane.name}`, pad, H - 44, 24, p.plane.color);
+  text.drawText(`${p.plane.special.name}`, pad, H - 18, 20, '#d5e7ff');
+
+  // --- Bottom-right: Special cooldown bar ---
   const cdPct = p.specialCooldown / p.plane.special.cooldown;
-  const cdW = 240;
-  renderer.fillRect(700, H - 52, cdW, 16, '#334f66');
-  renderer.fillRect(700, H - 52, Math.floor(cdW * (1 - cdPct)), 16, '#79c7ff');
+  const cdW = 200;
+  const cdX = W - pad - cdW;
+  renderer.fillRect(cdX, H - 42, cdW, 14, '#334f66');
+  renderer.fillRect(cdX, H - 42, Math.floor(cdW * (1 - cdPct)), 14, '#79c7ff');
+  text.drawText('SPECIAL', cdX - 90, H - 42, 20, '#b6daf4');
 
-  if (p.doubleShotTimer > 0) text.drawText('DOUBLE', 24, 104, 24, '#ffe48d');
-  if (p.speedBoostTimer > 0) text.drawText('SPEED', 160, 104, 24, '#8effb5');
-  if (p.shieldTimer > 0) text.drawText('SHIELD', 280, 104, 24, '#9bc8ff');
+  // --- Power-up indicators (below score) ---
+  let bufX = pad;
+  if (p.doubleShotTimer > 0) { text.drawText('DOUBLE', bufX, 88, 22, '#ffe48d'); bufX += 110; }
+  if (p.speedBoostTimer > 0) { text.drawText('SPEED', bufX, 88, 22, '#8effb5'); bufX += 100; }
+  if (p.shieldTimer > 0) { text.drawText('SHIELD', bufX, 88, 22, '#9bc8ff'); bufX += 100; }
 
-  // ARCADE-020: Roll stock icons
-  const rollIconY = 62;
-  const rollIconX = 580;
-  text.drawText('ROLL', rollIconX - 56, rollIconY - 2, 20, '#b6daf4');
+  // ARCADE-020: Roll stock icons (below bombs, center area)
+  const rollIconY = 84;
+  const rollIconX = (W - heartsW) / 2;
+  text.drawText('ROLL', rollIconX, rollIconY, 18, '#b6daf4');
   for (let i = 0; i < p.rollMaxStocks; i++) {
-    const ix = rollIconX + i * 22;
+    const ix = rollIconX + 56 + i * 22;
     if (i < p.rollStocks) {
       renderer.fillRect(ix, rollIconY, 16, 16, '#79c7ff');
       renderer.fillRect(ix + 2, rollIconY + 2, 12, 12, '#b8e8ff');
