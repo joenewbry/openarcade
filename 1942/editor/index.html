@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>1942 Level Editor</title>
+  <link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+  <div id="toolbar">
+    <button id="newBtn">New Level</button>
+    <button id="saveBtn">💾 Save</button>
+    <button id="loadBtn">📂 Load</button>
+    <input type="file" id="fileInput" accept=".json" style="display:none" />
+    <span class="sep"></span>
+    <button id="undoBtn">↩ Undo</button>
+    <button id="redoBtn">↪ Redo</button>
+    <span class="sep"></span>
+    <label for="campaignSelect">Campaign:</label>
+    <select id="campaignSelect">
+      <option value="coral_front">Coral Front</option>
+      <option value="jungle_spear">Jungle Spear</option>
+      <option value="dust_convoy">Dust Convoy</option>
+      <option value="iron_monsoon">Iron Monsoon</option>
+    </select>
+    <span class="sep"></span>
+    <button id="gridBtn">Grid: ON</button>
+    <span class="status" id="statusText">Ready</span>
+  </div>
+  <div id="main">
+    <div id="sidebar">
+      <h3>Layers</h3>
+      <div class="layerItem">
+        <input type="checkbox" id="waterVis" checked />
+        <label for="waterVis">Water</label>
+        <input type="radio" name="activeLayer" value="water" checked />
+      </div>
+      <div class="layerItem">
+        <input type="checkbox" id="terrainVis" checked />
+        <label for="terrainVis">Terrain</label>
+        <input type="radio" name="activeLayer" value="terrain" />
+      </div>
+      <div class="layerItem">
+        <input type="checkbox" id="cloudsVis" checked />
+        <label for="cloudsVis">Clouds</label>
+        <input type="radio" name="activeLayer" value="clouds" />
+      </div>
+      <h3>Tile Palette</h3>
+      <div id="palette"></div>
+      <h3>Tools</h3>
+      <div id="tools">
+        <button class="tool-btn selected" data-tool="brush" title="Brush (B)">🖌 Brush</button>
+        <button class="tool-btn" data-tool="fill" title="Fill (G)">🪣 Fill</button>
+        <button class="tool-btn" data-tool="eraser" title="Eraser (E)">⌫ Eraser</button>
+        <button class="tool-btn" data-tool="rect" title="Rectangle (R)">▭ Rect</button>
+      </div>
+    </div>
+    <div id="canvasContainer">
+      <canvas id="editorCanvas"></canvas>
+    </div>
+  </div>
+  <div id="statusBar">
+    <span id="posInfo">Col: - Row: -</span>
+    <span id="layerInfo">Layer: water</span>
+    <span id="tileInfo">Tile: deep</span>
+    <span id="zoomInfo">Zoom: 100%</span>
+  </div>
+  <script type="module" src="editor.js"></script>
+</body>
+</html>
