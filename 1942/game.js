@@ -1148,8 +1148,8 @@ function updateGame(state, game, input) {
     player.rollRegenTimer = 0;
   }
 
-  // ARCADE-015: Focus mode — active when Space is held
-  state.focusActive = input.isDown(' ');
+  // ARCADE-015/028: Focus mode — active when 'f' or 'z' key is held (separated from Space/shoot)
+  state.focusActive = input.isDown('f') || input.isDown('z');
 
   // Chain timer
   if (state.chainTimer > 0) {
@@ -1283,7 +1283,7 @@ function updateGame(state, game, input) {
     activateBomb(state, game);
   }
 
-  if (input.isDown(' ') && player.fireCooldown <= 0 && !state.dialogue) {
+  if (input.isDown(' ') && player.fireCooldown <= 0) {
     if (player.specialTimer > 0 && player.plane.special.id === 'burst') {
       spawnPlayerBullets(state, 'burst');
     } else {
@@ -1658,7 +1658,7 @@ export function createGame() {
       '1942: Pixel Campaigns',
       `Plane: [${selectedPlaneIndex + 1}] ${plane.name}\n` +
       `Special: ${plane.special.name}\n\n` +
-      'Controls: Arrows move, Space shoot, Shift/Double-Space roll, X special, B bomb, A auto-bomb\n' +
+      'Controls: Arrows move, Space shoot, Shift/Double-Space roll, X special, B bomb, A auto-bomb, F/Z focus\n' +
       'Select Plane: keys 1-4\nPress SPACE to launch'
     );
   }
