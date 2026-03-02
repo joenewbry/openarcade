@@ -1813,14 +1813,132 @@ export function createGame() {
   let state = makeInitialState(PLANES[selectedPlaneIndex].id);
 
   function updateOverlayText() {
-    const plane = PLANES[selectedPlaneIndex];
-    game.showOverlay(
-      '1942: Pixel Campaigns',
-      `Plane: [${selectedPlaneIndex + 1}] ${plane.name}\n` +
-      `Special: ${plane.special.name}\n\n` +
-      'Controls: Arrows move, Space shoot, Shift/Double-Space roll, X special, B bomb, A auto-bomb, F/Z focus\n' +
-      'Select Plane: keys 1-4\nPress SPACE to launch'
-    );
+    // Clear the HTML overlay — we draw the plane select screen on canvas
+    game.showOverlay('', '');
+  }
+
+  // ── In-canvas Plane Selection Screen ──
+  function drawPlaneSelect(renderer, text, tick) {
+    // Dark background
+    renderer.fillRect(0, 0, W, H, '#0a0e1a');
+
+    // Title
+    const titleColor = `hsl(${200 + Math.sin(tick * 0.02) * 20}, 80%, 75%)`;
+    text.drawText('1942', W / 2 - 100, 60, 72, titleColor);
+    text.drawText('PIXEL CAMPAIGNS', W / 2 - 190, 140, 36, '#8ab4d7');
+
+    // Subtitle
+    text.drawText('SELECT YOUR PLANE', W / 2 - 160, 220, 32, '#ffffff');
+
+    // Two plane cards side by side
+    const cardW = 380;
+    const cardH = 680;
+    const cardGap = 40;
+    const cardStartX = (W - cardW * 2 - cardGap) / 2;
+    const cardY = 270;
+
+    for (let i = 0; i < PLANES.length && i < 2; i++) {
+      const plane = PLANES[i];
+      const cx = cardStartX + i * (cardW + cardGap);
+      const isSelected = i === selectedPlaneIndex;
+
+      // Card background
+      const bgColor = isSelected ? '#1a2844' : '#10152a';
+      const borderColor = isSelected ? plane.color : '#2a3050';
+      renderer.fillRect(cx - 2, cardY - 2, cardW + 4, cardH + 4, borderColor);
+      renderer.fillRect(cx, cardY, cardW, cardH, bgColor);
+
+      // Selection indicator — pulsing glow
+      if (isSelected) {
+        const pulse = 0.5 + Math.sin(tick * 0.06) * 0.3;
+        renderer.fillRect(cx - 4, cardY - 4, cardW + 8, cardH + 8,
+          `rgba(${plane.color === '#9fb8ff' ? '159,184,255' : '158,233,198'},${(pulse * 0.15).toFixed(2)})`);
+      }
+
+      // Plane sprite preview (centered in card)
+      const previewScale = 14;
+      const spriteName = `${plane.id}-idle`;
+      const spriteW = previewScale * 12;
+      const spriteH = previewScale * 14;
+      const spriteX = cx + (cardW - spriteW) / 2;
+      const spriteY = cardY + 30;
+
+      if (renderer.hasSpriteTexture(spriteName)) {
+        renderer.drawSprite(spriteName, spriteX, spriteY, spriteW, spriteH, 1);
+      } else {
+        // Fallback colored rectangle
+        renderer.fillRect(spriteX, spriteY, spriteW, spriteH, plane.color);
+      }
+
+      // Plane name
+      const nameY = spriteY + spriteH + 20;
+      text.drawText(plane.name, cx + 20, nameY, 32, plane.color);
+
+      // Key hint
+      text.drawText(`[${i + 1}]`, cx + cardW - 60, nameY, 28, '#667799');
+
+      // Stats bars
+      const statY = nameY + 50;
+      const barX = cx + 120;
+      const barW = 220;
+      const barH = 18;
+
+      // Speed stat
+      text.drawText('SPEED', cx + 20, statY, 22, '#aabbcc');
+      const speedPct = plane.speed / 5.0; // max speed reference = 5
+      renderer.fillRect(barX, statY + 2, barW, barH, '#1a2030');
+      renderer.fillRect(barX, statY + 2, Math.floor(barW * speedPct), barH, '#44dd88');
+      text.drawText(String(plane.speed), barX + barW + 10, statY, 22, '#44dd88');
+
+      // Fire Rate stat
+      const frY = statY + 36;
+      text.drawText('FIRE', cx + 20, frY, 22, '#aabbcc');
+      const frPct = (15 - plane.fireRate) / 10; // lower = faster, normalize
+      renderer.fillRect(barX, frY + 2, barW, barH, '#1a2030');
+      renderer.fillRect(barX, frY + 2, Math.floor(barW * frPct), barH, '#ffaa44');
+      const frLabel = plane.fireRate <= 10 ? 'FAST' : 'NORMAL';
+      text.drawText(frLabel, barX + barW + 10, frY, 22, '#ffaa44');
+
+      // Roll Cooldown stat
+      const rcY = frY + 36;
+      text.drawText('AGILITY', cx + 20, rcY, 22, '#aabbcc');
+      const rcPct = (100 - plane.rollCooldown) / 50; // lower CD = more agile
+      renderer.fillRect(barX, rcY + 2, barW, barH, '#1a2030');
+      renderer.fillRect(barX, rcY + 2, Math.floor(barW * rcPct), barH, '#44aaff');
+      const rcLabel = plane.rollCooldown <= 70 ? 'HIGH' : 'NORMAL';
+      text.drawText(rcLabel, barX + barW + 10, rcY, 22, '#44aaff');
+
+      // Special ability section
+      const specY = rcY + 60;
+      text.drawText('SPECIAL', cx + 20, specY, 24, '#ddeeff');
+      text.drawText(plane.special.name, cx + 20, specY + 32, 28, '#ffcc44');
+
+      // Description (wrapped manually)
+      const desc = plane.special.description;
+      const maxLineLen = 24;
+      const words = desc.split(' ');
+      let line = '';
+      let lineIdx = 0;
+      for (const word of words) {
+        if ((line + ' ' + word).trim().length > maxLineLen && line.length > 0) {
+          text.drawText(line.trim(), cx + 20, specY + 68 + lineIdx * 28, 20, '#8899aa');
+          lineIdx++;
+          line = word;
+        } else {
+          line = (line + ' ' + word).trim();
+        }
+      }
+      if (line.trim()) {
+        text.drawText(line.trim(), cx + 20, specY + 68 + lineIdx * 28, 20, '#8899aa');
+      }
+    }
+
+    // Controls hint at bottom
+    text.drawText('PRESS [1] or [2] to select', W / 2 - 200, H - 110, 26, '#667799');
+    const blinkOn = tick % 60 < 40;
+    if (blinkOn) {
+      text.drawText('PRESS SPACE TO LAUNCH', W / 2 - 190, H - 60, 32, '#ffffff');
+    }
   }
 
   function resetRun() {
@@ -1873,6 +1991,13 @@ export function createGame() {
     // Upload sprite textures to GPU once images are loaded
     if (spritesLoaded && !spritesUploaded) {
       uploadSpriteTextures(renderer);
+    }
+
+    // ARCADE-043: Draw plane selection screen when waiting
+    if (game.state === 'waiting') {
+      drawPlaneSelect(renderer, text, state.tick);
+      state.tick = (state.tick || 0) + 1; // animate the select screen
+      return;
     }
 
     // ARCADE-010: Campaign intro screen — black screen with campaign name
