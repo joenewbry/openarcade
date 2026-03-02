@@ -360,7 +360,8 @@ function createEnemy(enemyId, x, y, pattern, difficulty = 1, tier = 'normal') {
     fireTimer: Math.floor(rand(12, 80)),
     animTimer: 0,
     frame: 0,
-    t: rand(0, 120),
+    t: 0, // ARCADE-071: start at 0 for deterministic path following
+    pathPhase: rand(0, Math.PI * 2), // unique phase offset for formation variety
     stunned: 0,
   };
   initHitZones(enemy);
@@ -471,27 +472,122 @@ function spawnExplosion(state, x, y, color = '#ff8f5c', count = 12) {
   }
 }
 
+// ── ARCADE-071: Predefined Path System ──
+// Enemies follow smooth, deliberate flight paths like slot cars on rails.
+// Each pattern defines a parametric path (px(t), py(t)) and we compute velocity as the derivative.
+// 'spawnX/spawnY' is the initial position; paths are relative offsets from spawn trajectory.
+
 function enemyPatternVelocity(enemy, player) {
   const e = enemy;
   const speed = e.def.speed * 2;
-  const t = e.t * 0.045;
+  const t = e.t * 0.03; // slower time parameter for smoother motion
+  const phase = e.pathPhase || 0; // per-enemy phase offset for formation variety
+
   switch (e.pattern) {
-    case 'line': return { vx: 0, vy: speed };
-    case 'vee': return { vx: Math.sin(t) * 2.2, vy: speed };
-    case 'cross': return { vx: Math.sign(Math.sin(t)) * 3.0, vy: speed * 0.92 };
-    case 'stagger': return { vx: Math.sin(t * 1.8) * 2.8, vy: speed * 0.95 };
-    case 'swirl': return { vx: Math.cos(t) * 3.6, vy: speed * 0.88 };
-    case 'mini': return { vx: Math.sin(t * 0.8) * 2.8, vy: 1.2 };
-    case 'boss': {
-      const dx = player.x + player.w / 2 - (e.x + e.w / 2);
-      const clampV = clamp(dx * 0.02, -2.8, 2.8);
+    // ── Straight column: smooth downward, slight drift ──
+    case 'line': {
+      return { vx: 0, vy: speed };
+    }
+
+    // ── V-Formation: holds V shape, gentle sine to breathe ──
+    case 'vee': {
+      const breathe = Math.sin(t * 0.5 + phase) * 0.3;
+      return { vx: breathe, vy: speed * 0.9 };
+    }
+
+    // ── Sine Wave: smooth left-right oscillation on rails ──
+    case 'cross': {
+      const amplitude = 3.5;
+      const freq = 1.2;
+      const vx = Math.cos(t * freq + phase) * amplitude;
+      return { vx, vy: speed * 0.85 };
+    }
+
+    // ── Stagger/Zigzag: sharp deliberate S-curves ──
+    case 'stagger': {
+      // Smooth S-curve using sine, but with steeper transitions
+      const sFreq = 0.8;
+      const amplitude = 4.0;
+      const vx = Math.cos(t * sFreq + phase) * amplitude;
+      const vy = speed * 0.9 + Math.sin(t * sFreq * 2 + phase) * 0.4;
+      return { vx, vy };
+    }
+
+    // ── Swoop Arc: enemies dive in a wide arc then curve back ──
+    case 'swirl': {
+      // Parametric arc: starts wide, swoops inward, curves back out
+      const arcPhase = t * 0.6 + phase;
+      const vx = Math.cos(arcPhase) * 4.2;
+      const vy = speed * 0.75 + Math.sin(arcPhase * 0.5) * 1.5;
+      return { vx, vy };
+    }
+
+    // ── Figure-8: smooth infinity loop path ──
+    case 'figure8': {
+      const f8t = t * 0.5 + phase;
+      const vx = Math.cos(f8t) * 3.8;
+      const vy = speed * 0.6 + Math.sin(f8t * 2) * 2.0;
+      return { vx, vy };
+    }
+
+    // ── Diving Swoop: enemy dives down fast, pulls up, swoops across ──
+    case 'dive': {
+      const diveT = t + phase;
+      // Fast dive phase, then pull-up arc
+      if (e.t < 40) {
+        return { vx: Math.sin(diveT * 0.3) * 1.5, vy: speed * 1.8 };
+      } else {
+        const pullPhase = (e.t - 40) * 0.04;
+        return {
+          vx: Math.cos(pullPhase) * 5.0,
+          vy: speed * 0.3 - Math.sin(pullPhase) * 2.5
+        };
+      }
+    }
+
+    // ── Formation Hold: enemies maintain position relative to formation center ──
+    case 'formation': {
+      // Slow descent, very gentle breathing — holds tight formation
+      const breathe = Math.sin(t * 0.4 + phase) * 0.2;
+      return { vx: breathe, vy: speed * 0.7 };
+    }
+
+    // ── Mini Boss: slow menacing drift with figure-8 weave ──
+    case 'mini': {
+      const weaveT = t * 0.4;
+      const vx = Math.sin(weaveT) * 3.2;
+      // Drift to target Y, then weave
       const yTarget = 160;
       const dy = yTarget - e.y;
-      return { vx: clampV, vy: clamp(dy * 0.03, -2.4, 2.4) };
+      const vy = dy > 20 ? 1.8 : (dy < -20 ? -0.8 : Math.sin(weaveT * 2) * 0.6);
+      return { vx, vy };
     }
-    case 'ambush_left': return { vx: speed * 1.1, vy: Math.sin(t) * 0.8 };
-    case 'ambush_right': return { vx: -speed * 1.1, vy: Math.sin(t) * 0.8 };
-    case 'ambush_bottom': return { vx: Math.sin(t) * 0.8, vy: -speed };
+
+    // ── Final Boss: deliberate tracking with slow weave ──
+    case 'boss': {
+      const dx = player.x + player.w / 2 - (e.x + e.w / 2);
+      const trackVx = clamp(dx * 0.015, -2.2, 2.2);
+      const weave = Math.sin(t * 0.3) * 0.8;
+      const yTarget = 160;
+      const dy = yTarget - e.y;
+      return { vx: trackVx + weave, vy: clamp(dy * 0.025, -2.0, 2.0) };
+    }
+
+    // ── ARCADE-072: Side entries — smooth arc paths from edges ──
+    case 'ambush_left': {
+      // Sweep in from left in a smooth arc
+      const arcT = t * 0.7 + phase;
+      return { vx: speed * 1.0 + Math.cos(arcT) * 1.5, vy: Math.sin(arcT) * 2.0 + speed * 0.3 };
+    }
+    case 'ambush_right': {
+      const arcT = t * 0.7 + phase;
+      return { vx: -(speed * 1.0 + Math.cos(arcT) * 1.5), vy: Math.sin(arcT) * 2.0 + speed * 0.3 };
+    }
+    case 'ambush_bottom': {
+      const arcT = t * 0.7 + phase;
+      return { vx: Math.sin(arcT) * 2.5, vy: -(speed * 0.8 + Math.cos(arcT) * 1.2) };
+    }
+
     default: return { vx: 0, vy: speed };
   }
 }
