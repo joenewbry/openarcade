@@ -23,6 +23,7 @@ const SPRITE_IMAGE_FILES = [
   'powerup-shot', 'powerup-speed', 'powerup-shield', 'powerup-bomb', 'powerup-double',
   'explosion-small', 'explosion-large', 'explosion-boss',
   'cloud-1', 'cloud-2', 'cloud-3',
+  'enemy-bullet',
 ];
 
 const SPRITE_IMAGES = {}; // name → Image (set when loaded)
@@ -1663,13 +1664,14 @@ function updateGame(state, game, input) {
   }
 }
 
-// ── 4-Layer Parallax Background ──
-// Layer 0 (static): Ocean/water base color
-// Layer 1 (very slow, 0.15 px/f): Islands, landmasses, terrain — feels fixed to the map
-// Layer 2 (slow, 0.6 px/f): Low cloud shadows
-// Layer 3 (fast, 2.5 px/f): High clouds near the camera (sprite-based)
+// ── 3-Layer Parallax Background (ARCADE-060/061/062/063) ──
+// CORRECT layer order (back to front):
+//   Layer 0: Ocean/water base (slow scroll — base terrain)
+//   Layer 1: Islands/landmasses (slow, ALL at same speed — fixed to map, terrain)
+//   Layer 2: Clouds (fast, sprite-based — ABOVE islands, closest to camera)
+//
+// Islands = fixed terrain, all same speed. Clouds above everything.
 
-// Pre-generate deterministic parallax elements per "screen" of scrolling
 function seededRand(seed) {
   let s = seed;
   return function() {
@@ -1678,89 +1680,111 @@ function seededRand(seed) {
   };
 }
 
+// Campaign-specific terrain tile colors
+const TERRAIN_TILES = {
+  coral_front: {
+    base: '#19466b', water: '#1c5d8f',
+    island: '#d5bc84', islandDetail: '#4b7c45', reef: '#3a8a6e',
+  },
+  jungle_spear: {
+    base: '#25442f', water: '#3a6a4f',
+    island: '#4d7935', islandDetail: '#27492d', reef: '#5f90bd',
+  },
+  dust_convoy: {
+    base: '#68452b', water: '#91643d',
+    island: '#be8a52', islandDetail: '#d4a065', reef: '#6e5743',
+  },
+  iron_monsoon: {
+    base: '#1d2238', water: '#2e3455',
+    island: '#4b5578', islandDetail: '#596286', reef: '#68739a',
+  },
+};
+
 function drawBackground(renderer, campaign, flashTimer, tick) {
   const t = campaign.theme;
+  const tiles = TERRAIN_TILES[campaign.id] || TERRAIN_TILES.coral_front;
 
-  // ── Layer 0: Static ocean/ground base ──
-  renderer.fillRect(0, 0, W, H, t.low);
+  // ── Layer 0: Ocean/ground base (very slow scroll — 0.2 px/frame) ──
+  const oceanTileH = 256;
+  const oceanSpeed = 0.2;
+  const oceanOffset = (tick * oceanSpeed) % oceanTileH;
 
-  // ── Layer 1: Terrain / Islands (VERY slow — 0.15 px/frame) ──
-  // These should feel nearly fixed, like you're flying high over them
-  const terrainH = 640; // large tile height for sparse terrain
-  const terrainSpeed = 0.15;
-  const terrainOffset = (tick * terrainSpeed) % terrainH;
+  renderer.fillRect(0, 0, W, H, tiles.base);
 
-  for (let row = -1; row < Math.ceil(H / terrainH) + 2; row++) {
-    const baseY = row * terrainH + terrainOffset;
-    // Water tile pattern (subtle)
+  for (let row = -1; row < Math.ceil(H / oceanTileH) + 2; row++) {
+    const baseY = row * oceanTileH + oceanOffset;
+    const rng = seededRand(row * 773 + 17);
     for (let col = 0; col < Math.ceil(W / 128); col++) {
       const tx = col * 128;
-      const isAlt = (row + col) % 2 === 0;
-      renderer.fillRect(tx, baseY, 128, terrainH, isAlt ? t.sea : t.low);
-      renderer.fillRect(tx, baseY, 128, 1, hexToRgba(t.accent, 0.06));
+      if (rng() < 0.4) {
+        renderer.fillRect(tx, baseY, 128, oceanTileH, tiles.water);
+      }
+      renderer.fillRect(tx, baseY + oceanTileH - 1, 128, 1, hexToRgba(t.accent, 0.04));
     }
-    // Scatter 2-3 terrain features per row (islands, reefs, etc.)
-    const rng = seededRand(row * 997 + 42);
-    const featureCount = 2 + Math.floor(rng() * 2);
+  }
+
+  // ── Layer 1: Islands / Terrain (slow scroll — 0.4 px/frame, ALL SAME SPEED) ──
+  // ARCADE-061/062: All islands at SAME speed. They are terrain, not floating objects.
+  const terrainTileH = 800;
+  const terrainSpeed = 0.4;
+  const terrainOffset = (tick * terrainSpeed) % terrainTileH;
+
+  for (let row = -2; row < Math.ceil(H / terrainTileH) + 2; row++) {
+    const baseY = row * terrainTileH + terrainOffset;
+    const rng = seededRand(row * 997 + campaign.id.charCodeAt(0));
+    const featureCount = 2 + Math.floor(rng() * 3);
     for (let f = 0; f < featureCount; f++) {
-      const fx = rng() * (W - 200) + 40;
-      const fy = baseY + rng() * (terrainH - 100) + 20;
-      const fw = 60 + rng() * 140;
-      const fh = 30 + rng() * 50;
-      // Island/terrain shape
-      renderer.fillRect(fx, fy, fw, fh, hexToRgba(t.accent, 0.15));
-      renderer.fillRect(fx + 8, fy + 4, fw - 16, fh - 8, hexToRgba(t.accent, 0.10));
-      // Dark shadow underneath
-      renderer.fillRect(fx + 4, fy + fh - 4, fw - 8, 6, hexToRgba('#000000', 0.08));
+      const fx = Math.floor(rng() * (W - 220)) + 40;
+      const fy = Math.floor(baseY + rng() * (terrainTileH - 140) + 20);
+      const fw = Math.floor(80 + rng() * 180);
+      const fh = Math.floor(40 + rng() * 80);
+
+      // Island body
+      renderer.fillRect(fx, fy, fw, fh, tiles.island);
+      // Vegetation / detail
+      const vegW = Math.floor(fw * 0.6);
+      const vegH = Math.floor(fh * 0.5);
+      renderer.fillRect(fx + Math.floor(fw * 0.15), fy + Math.floor(fh * 0.15), vegW, vegH, tiles.islandDetail);
+      // Beach/edge
+      renderer.fillRect(fx + 2, fy + fh - 6, fw - 4, 6, hexToRgba(tiles.island, 0.7));
+      // Drop shadow
+      renderer.fillRect(fx + 6, fy + fh, fw - 4, 8, hexToRgba('#000000', 0.1));
+
+      // Occasional reef near island
+      if (rng() < 0.4) {
+        const rx = fx + Math.floor(rng() * 60) - 30;
+        const ry = fy + fh + 10;
+        const rw = Math.floor(30 + rng() * 50);
+        renderer.fillRect(rx, ry, rw, 12, hexToRgba(tiles.reef, 0.3));
+      }
     }
   }
 
-  // ── Layer 2: Low cloud shadows (medium speed — 0.6 px/frame) ──
-  const shadowH = 400;
-  const shadowSpeed = 0.6;
-  const shadowOffset = (tick * shadowSpeed) % shadowH;
-
-  for (let row = -1; row < Math.ceil(H / shadowH) + 2; row++) {
-    const baseY = row * shadowH + shadowOffset;
-    const rng = seededRand(row * 1237 + 73);
-    const count = 2 + Math.floor(rng() * 2);
-    for (let i = 0; i < count; i++) {
-      const sx = rng() * (W - 160);
-      const sy = baseY + rng() * (shadowH - 60);
-      const sw = 100 + rng() * 120;
-      const sh = 30 + rng() * 25;
-      // Soft dark shadow blob
-      renderer.fillRect(sx, sy, sw, sh, hexToRgba('#000000', 0.05));
-      renderer.fillRect(sx + 12, sy + 4, sw - 24, sh - 8, hexToRgba('#000000', 0.04));
-    }
-  }
-
-  // ── Layer 3: High clouds (fast — 2.5 px/frame, sprite-based) ──
-  const cloudLayerH = 500;
-  const cloudSpeed = 2.5;
+  // ── Layer 2: Clouds (fast scroll — 1.8 px/frame, ABOVE everything) ──
+  // ARCADE-049/061: Clouds are the closest layer, above islands
+  const cloudLayerH = 600;
+  const cloudSpeed = 1.8;
   const cloudOffset = (tick * cloudSpeed) % cloudLayerH;
   const cloudSprites = ['cloud-1', 'cloud-2', 'cloud-3'];
 
   for (let row = -1; row < Math.ceil(H / cloudLayerH) + 2; row++) {
     const baseY = row * cloudLayerH + cloudOffset;
     const rng = seededRand(row * 1597 + 101);
-    const count = 3 + Math.floor(rng() * 2);
+    const count = 2 + Math.floor(rng() * 3);
     for (let i = 0; i < count; i++) {
-      const cx = rng() * (W - 120) - 40;
-      const cy = baseY + rng() * (cloudLayerH - 80);
-      const cw = 120 + rng() * 160;
-      const ch = cw * 0.45;
+      const cx = Math.floor(rng() * (W + 80) - 40);
+      const cy = Math.floor(baseY + rng() * (cloudLayerH - 100));
+      const cw = Math.floor(140 + rng() * 200);
+      const ch = Math.floor(cw * 0.4);
       const spriteIdx = Math.floor(rng() * cloudSprites.length);
       const spriteName = cloudSprites[spriteIdx];
-      const alpha = 0.25 + rng() * 0.25; // semi-transparent clouds
+      const alpha = 0.3 + rng() * 0.25;
 
       if (renderer.hasSpriteTexture(spriteName)) {
-        // Draw sprite-based cloud
         renderer.drawSprite(spriteName, cx, cy, cw, ch, alpha);
       } else {
-        // Fallback: soft white blob
-        renderer.fillRect(cx, cy, cw, ch, hexToRgba('#ffffff', alpha * 0.4));
-        renderer.fillRect(cx + 16, cy + 6, cw - 32, ch - 12, hexToRgba('#ffffff', alpha * 0.3));
+        renderer.fillRect(cx, cy, cw, ch, hexToRgba('#ffffff', alpha * 0.35));
+        renderer.fillRect(cx + 16, cy + 6, cw - 32, ch - 12, hexToRgba('#ffffff', alpha * 0.25));
       }
     }
   }
@@ -2294,20 +2318,21 @@ export function createGame() {
       renderer.fillRect(coreX, b.y, coreW, b.h, '#ffffff');
     }
 
+    // ARCADE-048: Enemy bullets — sprite-based, colorful (red/pink)
     for (const b of state.enemyBullets) {
       const bcx = b.x + b.w / 2;
       const bcy = b.y + b.h / 2;
-      if (b.shape === 'diamond') {
-        const half = b.w / 2;
-        renderer.fillPoly([
-          { x: bcx, y: bcy - half },
-          { x: bcx + half, y: bcy },
-          { x: bcx, y: bcy + half },
-          { x: bcx - half, y: bcy },
-        ], b.color);
+      // Try sprite first
+      if (renderer.hasSpriteTexture('enemy-bullet')) {
+        // Tint by drawing sprite then overlaying color
+        renderer.drawSprite('enemy-bullet', b.x, b.y, b.w, b.h, 1);
       } else {
-        // circle for slow and fast bullets
+        // Fallback: bright colored circle with glow
+        renderer.setGlow(b.color, 0.4);
         renderer.fillCircle(bcx, bcy, b.w / 2, b.color);
+        renderer.setGlow(null);
+        // White core for visibility
+        renderer.fillCircle(bcx, bcy, b.w / 4, '#ffffff');
       }
     }
 
