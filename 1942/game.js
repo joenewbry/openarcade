@@ -8,10 +8,10 @@ import { getSprite, colorForKey } from './content/sprites.js';
 
 const W = 960;
 const H = 1280;
-const PLAYER_SCALE = 6;
-const ENEMY_SCALE = 6;
-const MINI_BOSS_SCALE = 12;
-const FINAL_BOSS_SCALE = 16;
+const PLAYER_SCALE = 9;
+const ENEMY_SCALE = 8;
+const MINI_BOSS_SCALE = 16;
+const FINAL_BOSS_SCALE = 24;
 
 // ── Sprite image preloader ──
 const SPRITE_IMAGE_FILES = [
@@ -121,7 +121,7 @@ function drawSpriteImage(renderer, spriteName, x, y, w, h, alpha = 1, fallbackId
     drawPixelSprite(renderer, fallbackId, x, y, fallbackScale || PLAYER_SCALE, fallbackTint || '#ff6f6f', alpha);
   }
 }
-const BULLET_SIZE = 8;
+const BULLET_SIZE = 14;
 const ROLL_DURATION = 30;
 const ROLL_IFRAMES = 22;
 const ROLL_SPEED = 12.2;
@@ -707,7 +707,7 @@ function spawnPlayerBullets(state, mode = 'normal') {
       x: baseX - BULLET_SIZE / 2,
       y: baseY,
       w: BULLET_SIZE,
-      h: 20,
+      h: 28,
       vx: b.vx,
       vy: b.vy,
       pierce: b.pierce,
@@ -763,9 +763,9 @@ function bulletTier(speed) {
 
 function bulletProps(speed) {
   const tier = bulletTier(speed);
-  if (tier === 'slow') return { size: 12, color: '#ff44cc', shape: 'circle' };
-  if (tier === 'medium') return { size: 8, color: '#ff9933', shape: 'diamond' };
-  return { size: 6, color: '#ff2222', shape: 'circle' };
+  if (tier === 'slow') return { size: 18, color: '#ff44cc', shape: 'circle' };
+  if (tier === 'medium') return { size: 14, color: '#ff9933', shape: 'circle' };
+  return { size: 10, color: '#ff2222', shape: 'circle' };
 }
 
 function pushEnemyBullet(state, x, y, vx, vy) {
@@ -1214,7 +1214,7 @@ function updateGame(state, game, input) {
         x: bx - BULLET_SIZE / 2,
         y: by,
         w: BULLET_SIZE,
-        h: 20,
+        h: 28,
         vx: 0,
         vy: -15,
         pierce: 0,
