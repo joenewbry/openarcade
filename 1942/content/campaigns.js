@@ -17,10 +17,11 @@ export const CAMPAIGNS = [
     signatureMoments: { 7: 'whale_crossing' },
     finalWave: 20,
     waves: [
-      { pattern: 'vee', mix: ['scout_zero'], count: 8 },
-      { pattern: 'line', mix: ['scout_zero'], count: 10 },
-      { pattern: 'stagger', mix: ['scout_zero', 'torpedo_gull'], count: 12 },
-      { pattern: 'cross', mix: ['scout_zero', 'torpedo_gull'], count: 12 },
+      { pattern: 'line', mix: ['scout_zero'], count: 3 },           // W1: simple intro — single planes
+      { pattern: 'line', mix: ['scout_zero'], count: 5 },           // W2: still simple, slightly more
+      { pattern: 'vee', mix: ['scout_zero'], count: 6 },            // W3: introduce formation
+      { pattern: 'stagger', mix: ['scout_zero', 'torpedo_gull'], count: 8 },  // W4: introduce torpedo gull
+      { pattern: 'cross', mix: ['scout_zero', 'torpedo_gull'], count: 10 },   // W5+: full difficulty
       { pattern: 'swirl', mix: ['torpedo_gull'], count: 9 },
     ],
   },
