@@ -1,22 +1,22 @@
 ticket_id,designer,priority,title,description,status,pr_number,implemented_date
-ARCADE-001,miyamoto,critical,Implement Wordless Tutorial W1-4,Hand-script tutorial waves with gated mechanics: W1=move W2=dodge W3=powerups W4=roll,open,,
+ARCADE-001,miyamoto,critical,Implement Wordless Tutorial W1-4,Hand-script tutorial waves with gated mechanics: W1=move W2=dodge W3=powerups W4=roll,deferred,,
 ARCADE-002,miyamoto+kojima+okamoto,critical,Reduce to 2 Planes for v1,Remove Falcon and Lancer from PLANES array. Ship only Specter + Atlas per design doc,implemented,2,2026-03-01
 ARCADE-003,miyamoto,critical,Add Movement Velocity Smoothing,Track player.vx/vy and lerp toward target speed for ~4 frame accel / ~6 frame decel,implemented,4,2026-03-01
 ARCADE-004,miyamoto+ikeda+okamoto,important,Fix Score Values to Design Doc,Set small=100 medium=250 mini boss=5000 final boss=25000. Add floating score pop text at kills,implemented,3,2026-03-01
 ARCADE-005,miyamoto+kojima+ikeda+okamoto,important,Add Wave Clear Transitions and Boss Warning,Show WAVE CLEAR text 90 frames + score bonus. Add 180-frame WARNING phase before bosses,implemented,5,2026-03-01
-ARCADE-006,miyamoto,important,Make Bombs Feel Powerful,Add 60-frame I-frames. Kill normals outright. Full-screen flash. 10pts per cancelled bullet,open,,
+ARCADE-006,miyamoto,important,Make Bombs Feel Powerful,Add 60-frame I-frames. Kill normals outright. Full-screen flash. 10pts per cancelled bullet,implemented,11,2026-03-01
 ARCADE-007,miyamoto,important,Remove NOT- Prefix from Campaign Names/IDs,Find-replace in campaigns.js and dialogue.js to remove not_/NOT- prefixes,implemented,direct-merge,2026-03-01
-ARCADE-008,miyamoto,important,Differentiate Enemy vs Player Bullet Visuals,Draw enemy bullets as diamonds/circles with white core. Keep player bullets rectangular,open,,
-ARCADE-009,miyamoto+kojima+ikeda+okamoto,important,Add Death Consequences,Reset all buff timers on death. Add 30-frame entity freeze + screen shake. Drop shot tier,open,,
-ARCADE-010,miyamoto,nice-to-have,Simplify Campaign Intro Phase,Remove campaign_intro phase. Add 3-second black screen with campaign name between campaigns,open,,
-ARCADE-011,kojima+okamoto,critical,Implement Unique Campaign Structures,C2: boss W3/double W10. C3: no minis. C4: bosses W4/W8/W12/W16. Custom 20-wave arrays,open,,
-ARCADE-012,kojima+ikeda,critical,Implement Boss Hit Zones,Split boss HP into 4 sections (port/starboard battery engine core). Phase transitions on section destruction,open,,
-ARCADE-013,kojima,important,Implement Signature Moments,Start with whale crossing C1 + ambush from all edges C2 + wingman C4,open,,
-ARCADE-014,kojima+ikeda+okamoto,important,Implement Chain Scoring System,Track chainCount/chainTimer. Shrinking window 90→45 frames. Display chain multiplier prominently,open,,
-ARCADE-015,kojima+ikeda+okamoto,nice-to-have,Add Focus Mode,Hold-Space: 1.5px/f speed + visible 3px hitbox dot. Tie to graze scoring,open,,
-ARCADE-016,kojima,nice-to-have,World Reacts to Player Actions,Darken background on bomb. Boss death triggers ambient event. C4 lightning gameplay-relevant,open,,
-ARCADE-017,ikeda+okamoto,critical,Implement Distinct Enemy Bullet Patterns,Per-enemy bullet behaviors: fighters=aimed gunships=burst bombers=slow drops. Color-code by speed tier,open,,
-ARCADE-018,ikeda,critical,Implement Graze System,28px graze hitbox. 25pts × chain per graze. Spark particles + crystalline sound,open,,
-ARCADE-019,ikeda,important,Integrate Bomb with Scoring System,Bomb resets chain to 0 (cost). Cancelled bullets award 10pts each. Add 90-frame I-frames,open,,
-ARCADE-020,ikeda+okamoto,nice-to-have,Implement Roll Stock System,Replace cooldown with 3 stocks + 10s regen. Display as icons,open,,
-ARCADE-021,okamoto,nice-to-have,Add 1-Up Score Milestones,1-up at 100k then every 200k. Max 5 lives. Distinctive sound + 1-UP text,open,,
+ARCADE-008,miyamoto,important,Differentiate Enemy vs Player Bullet Visuals,Draw enemy bullets as diamonds/circles with white core. Keep player bullets rectangular,implemented,12,2026-03-01
+ARCADE-009,miyamoto+kojima+ikeda+okamoto,important,Add Death Consequences,Reset all buff timers on death. Add 30-frame entity freeze + screen shake. Drop shot tier,implemented,10,2026-03-01
+ARCADE-010,miyamoto,nice-to-have,Simplify Campaign Intro Phase,Remove campaign_intro phase. Add 3-second black screen with campaign name between campaigns,implemented,17,2026-03-01
+ARCADE-011,kojima+okamoto,critical,Implement Unique Campaign Structures,C2: boss W3/double W10. C3: no minis. C4: bosses W4/W8/W12/W16. Custom 20-wave arrays,implemented,13,2026-03-01
+ARCADE-012,kojima+ikeda,critical,Implement Boss Hit Zones,Split boss HP into 4 sections (port/starboard battery engine core). Phase transitions on section destruction,implemented-partial,14,2026-03-01
+ARCADE-013,kojima,important,Implement Signature Moments,Start with whale crossing C1 + ambush from all edges C2 + wingman C4,implemented,16,2026-03-01
+ARCADE-014,kojima+ikeda+okamoto,important,Implement Chain Scoring System,Track chainCount/chainTimer. Shrinking window 90→45 frames. Display chain multiplier prominently,implemented,9,2026-03-01
+ARCADE-015,kojima+ikeda+okamoto,nice-to-have,Add Focus Mode,Hold-Space: 1.5px/f speed + visible 3px hitbox dot. Tie to graze scoring,implemented,17,2026-03-01
+ARCADE-016,kojima,nice-to-have,World Reacts to Player Actions,Darken background on bomb. Boss death triggers ambient event. C4 lightning gameplay-relevant,implemented,17,2026-03-01
+ARCADE-017,ikeda+okamoto,critical,Implement Distinct Enemy Bullet Patterns,Per-enemy bullet behaviors: fighters=aimed gunships=burst bombers=slow drops. Color-code by speed tier,implemented,7,2026-03-01
+ARCADE-018,ikeda,critical,Implement Graze System,28px graze hitbox. 25pts × chain per graze. Spark particles + crystalline sound,implemented,8,2026-03-01
+ARCADE-019,ikeda,important,Integrate Bomb with Scoring System,Bomb resets chain to 0 (cost). Cancelled bullets award 10pts each. Add 90-frame I-frames,implemented,15,2026-03-01
+ARCADE-020,ikeda+okamoto,nice-to-have,Implement Roll Stock System,Replace cooldown with 3 stocks + 10s regen. Display as icons,implemented,17,2026-03-01
+ARCADE-021,okamoto,nice-to-have,Add 1-Up Score Milestones,1-up at 100k then every 200k. Max 5 lives. Distinctive sound + 1-UP text,implemented,17,2026-03-01
