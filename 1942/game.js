@@ -21,6 +21,7 @@ const SPRITE_IMAGE_FILES = [
   'boss-coral', 'boss-desert', 'boss-arctic', 'boss-storm',
   'powerup-shot', 'powerup-speed', 'powerup-shield', 'powerup-bomb', 'powerup-double',
   'explosion-small', 'explosion-large', 'explosion-boss',
+  'cloud-1', 'cloud-2', 'cloud-3',
 ];
 
 const SPRITE_IMAGES = {}; // name → Image (set when loaded)
@@ -609,7 +610,12 @@ function spawnAmbient(state, theme) {
   const r = Math.random();
   const type = theme.wildlife[Math.floor(rand(0, theme.wildlife.length))];
   if (r < 0.28) {
-    state.ambience.push({ type, x: rand(40, W - 120), y: -80, size: rand(44, 120), vy: rand(0.8, 2.4) });
+    // Terrain features (islands, dunes, convoy, treeline) scroll VERY slowly
+    // to create sense of altitude — they're far below the plane
+    const isTerrainFeature = ['islands', 'dunes', 'convoy', 'treeline', 'river', 'subs'].includes(type);
+    const speed = isTerrainFeature ? rand(0.15, 0.3) : rand(1.5, 3.0);
+    const size = isTerrainFeature ? rand(80, 200) : rand(44, 120);
+    state.ambience.push({ type, x: rand(40, W - 120), y: -80, size, vy: speed });
   }
 }
 
@@ -1559,55 +1565,105 @@ function updateGame(state, game, input) {
   }
 }
 
-// ── Parallax scrolling tile background ──
-// Two layers: slow ground/water tiles + faster cloud/detail layer
+// ── 4-Layer Parallax Background ──
+// Layer 0 (static): Ocean/water base color
+// Layer 1 (very slow, 0.15 px/f): Islands, landmasses, terrain — feels fixed to the map
+// Layer 2 (slow, 0.6 px/f): Low cloud shadows
+// Layer 3 (fast, 2.5 px/f): High clouds near the camera (sprite-based)
+
+// Pre-generate deterministic parallax elements per "screen" of scrolling
+function seededRand(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return (s >> 16) / 32768;
+  };
+}
+
 function drawBackground(renderer, campaign, flashTimer, tick) {
   const t = campaign.theme;
-  // Base fill
+
+  // ── Layer 0: Static ocean/ground base ──
   renderer.fillRect(0, 0, W, H, t.low);
 
-  // Layer 1: slow scrolling ground/water tiles (0.5 px/frame)
-  const tileH = 128;
-  const tileW = 128;
-  const scrollSpeed1 = 0.5;
-  const offset1 = (tick * scrollSpeed1) % tileH;
+  // ── Layer 1: Terrain / Islands (VERY slow — 0.15 px/frame) ──
+  // These should feel nearly fixed, like you're flying high over them
+  const terrainH = 640; // large tile height for sparse terrain
+  const terrainSpeed = 0.15;
+  const terrainOffset = (tick * terrainSpeed) % terrainH;
 
-  for (let row = -1; row < Math.ceil(H / tileH) + 1; row++) {
-    for (let col = 0; col < Math.ceil(W / tileW); col++) {
-      const tx = col * tileW;
-      const ty = row * tileH + offset1;
-      // Alternate tile colors for visual pattern
+  for (let row = -1; row < Math.ceil(H / terrainH) + 2; row++) {
+    const baseY = row * terrainH + terrainOffset;
+    // Water tile pattern (subtle)
+    for (let col = 0; col < Math.ceil(W / 128); col++) {
+      const tx = col * 128;
       const isAlt = (row + col) % 2 === 0;
-      const baseColor = isAlt ? t.sea : t.low;
-      renderer.fillRect(tx, ty, tileW, tileH, baseColor);
-      // Tile border accent lines
-      renderer.fillRect(tx, ty, tileW, 2, hexToRgba(t.accent, 0.08));
-      renderer.fillRect(tx, ty, 2, tileH, hexToRgba(t.accent, 0.05));
-      // Detail: small terrain features
-      if (isAlt) {
-        const detailX = tx + 20 + (col * 37 + row * 53) % 60;
-        const detailY = ty + 30 + (col * 41 + row * 29) % 50;
-        renderer.fillRect(detailX, detailY, 24, 12, hexToRgba(t.accent, 0.12));
-        renderer.fillRect(detailX + 4, detailY + 2, 16, 8, hexToRgba(t.accent, 0.08));
-      }
+      renderer.fillRect(tx, baseY, 128, terrainH, isAlt ? t.sea : t.low);
+      renderer.fillRect(tx, baseY, 128, 1, hexToRgba(t.accent, 0.06));
+    }
+    // Scatter 2-3 terrain features per row (islands, reefs, etc.)
+    const rng = seededRand(row * 997 + 42);
+    const featureCount = 2 + Math.floor(rng() * 2);
+    for (let f = 0; f < featureCount; f++) {
+      const fx = rng() * (W - 200) + 40;
+      const fy = baseY + rng() * (terrainH - 100) + 20;
+      const fw = 60 + rng() * 140;
+      const fh = 30 + rng() * 50;
+      // Island/terrain shape
+      renderer.fillRect(fx, fy, fw, fh, hexToRgba(t.accent, 0.15));
+      renderer.fillRect(fx + 8, fy + 4, fw - 16, fh - 8, hexToRgba(t.accent, 0.10));
+      // Dark shadow underneath
+      renderer.fillRect(fx + 4, fy + fh - 4, fw - 8, 6, hexToRgba('#000000', 0.08));
     }
   }
 
-  // Layer 2: faster scrolling cloud/detail layer (1.5 px/frame, semi-transparent)
-  const cloudH = 200;
-  const scrollSpeed2 = 1.5;
-  const offset2 = (tick * scrollSpeed2) % cloudH;
+  // ── Layer 2: Low cloud shadows (medium speed — 0.6 px/frame) ──
+  const shadowH = 400;
+  const shadowSpeed = 0.6;
+  const shadowOffset = (tick * shadowSpeed) % shadowH;
 
-  for (let row = -1; row < Math.ceil(H / cloudH) + 1; row++) {
-    const cy = row * cloudH + offset2;
-    // Scattered cloud patches using deterministic positions
-    for (let i = 0; i < 3; i++) {
-      const seed = (row * 7 + i * 13) & 0xFF;
-      const cx = (seed * 3.7) % W;
-      const cw = 80 + (seed % 60);
-      const ch = 20 + (seed % 16);
-      renderer.fillRect(cx, cy + i * 50, cw, ch, hexToRgba('#ffffff', 0.06));
-      renderer.fillRect(cx + 10, cy + i * 50 + 4, cw - 20, ch - 8, hexToRgba('#ffffff', 0.04));
+  for (let row = -1; row < Math.ceil(H / shadowH) + 2; row++) {
+    const baseY = row * shadowH + shadowOffset;
+    const rng = seededRand(row * 1237 + 73);
+    const count = 2 + Math.floor(rng() * 2);
+    for (let i = 0; i < count; i++) {
+      const sx = rng() * (W - 160);
+      const sy = baseY + rng() * (shadowH - 60);
+      const sw = 100 + rng() * 120;
+      const sh = 30 + rng() * 25;
+      // Soft dark shadow blob
+      renderer.fillRect(sx, sy, sw, sh, hexToRgba('#000000', 0.05));
+      renderer.fillRect(sx + 12, sy + 4, sw - 24, sh - 8, hexToRgba('#000000', 0.04));
+    }
+  }
+
+  // ── Layer 3: High clouds (fast — 2.5 px/frame, sprite-based) ──
+  const cloudLayerH = 500;
+  const cloudSpeed = 2.5;
+  const cloudOffset = (tick * cloudSpeed) % cloudLayerH;
+  const cloudSprites = ['cloud-1', 'cloud-2', 'cloud-3'];
+
+  for (let row = -1; row < Math.ceil(H / cloudLayerH) + 2; row++) {
+    const baseY = row * cloudLayerH + cloudOffset;
+    const rng = seededRand(row * 1597 + 101);
+    const count = 3 + Math.floor(rng() * 2);
+    for (let i = 0; i < count; i++) {
+      const cx = rng() * (W - 120) - 40;
+      const cy = baseY + rng() * (cloudLayerH - 80);
+      const cw = 120 + rng() * 160;
+      const ch = cw * 0.45;
+      const spriteIdx = Math.floor(rng() * cloudSprites.length);
+      const spriteName = cloudSprites[spriteIdx];
+      const alpha = 0.25 + rng() * 0.25; // semi-transparent clouds
+
+      if (renderer.hasSpriteTexture(spriteName)) {
+        // Draw sprite-based cloud
+        renderer.drawSprite(spriteName, cx, cy, cw, ch, alpha);
+      } else {
+        // Fallback: soft white blob
+        renderer.fillRect(cx, cy, cw, ch, hexToRgba('#ffffff', alpha * 0.4));
+        renderer.fillRect(cx + 16, cy + 6, cw - 32, ch - 12, hexToRgba('#ffffff', alpha * 0.3));
+      }
     }
   }
 
