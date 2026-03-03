@@ -284,7 +284,37 @@
       font-size: 0.78rem;
       font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Courier New', monospace;
     }
+
+    #smoke-status {
+      margin-top: 6px;
+      font-size: 0.9rem;
+      color: #d8dfff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+      opacity: 0.95;
+    }
     
+    #smoke-vision-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 68;
+      opacity: 0;
+      --smoke-strength: 0;
+      background: radial-gradient(
+        circle at center,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(18, 18, 18, 0.18) 38%,
+        rgba(0, 0, 0, 0.82) 74%,
+        rgba(0, 0, 0, 0.96) 100%
+      );
+      transition: opacity 110ms linear;
+      filter: blur(3.8px) contrast(1.2);
+    }
+
+    #smoke-vision-overlay.smoke-active {
+      opacity: var(--smoke-strength);
+    }
+
     #canvas {
       display: block;
     }
@@ -529,6 +559,7 @@
       <div>Health: <span id="health">1/1 (ONE SHOT)</span></div>
       <div>Score: <span id="score">0-0</span></div>
       <div class="hud-divider"></div>
+      <div id="smoke-status">Smoke: READY</div>
       <div id="replay-panel">
         <div>Replay: <span id="replay-status">Idle</span></div>
         <div id="replay-controls">
@@ -544,6 +575,7 @@
       </div>
     </div>
 
+    <div id="smoke-vision-overlay" aria-hidden="true"></div>
     <div id="crosshair" aria-hidden="true"></div>
     <div id="pointer-lock-hint">Click to capture mouse • WASD / Arrow Keys to move</div>
 
@@ -604,7 +636,7 @@
         <p id="menu-invite-hint" class="menu-hint"></p>
 
         <p style="color: #ccc; margin-top: 2rem; font-size: 0.9rem;">
-          Controls: LMB paint splash, RMB bouncing paint ball, Tab opens scoreboard.
+          Controls: LMB paint splash, RMB bouncing paint ball, G throws smoke grenade, Q to quit, Tab scoreboard.
           Rebind keys from the Controls panel.
         </p>
       </div>
