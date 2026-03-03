@@ -13,7 +13,7 @@ export class InputManager {
   private keys: Map<string, boolean> = new Map();
   private mouseDelta: { x: number; y: number } = { x: 0, y: 0 };
   private touchStart: { x: number; y: number } | null = null;
-  private isPointerLocked = false;
+  private pointerLocked = false;
   private sensitivity = 0.002;
 
   constructor() {
@@ -24,33 +24,55 @@ export class InputManager {
 
   private setupKeyboardEvents() {
     window.addEventListener('keydown', (e) => {
-      this.keys.set(e.key.toLowerCase(), true);
+      this.setKeyState(e.key, true);
+      this.setKeyState(e.code, true);
     });
 
     window.addEventListener('keyup', (e) => {
-      this.keys.set(e.key.toLowerCase(), false);
+      this.setKeyState(e.key, false);
+      this.setKeyState(e.code, false);
     });
+  }
+
+  private setKeyState(rawKey: string, isDown: boolean): void {
+    const key = rawKey.toLowerCase();
+    this.keys.set(key, isDown);
+
+    const alias = this.getAlias(key);
+    if (alias) {
+      this.keys.set(alias, isDown);
+    }
+  }
+
+  private getAlias(key: string): string | null {
+    switch (key) {
+      case 'keyw': return 'w';
+      case 'keya': return 'a';
+      case 'keys': return 's';
+      case 'keyd': return 'd';
+      case 'arrowup': return 'arrowup';
+      case 'arrowleft': return 'arrowleft';
+      case 'arrowdown': return 'arrowdown';
+      case 'arrowright': return 'arrowright';
+      case 'space':
+      case 'spacebar':
+      case ' ': return ' ';
+      default: return null;
+    }
   }
 
   private setupMouseEvents() {
     // Mouse movement for look controls
     window.addEventListener('mousemove', (e) => {
-      if (this.isPointerLocked) {
+      if (this.pointerLocked) {
         this.mouseDelta.x = e.movementX || 0;
         this.mouseDelta.y = e.movementY || 0;
       }
     });
 
-    // Request pointer lock on first click
-    document.addEventListener('click', () => {
-      if (!this.isPointerLocked) {
-        document.body.requestPointerLock();
-      }
-    });
-
     // Handle pointer lock change
     document.addEventListener('pointerlockchange', () => {
-      this.isPointerLocked = document.pointerLockElement === document.body;
+      this.pointerLocked = document.pointerLockElement === document.body;
     });
 
     // Handle mouse lock error
@@ -77,7 +99,7 @@ export class InputManager {
       if (e.touches.length === 1 && this.touchStart) {
         const dx = e.touches[0].clientX - this.touchStart.x;
         const dy = e.touches[0].clientY - this.touchStart.y;
-        
+
         // Map touch movement to mouse delta for camera control
         this.mouseDelta.x = dx * 0.1;
         this.mouseDelta.y = dy * 0.1;
@@ -91,7 +113,11 @@ export class InputManager {
 
   // Get input state
   public getKey(key: string): boolean {
-    return this.keys.get(key) || false;
+    return this.keys.get(key.toLowerCase()) || false;
+  }
+
+  public getAnyKey(keys: string[]): boolean {
+    return keys.some((key) => this.getKey(key));
   }
 
   public getMouseDelta(): { x: number; y: number } {
@@ -102,11 +128,11 @@ export class InputManager {
   }
 
   public isPointerLocked(): boolean {
-    return this.isPointerLocked;
+    return this.pointerLocked;
   }
 
   public requestPointerLock(): void {
-    document.body.requestPointerLock();
+    document.body.requestPointerLock?.();
   }
 
   public getSensitivity(): number {

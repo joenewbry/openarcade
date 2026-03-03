@@ -128,16 +128,21 @@ export class BulletSystem {
           bullet.trail.geometry.setFromPoints(points.map(p => new THREE.Vector3()));
           bullet.trail.geometry.attributes.position.needsUpdate = true;
         }
+        
+        // Check if hit a character (player or enemy)
+        const hitCharacter = this.checkCharacterHit(intersected);
+        if (hitCharacter) {
+          this.applyDamageToPlayer(hitCharacter);
+        }
       }
     }
   }
   
   private checkCollision(bullet: BulletData): THREE.Intersection | null {
-    // Only check against static walls (exclude characters)
+    // Only check against static walls and characters (player/enemies)
     const objects = this.scene.children.filter(child => 
       child instanceof THREE.Mesh && 
-      !child.userData.isCharacter && 
-      child.name !== 'ground'
+      (child.userData.isCharacter || child.name !== 'ground')
     );
     
     this.raycaster.set(bullet.position, bullet.velocity.clone().normalize());
@@ -148,6 +153,29 @@ export class BulletSystem {
     }
     
     return null;
+  }
+  
+  private checkCharacterHit(intersection: THREE.Intersection): THREE.Group | null {
+    // Check if intersected object has isCharacter flag
+    if (intersection.object.userData.isCharacter) {
+      // Return the parent group if it's a character model
+      return intersection.object.parent as THREE.Group;
+    }
+    return null;
+  }
+  
+  private applyDamageToPlayer(character: THREE.Group): void {
+    // Get the game instance and health system
+    // Note: This assumes the game instance is available on window for simplicity
+    // In a better architecture, you'd inject this dependency
+    const game = (window as any).game;
+    if (!game || !game.getHealthSystem()) return;
+    
+    const healthSystem = game.getHealthSystem();
+    if (healthSystem && !healthSystem.isPlayerDead()) {
+      // AK bullet deals 35 damage
+      healthSystem.takeDamage(35);
+    }
   }
   
   private reflectVector(incident: THREE.Vector3, normal: THREE.Vector3): THREE.Vector3 {

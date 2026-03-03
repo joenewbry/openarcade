@@ -6,11 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "net:server": "node server/network-server.js",
+    "demo:run": "bash scripts/run-demo.sh",
+    "demo:build": "vite build --base ./ && node scripts/publish-dist.mjs",
+    "demo:serve": "vite preview --host 0.0.0.0 --port 4173 --strictPort"
   },
   "dependencies": {
     "three": "^0.160.0",
-    "@types/three": "^0.160.0"
+    "@types/three": "^0.160.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "typescript": "^5.0.2",

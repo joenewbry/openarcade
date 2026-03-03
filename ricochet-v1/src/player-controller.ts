@@ -5,125 +5,215 @@ import { InputManager } from './input-manager.js';
 export class PlayerController {
   private controls: PointerLockControls;
   private velocity: THREE.Vector3 = new THREE.Vector3();
-  private direction: THREE.Vector3 = new THREE.Vector3();
   private moveSpeed = 5; // units per second
   private jumpHeight = 2; // units
   private gravity = -9.8; // m/s²
   private isOnGround = false;
   private collisionRadius = 0.5;
   private input: InputManager;
-  private camera: THREE.PerspectiveCamera;
   private scene: THREE.Scene;
-  private player: THREE.Group | null = null;
+  private movementEnabled = false;
+  private pointerHintEl: HTMLElement | null;
+  private readonly eyeHeight = 1.6;
+  private readonly hardFloorY = 1.6;
 
   constructor(camera: THREE.PerspectiveCamera, scene: THREE.Scene, input: InputManager) {
-    this.camera = camera;
     this.scene = scene;
     this.input = input;
 
-    // Initialize PointerLockControls
     this.controls = new PointerLockControls(camera, document.body);
-    this.controls.enabled = false; // Disabled until pointer is locked
-    this.controls.mouseSpeed = input.getSensitivity();
 
-    // Setup physics properties
-    this.velocity.y = 0;
-    
-    // Initialize direction vector
-    this.direction.set(0, 0, 0);
+    const controlledObject = this.controls.getObject();
+    controlledObject.position.copy(camera.position);
+    scene.add(controlledObject);
 
-    // Add controls to the scene
-    scene.add(this.controls.getObject());
+    this.pointerHintEl = document.getElementById('pointer-lock-hint');
+
+    this.controls.addEventListener('lock', () => {
+      this.updatePointerLockHint(false);
+    });
+
+    this.controls.addEventListener('unlock', () => {
+      this.updatePointerLockHint(this.movementEnabled);
+    });
+
+    document.addEventListener('mousedown', this.onPointerCaptureClick);
+    this.updatePointerLockHint(false);
+  }
+
+  private onPointerCaptureClick = (event: MouseEvent): void => {
+    if (event.button !== 0) return;
+    if (!this.movementEnabled) return;
+    if (this.controls.isLocked) return;
+
+    this.controls.lock();
+  };
+
+  private updatePointerLockHint(visible: boolean): void {
+    if (!this.pointerHintEl) return;
+    this.pointerHintEl.style.display = visible ? 'block' : 'none';
   }
 
   public enable(): void {
-    this.controls.enable = true;
-    this.input.requestPointerLock();
+    this.movementEnabled = true;
+    this.controls.lock();
+    this.updatePointerLockHint(!this.controls.isLocked);
+  }
+
+  public disable(): void {
+    this.controls.unlock();
+    this.movementEnabled = false;
+    this.updatePointerLockHint(false);
+  }
+
+  public lockMovement(): void {
+    this.movementEnabled = false;
+    this.resetMovementState();
+    this.updatePointerLockHint(false);
+  }
+
+  public unlockMovement(): void {
+    this.movementEnabled = true;
+    this.updatePointerLockHint(!this.controls.isLocked);
+  }
+
+  public resetMovementState(): void {
+    this.velocity.set(0, 0, 0);
+    this.isOnGround = false;
+  }
+
+  public setPosition(x: number, y: number, z: number): void {
+    this.controls.getObject().position.set(x, y, z);
+  }
+
+  private isArenaCollider(object: THREE.Object3D, playerObject: THREE.Object3D): boolean {
+    let node: THREE.Object3D | null = object;
+    while (node) {
+      if (node === playerObject) {
+        return false;
+      }
+      node = node.parent;
+    }
+
+    node = object;
+    while (node) {
+      if (node.userData?.isArenaObject === true) {
+        return true;
+      }
+      node = node.parent;
+    }
+
+    return false;
+  }
+
+  private probeGround(
+    origin: THREE.Vector3,
+    far: number,
+    playerObject: THREE.Object3D
+  ): THREE.Intersection | null {
+    const raycaster = new THREE.Raycaster(origin, new THREE.Vector3(0, -1, 0), 0, far);
+    const hits = raycaster.intersectObjects(this.scene.children, true)
+      .filter((hit) => this.isArenaCollider(hit.object, playerObject));
+
+    return hits.length > 0 ? hits[0] : null;
   }
 
   public update(deltaTime: number): void {
-    if (!this.controls.enabled) return;
+    if (!this.movementEnabled) return;
 
-    // Apply gravity
+    // Gravity
     this.velocity.y += this.gravity * deltaTime;
 
-    // Get input direction
-    this.direction.set(0, 0, 0);
-    const forward = this.controls.getDirection(new THREE.Vector3(0, 0, -1));
-    const right = this.controls.getDirection(new THREE.Vector3(1, 0, 0));
+    // Horizontal movement (WASD + Arrow Keys)
+    const moveRight = (this.input.getAnyKey(['d', 'arrowright']) ? 1 : 0)
+      - (this.input.getAnyKey(['a', 'arrowleft']) ? 1 : 0);
+    const moveForward = (this.input.getAnyKey(['w', 'arrowup']) ? 1 : 0)
+      - (this.input.getAnyKey(['s', 'arrowdown']) ? 1 : 0);
 
-    if (this.input.getKey('w')) this.direction.add(forward);
-    if (this.input.getKey('s')) this.direction.add(forward.multiplyScalar(-1));
-    if (this.input.getKey('a')) this.direction.add(right.multiplyScalar(-1));
-    if (this.input.getKey('d')) this.direction.add(right);
-    
-    // Normalize direction to prevent faster diagonal movement
-    this.direction.normalize();
+    // Normalize diagonal speed
+    const mag = Math.hypot(moveRight, moveForward) || 1;
+    const rightStep = (moveRight / mag) * this.moveSpeed * deltaTime;
+    const forwardStep = (moveForward / mag) * this.moveSpeed * deltaTime;
 
-    // Apply movement speed
-    this.velocity.x = this.direction.x * this.moveSpeed * deltaTime;
-    this.velocity.z = this.direction.z * this.moveSpeed * deltaTime;
+    this.controls.moveRight(rightStep);
+    this.controls.moveForward(forwardStep);
 
-    // Jump if on ground and space is pressed
+    // Jump
     if (this.input.getKey(' ') && this.isOnGround) {
       this.velocity.y = Math.sqrt(2 * this.jumpHeight * -this.gravity);
       this.isOnGround = false;
     }
 
-    // Move player
-    this.controls.moveRight(this.velocity.x);
-    this.controls.moveForward(this.velocity.z);
-    
-    // Apply vertical movement (gravity + jump)
+    // Vertical motion
     const object = this.controls.getObject();
     object.position.y += this.velocity.y * deltaTime;
 
-    // Raycast for ground detection (collision)
-    const raycaster = new THREE.Raycaster();
-    const origin = new THREE.Vector3(object.position.x, object.position.y - this.collisionRadius, object.position.z);
-    const direction = new THREE.Vector3(0, -1, 0);
-    
-    raycaster.set(origin, direction);
-    const intersects = raycaster.intersectObjects(this.scene.children, true);
+    // Ground collision check (near probe + recovery probe)
+    const nearOrigin = new THREE.Vector3(object.position.x, object.position.y + 0.25, object.position.z);
+    const nearHit = this.probeGround(nearOrigin, this.eyeHeight + 2.5, object);
 
-    // Check for ground collision
+    let groundY: number | null = nearHit?.point.y ?? null;
+
+    // Recovery probe from high up prevents missed-collision infinite falls.
+    if (groundY === null) {
+      const farOrigin = new THREE.Vector3(
+        object.position.x,
+        Math.max(object.position.y + 0.25, this.eyeHeight + 40),
+        object.position.z
+      );
+      const farHit = this.probeGround(farOrigin, 120, object);
+      groundY = farHit?.point.y ?? null;
+    }
+
     this.isOnGround = false;
-    for (const intersect of intersects) {
-      if (intersect.distance <= this.collisionRadius) {
+    if (groundY !== null) {
+      const targetEyeY = groundY + this.eyeHeight;
+      const closeToGround = object.position.y <= targetEyeY + 0.2;
+
+      if (closeToGround) {
         this.isOnGround = true;
-        this.velocity.y = 0; // Reset vertical velocity when on ground
-        
-        // Snaps player to ground level to prevent floating
-        object.position.y = intersect.point.y + this.collisionRadius;
-        break;
+        this.velocity.y = 0;
+        object.position.y = Math.max(object.position.y, targetEyeY);
       }
     }
 
-    // Prevent clipping through walls with simple collision response
-    // Simple sphere-box collision check - only for static walls
-    const playerPosition = new THREE.Vector3(object.position.x, object.position.y, object.position.z);
-    
+    // Hard safety floor clamp to avoid infinite fall if collision misses.
+    if (!this.isOnGround && object.position.y < this.hardFloorY) {
+      this.isOnGround = true;
+      this.velocity.y = 0;
+      object.position.y = this.hardFloorY;
+    }
+
+    // Simple anti-wall clipping against local mesh bounds
+    const playerPosition = object.position.clone();
+
     this.scene.traverse((child: any) => {
-      if (child.isMesh && child.geometry && child.geometry.boundingSphere) {
-        const box = child.geometry.boundingSphere;
-        const distance = playerPosition.distanceTo(child.position);
-        
-        // Simple sphere-box collision detection
-        if (distance < this.collisionRadius + (box.radius || 0.5)) {
-          // Push player away from wall
-          const directionToWall = playerPosition.clone().sub(child.position).normalize();
-          object.position.sub(directionToWall.multiplyScalar(0.1));
+      if (!child.isMesh || !child.geometry || !child.geometry.boundingSphere) return;
+
+      let node: any = child;
+      let isArenaWall = false;
+      while (node) {
+        if (node.userData?.isWall === true) {
+          isArenaWall = true;
+          break;
         }
+        node = node.parent;
+      }
+
+      if (!isArenaWall) return;
+
+      const sphere = child.geometry.boundingSphere;
+      const radius = sphere.radius || 0.5;
+      if (radius > 10) return; // Ignore giant bounds (ground, sky pieces)
+
+      const worldCenter = sphere.center.clone().applyMatrix4(child.matrixWorld);
+      const distance = playerPosition.distanceTo(worldCenter);
+
+      if (distance < this.collisionRadius + radius) {
+        const pushDir = playerPosition.clone().sub(worldCenter).normalize();
+        object.position.add(pushDir.multiplyScalar(0.06));
       }
     });
-
-    // Update controls orientation
-    const mouseDelta = this.input.getMouseDelta();
-    this.controls.update(deltaTime);
-  }
-
-  public getPlayer(): THREE.Group | null {
-    return this.player;
   }
 
   public setMoveSpeed(speed: number): void {

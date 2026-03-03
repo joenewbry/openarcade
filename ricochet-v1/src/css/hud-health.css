@@ -1,0 +1,90 @@
+/* Health HUD CSS - Added to support visual effects */
+#health-bar {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 200px;
+  height: 20px;
+  background: white;
+  border: 2px solid #333;
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 50;
+}
+
+#health-fill {
+  width: 100%;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+#health-value {
+  position: absolute;
+  top: 20px;
+  left: 220px;
+  transform: translateY(-50%);
+  color: white;
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+}
+
+#damage-flash {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 0, 0, 0);
+  z-index: 100;
+  pointer-events: none;
+  transition: background 0.1s ease;
+}
+
+#low-health-vignette {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, transparent 40%, rgba(139, 0, 0, 0.7) 100%);
+  z-index: 90;
+  pointer-events: none;
+  display: none;
+  animation: pulse 1.5s infinite alternate;
+}
+
+#death-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: white;
+  font-size: 4rem;
+  font-family: Arial, sans-serif;
+  text-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+  z-index: 200;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+@keyframes pulse {
+  from { opacity: 0.5; }
+  to { opacity: 1.0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#damage-flash {
+  animation: fade-in 0.1s forwards;
+}

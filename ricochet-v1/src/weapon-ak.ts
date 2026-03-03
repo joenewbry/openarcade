@@ -4,11 +4,12 @@ import { WeaponSystem, WeaponConfig } from './weapon-system';
 
 export class AKWeapon extends WeaponSystem {
   private loader: GLTFLoader;
-  private recoilAnimation: number = 0;
-  private recoilRecovery: number = 0;
-  private muzzleFlashGeometry: THREE.CircleGeometry;
-  private muzzleFlashMaterial: THREE.SpriteMaterial;
-  
+  private recoilAnimation = 0;
+  private recoilRecovery = 0;
+  private readonly firstPersonLayer = 1;
+  private readonly baseViewPosition = new THREE.Vector3(0.32, -0.26, -0.45);
+  private readonly muzzleLocalPosition = new THREE.Vector3(0.02, 0.02, -0.62);
+
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
     const config: WeaponConfig = {
       damage: 35,
@@ -17,97 +18,137 @@ export class AKWeapon extends WeaponSystem {
       reloadTime: 2.5, // 2.5 seconds
       recoilAmount: 0.2 // Slight upward kick
     };
-    
+
     super(scene, camera, config);
     this.loader = new GLTFLoader();
-    
-    // Initialize muzzle flash
-    this.muzzleFlashGeometry = new THREE.CircleGeometry(0.1, 8);
-    this.muzzleFlashMaterial = new THREE.SpriteMaterial({
-      map: new THREE.TextureLoader().load('assets/Toon Shooter Game Kit - Dec 2022/Guns/muzzle_flash.png'),
-      color: 0xffff00,
+
+    this.camera.layers.enable(this.firstPersonLayer);
+
+    const muzzleFlashMaterial = new THREE.SpriteMaterial({
+      map: new THREE.TextureLoader().load('./assets/Toon Shooter Game Kit - Dec 2022/Guns/muzzle_flash.png'),
+      color: 0xffffaa,
       transparent: true,
-      opacity: 0.8
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false
     });
-    
-    // Create muzzle flash sprite
-    this.muzzleFlash = new THREE.Sprite(this.muzzleFlashMaterial);
+
+    this.muzzleFlash = new THREE.Sprite(muzzleFlashMaterial);
     this.muzzleFlash.visible = false;
-    this.scene.add(this.muzzleFlash);
+    this.muzzleFlash.scale.set(0.2, 0.2, 0.2);
   }
-  
-  async loadModel(): Promise<void> {
+
+  private async loadModelFromPath(path: string): Promise<THREE.Group> {
     return new Promise((resolve, reject) => {
       this.loader.load(
-        'assets/Guns/glTF/AK.gltf',
-        (gltf) => {
-          this.weaponModel = gltf.scene;
-          
-          // Scale and position AK for first-person view
-          this.weaponModel.scale.set(0.3, 0.3, 0.3);
-          
-          // Position relative to camera: bottom-right of screen
-          const offset = new THREE.Vector3(-0.7, -0.5, 0.3);
-          this.weaponModel.position.copy(offset);
-          
-          // Orient weapon to look forward
-          this.weaponModel.rotation.set(0, Math.PI / 2, 0);
-          
-          // Add to scene
-          this.scene.add(this.weaponModel);
-          
-          // Position muzzle flash at weapon end
-          const muzzlePosition = new THREE.Vector3();
-          this.weaponModel.getWorldPosition(muzzlePosition);
-          this.muzzleFlash.position.copy(muzzlePosition);
-          
-          // Ensure muzzle flash is attached to weapon
-          this.weaponModel.add(this.muzzleFlash);
-          
-          resolve();
-        },
+        path,
+        (gltf) => resolve(gltf.scene),
         undefined,
-        (error) => {
-          console.error('Error loading AK model:', error);
-          reject(error);
-        }
+        reject
       );
     });
   }
-  
+
+  async loadModel(): Promise<void> {
+    const candidatePaths = [
+      './assets/Guns/glTF/AK.gltf',
+      './assets/Toon Shooter Game Kit - Dec 2022/Guns/glTF/AK.gltf'
+    ];
+
+    let loaded: THREE.Group | null = null;
+    let lastError: unknown = null;
+
+    for (const path of candidatePaths) {
+      try {
+        loaded = await this.loadModelFromPath(path);
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!loaded) {
+      console.error('Error loading AK model from all known paths:', lastError);
+      return;
+    }
+
+    this.weaponModel = loaded;
+    this.weaponModel.name = 'fp-ak';
+    this.weaponModel.scale.set(0.36, 0.36, 0.36);
+    this.weaponModel.position.copy(this.baseViewPosition);
+    this.weaponModel.rotation.set(0, -Math.PI / 2, 0);
+
+    this.weaponModel.traverse((child: any) => {
+      child.layers.set(this.firstPersonLayer);
+      if (!child.isMesh) return;
+      child.castShadow = false;
+      child.receiveShadow = false;
+      child.renderOrder = 1000;
+
+      const material = child.material;
+      if (Array.isArray(material)) {
+        material.forEach((m: any) => {
+          m.depthTest = false;
+          m.depthWrite = false;
+        });
+      } else if (material) {
+        material.depthTest = false;
+        material.depthWrite = false;
+      }
+    });
+
+    if (this.muzzleFlash) {
+      this.muzzleFlash.layers.set(this.firstPersonLayer);
+      this.muzzleFlash.position.copy(this.muzzleLocalPosition);
+      this.weaponModel.add(this.muzzleFlash);
+    }
+
+    // Attach to camera so it always renders in first-person view.
+    this.camera.add(this.weaponModel);
+  }
+
   update(deltaTime: number): void {
-    // Handle recoil recovery
+    if (!this.weaponModel) return;
+
+    // Handle recoil animation and recovery
     if (this.recoilAnimation > 0) {
-      this.recoilAnimation -= deltaTime * 0.001;
-      this.weaponModel!.position.y = Math.max(-0.1, this.recoilAnimation * 0.2);
+      this.recoilAnimation = Math.max(0, this.recoilAnimation - deltaTime * 0.001);
     } else if (this.recoilRecovery > 0) {
-      this.recoilRecovery -= deltaTime * 0.001;
-      const recovery = this.recoilRecovery * 0.1;
-      this.weaponModel!.position.y = Math.max(0, this.weaponModel!.position.y - recovery);
+      this.recoilRecovery = Math.max(0, this.recoilRecovery - deltaTime * 0.001);
     }
-    
-    // Update muzzle flash position with weapon
-    if (this.weaponModel && this.muzzleFlash) {
-      const muzzlePosition = new THREE.Vector3();
-      this.weaponModel.getWorldPosition(muzzlePosition);
-      this.muzzleFlash.position.copy(muzzlePosition);
-    }
+
+    const recoilKick = this.recoilAnimation * 0.2;
+    this.weaponModel.position.set(
+      this.baseViewPosition.x,
+      this.baseViewPosition.y + recoilKick,
+      this.baseViewPosition.z
+    );
   }
-  
+
   protected applyRecoil(): void {
-    this.recoilAnimation = 0.8; // Start recoil
-    this.recoilRecovery = 1.0; // Recovery time
-    
-    // Apply slight upward kick
-    this.weaponModel!.position.y = 0.2;
+    this.recoilAnimation = 0.9; // Start recoil
+    this.recoilRecovery = 1.0;
   }
-  
+
   protected fireBullet(): void {
-    // Placeholder for bullet physics integration
-    // Will connect to Dev 01's bullet system
-    console.log('AK fired! Bullet physics integration point');
+    // Emit fire event for integration layers (networking, effects, analytics)
+    const origin = new THREE.Vector3();
+    const direction = new THREE.Vector3();
+
+    this.camera.getWorldPosition(origin);
+    this.camera.getWorldDirection(direction);
+
+    window.dispatchEvent(new CustomEvent('weaponFired', {
+      detail: {
+        t: Date.now(),
+        origin: { x: origin.x, y: origin.y, z: origin.z },
+        direction: { x: direction.x, y: direction.y, z: direction.z }
+      }
+    }));
+
+    console.log('AK fired!');
   }
-  
+
   // Public method to manually trigger reload (for input binding)
   public triggerReload(): void {
     this.reload();

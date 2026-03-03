@@ -1,0 +1,23 @@
+Task_ID,Category,Task_Name,Description,Priority,Status,Assigned_Agent,Estimated_Hours,Dependencies,Notes
+RIC-001,Core_Systems,Health_Damage_System,Implement player health and damage from bullets,HIGH,COMPLETE,arcade-dev-01,2,Movement+Physics,✅ COMPLETED - Full health system with damage integration
+RIC-002,Core_Systems,Victory_Defeat_Logic,Win conditions and match ending,HIGH,COMPLETE,arcade-dev-02,2,Health_System,✅ COMPLETED - 5-kill victory with match management
+RIC-003,UI_Systems,Health_HUD_Display,Visual health bar and damage indicators,HIGH,COMPLETE,arcade-dev-03,1,Health_System,✅ COMPLETED - Full health HUD with death screen
+RIC-004,UI_Systems,Ammo_Counter_Display,Real-time ammo display in HUD,MEDIUM,COMPLETE,arcade-dev-02,1,Weapon_System,✅ COMPLETED - Full ammo HUD with reload animation
+RIC-005,Core_Systems,Respawn_System,Player respawn after death,HIGH,COMPLETE,arcade-dev-01,2,Health_System,✅ COMPLETED - Respawn MVP integrated
+RIC-006,Audio_Systems,Weapon_Audio,AK gunshot and reload sounds,MEDIUM,IN_PROGRESS,arcade-agent-05,2,Weapon_System,Audio System FIXED ROUTING - Session 5434b287
+RIC-007,Audio_Systems,Ricochet_Audio,Bullet bounce and impact sounds,MEDIUM,TODO,arcade-agent-03,1.5,Physics_System,Pending audio framework completion
+RIC-008,Audio_Systems,Ambient_Audio,Arena background audio,LOW,TODO,game-artist,1,Arena_System,Warehouse/outdoor ambience
+RIC-009,Weapons,SMG_Integration,Add SMG from Toon Shooter Kit,MEDIUM,TODO,arcade-dev-03,3,Weapon_System,High fire rate weapon
+RIC-010,Weapons,Sniper_Integration,Add Sniper rifle from kit,MEDIUM,TODO,arcade-dev-03,3,Weapon_System,Long range precision weapon
+RIC-011,Networking,Basic_Networking,1v1 multiplayer connectivity,HIGH,COMPLETE,tech-architect,4,All_Core_Systems,✅ COMPLETED - WebSocket 1v1 MVP with invite flow
+RIC-012,Networking,Match_Lobby_System,Pre-match lobby and connection,MEDIUM,COMPLETE,arcade-dev-02,2,Networking,✅ COMPLETED - Host/join lobby with ready gate + retry UX
+RIC-013,UI_Systems,Scoreboard_System,In-match scoreboard display,MEDIUM,COMPLETE,arcade-dev-03,2,Victory_Logic,✅ COMPLETED - Tab overlay + winner banner + rematch prompt
+RIC-014,Polish,Visual_Effects,Muzzle flash enhancements,LOW,IN_PROGRESS,arcade-agent-04,2,Weapon_System,VFX Artist CLOUD BACKUP - Session 29ab483a
+RIC-015,Polish,Performance_Optimization,60fps optimization review,MEDIUM,TODO,tech-architect,2,All_Systems,Memory and render optimization
+RIC-016,Polish,Mobile_Optimization,Touch controls and mobile UI,LOW,TODO,arcade-dev-02,3,UI_Systems,Mobile-friendly interfaces
+RIC-017,Demo_Polish,Tutorial_System,Quick tutorial for new players,MEDIUM,TODO,arcade-dev-01,2,All_Core_Systems,Ricochet mechanics intro
+RIC-018,Demo_Polish,Main_Menu_Enhancement,Improved main menu with options,LOW,TODO,arcade-dev-03,1.5,UI_Systems,Settings and controls info
+RIC-019,Core_Systems,Weapon_Pickup_System,Weapons spawn in arenas,MEDIUM,TODO,arcade-dev-02,2,Arena_System,Strategic weapon placement
+RIC-020,Polish,Arena_Lighting_Enhancement,Improved lighting for both arenas,LOW,IN_PROGRESS,arcade-agent-02,2,Arena_System,Environment Artist LOCAL SPARK - Session 563ed849
+RIC-021,Bugfix,Movement_Weapon_Runtime_Fix,Fix cannot move + weapon not visible after character select,HIGH,COMPLETE,arcade-dev-03,2,Core_Gameplay,✅ COMPLETED - movement + ground + weapon/body visibility patch
+RIC-022,Deploy,Production_Deploy_Prep,Prepare static publish and deployment docs for arcade domain,HIGH,COMPLETE,tech-architect,2,Core_Gameplay,✅ COMPLETED - DEPLOYMENT.md + demo build/serve/publish flow
