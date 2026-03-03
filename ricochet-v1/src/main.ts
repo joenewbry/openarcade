@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { InputManager } from './input-manager.js';
 import { PlayerController } from './player-controller.js';
 import { AKWeapon } from './weapon-ak';
-import { createBulletSystem } from './bullet-system.ts';
+import { BulletSystem, createBulletSystem } from './bullet-system.ts';
 import { WarehouseArena } from './arena-warehouse.js';
 import { ContainerYardArena } from './arena-containers.js';
 import { createHealthSystem } from './health-system.ts';
@@ -67,7 +67,7 @@ class RicochetGame {
   private inputManager: InputManager;
   private playerController: PlayerController;
   private weapon: AKWeapon | null = null;
-  private bulletSystem: any | null = null;
+  private bulletSystem: BulletSystem | null = null;
   private healthSystem: any | null = null;
   private ammoHUD: AmmoHUD | null = null;
   private firstPersonBodyProxy: THREE.Group | null = null;
@@ -236,14 +236,30 @@ class RicochetGame {
     });
 
     document.addEventListener('mousedown', (event) => {
-      if (
-        event.button === 0
-        && this.gameState === 'playing'
+      const canFire = this.gameState === 'playing'
         && !this.isRespawning
-        && this.weapon
-        && this.inputManager?.isPointerLocked()
-      ) {
+        && this.inputManager?.isPointerLocked();
+
+      if (!canFire) return;
+
+      if (event.button === 0 && this.weapon) {
         this.weapon.fire();
+        return;
+      }
+
+      if (event.button === 2) {
+        event.preventDefault();
+        const origin = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        this.camera.getWorldPosition(origin);
+        this.camera.getWorldDirection(direction);
+        this.bulletSystem?.fireRubberBall(origin, direction);
+      }
+    });
+
+    document.addEventListener('contextmenu', (event) => {
+      if (this.gameState === 'playing' && this.inputManager?.isPointerLocked()) {
+        event.preventDefault();
       }
     });
 
@@ -1027,14 +1043,20 @@ class RicochetGame {
   }
 
   private onWeaponFired = (event: Event): void => {
-    if (!this.networkClient?.connected) return;
     if (this.gameState !== 'playing' || this.isRespawning) return;
 
     const custom = event as CustomEvent;
     const detail = custom.detail ?? {};
 
-    const origin = detail.origin ?? this.toVec3FromVector(this.camera.position);
-    const direction = detail.direction ?? this.getCameraForward();
+    const origin: Vec3 = detail.origin ?? this.toVec3FromVector(this.camera.position);
+    const direction: Vec3 = detail.direction ?? this.getCameraForward();
+
+    this.bulletSystem?.firePaintball(
+      new THREE.Vector3(origin.x, origin.y, origin.z),
+      new THREE.Vector3(direction.x, direction.y, direction.z)
+    );
+
+    if (!this.networkClient?.connected) return;
 
     this.networkClient.sendFire({
       shotId: NetworkClient.createShotId(this.networkClient.playerId),

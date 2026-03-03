@@ -21,3 +21,5 @@ RIC-019,Core_Systems,Weapon_Pickup_System,Weapons spawn in arenas,MEDIUM,TODO,ar
 RIC-020,Polish,Arena_Lighting_Enhancement,Improved lighting for both arenas,LOW,IN_PROGRESS,arcade-agent-02,2,Arena_System,Environment Artist LOCAL SPARK - Session 563ed849
 RIC-021,Bugfix,Movement_Weapon_Runtime_Fix,Fix cannot move + weapon not visible after character select,HIGH,COMPLETE,arcade-dev-03,2,Core_Gameplay,✅ COMPLETED - movement + ground + weapon/body visibility patch
 RIC-022,Deploy,Production_Deploy_Prep,Prepare static publish and deployment docs for arcade domain,HIGH,COMPLETE,tech-architect,2,Core_Gameplay,✅ COMPLETED - DEPLOYMENT.md + demo build/serve/publish flow
+RIC-023,Polish,Hitbox_Fire_Feedback_Tuning,Tune hurtboxes and improve shot visual feedback,HIGH,TODO,arcade-dev-03,2,Core_Gameplay,Deferred while implementing paintball mode
+RIC-024,Feature,Paintball_RubberBall_Mode,Left click paintball splat + right click bouncing rubber paint ball,HIGH,COMPLETE,arcade-dev-03,3,Core_Gameplay,✅ COMPLETED - colorful splats + bouncing rubber paint balls + RMB contextmenu block
