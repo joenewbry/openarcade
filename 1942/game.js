@@ -24,6 +24,7 @@ const SPRITE_IMAGE_FILES = [
   'powerup-shot', 'powerup-speed', 'powerup-shield', 'powerup-bomb', 'powerup-double',
   'explosion-small', 'explosion-large', 'explosion-boss',
   'enemy-bullet',
+  'turret-small', 'turret-cannon', 'turret-destroyed',
 ];
 
 const SPRITE_IMAGES = {}; // name → Image (set when loaded)
@@ -2022,11 +2023,11 @@ function drawBackground(renderer, campaign, flashTimer, tick) {
   // ── ARCADE-074: Multi-layer parallax with different scroll speeds ──
   // Layer 0: Water — slow scroll (0.2 px/frame)
   const waterScrollY = (tick * 0.2) % totalMapH;
-  drawTilemapLayer(renderer, tilemap, 'waterLayer', palette, waterScrollY);
+  drawTilemapLayer(renderer, tilemap, 'waterLayer', palette, waterScrollY, 1, tick);
 
   // Layer 1: Terrain — medium scroll (0.5 px/frame)
   const terrainScrollY = (tick * 0.5) % totalMapH;
-  drawTilemapLayer(renderer, tilemap, 'terrainLayer', palette, terrainScrollY);
+  drawTilemapLayer(renderer, tilemap, 'terrainLayer', palette, terrainScrollY, 1, tick);
 
   // Draw ground enemies (bunkers, ships) attached to terrain scroll
   drawGroundEnemies(renderer, null, tilemap, palette, terrainScrollY, tick);

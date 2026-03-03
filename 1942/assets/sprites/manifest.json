@@ -159,5 +159,26 @@
     "width": 1766,
     "height": 1972,
     "description": "Massive boss explosion with shockwave"
+  },
+  {
+    "filename": "turret-small.png",
+    "category": "ground",
+    "width": 16,
+    "height": 16,
+    "description": "Small gun turret for destroyable ship components"
+  },
+  {
+    "filename": "turret-cannon.png",
+    "category": "ground",
+    "width": 16,
+    "height": 16,
+    "description": "Large cannon turret for battleships"
+  },
+  {
+    "filename": "turret-destroyed.png",
+    "category": "ground",
+    "width": 16,
+    "height": 16,
+    "description": "Destroyed turret with smoke and damage"
   }
 ]

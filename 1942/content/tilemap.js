@@ -214,7 +214,7 @@ function preloadTileAtlas(campaignId) {
   });
 }
 
-export function drawTilemapLayer(renderer, tilemap, layerName, palette, scrollY, alpha = 1) {
+export function drawTilemapLayer(renderer, tilemap, layerName, palette, scrollY, alpha = 1, tick = 0) {
   const layer = tilemap[layerName];
   const ts = TILE_SIZE;
   const colors = layerName === 'waterLayer' ? palette.water
@@ -243,6 +243,19 @@ export function drawTilemapLayer(renderer, tilemap, layerName, palette, scrollY,
       if (color === 'transparent') continue;
 
       const screenX = c * ts;
+
+      // Enhanced geometric tile rendering
+      if (layerName === 'waterLayer') {
+        drawGeometricWaterTile(renderer, screenX, screenY, ts, tileType, color, tick);
+      } else if (layerName === 'terrainLayer') {
+        drawGeometricTerrainTile(renderer, screenX, screenY, ts, tileType, color, c, r);
+      } else {
+        // Fallback to solid color
+        renderer.fillRect(screenX, screenY, ts, ts, color);
+      }
+    }
+  }
+}
 
       // Determine atlas for this layer
       const atlasInfo = TILE_ATLASES[tilemap.campaignId];
@@ -396,3 +409,131 @@ export const CAMPAIGN_MAP_ROWS = {
   dust_convoy: 180,    // Endurance — very long
   iron_monsoon: 200,   // The gauntlet — longest map
 };
+
+// ── Enhanced Geometric Tile Rendering ──
+
+function drawGeometricWaterTile(renderer, x, y, size, tileType, baseColor, tick) {
+  // Base water tile
+  renderer.fillRect(x, y, size, size, baseColor);
+
+  // Add geometric patterns based on tile type
+  switch (tileType) {
+    case 0: // Deep water - subtle current lines
+      if ((x + y + tick) % 120 < 20) {
+        const currentY = y + (tick * 0.3) % size;
+        renderer.fillRect(x + 8, currentY, size - 16, 2, 'rgba(255,255,255,0.05)');
+        renderer.fillRect(x + 16, currentY + 8, size - 32, 1, 'rgba(255,255,255,0.03)');
+      }
+      break;
+      
+    case 1: // Shallow water - lighter with subtle ripples
+      const ripple = Math.sin(tick * 0.1 + x * 0.02 + y * 0.03) * 0.1;
+      const lightColor = adjustColorBrightness(baseColor, ripple);
+      renderer.fillRect(x, y, size, size, lightColor);
+      break;
+      
+    case 2: // Dark water - deeper shadows
+      renderer.fillRect(x, y, size, size, baseColor);
+      // Add dark geometric patches
+      const patchSize = 16 + Math.sin(tick * 0.05 + x * 0.01) * 4;
+      renderer.fillRect(x + 8, y + 8, patchSize, patchSize, 'rgba(0,0,0,0.15)');
+      break;
+      
+    case 3: // Foam/surf - dynamic white caps
+      renderer.fillRect(x, y, size, size, baseColor);
+      if ((tick + x + y) % 80 < 40) {
+        // Animated foam lines
+        const foamY = y + (tick % 32);
+        renderer.fillRect(x + 4, foamY, size - 8, 3, 'rgba(255,255,255,0.4)');
+        renderer.fillRect(x + 12, foamY + 6, size - 24, 2, 'rgba(255,255,255,0.2)');
+      }
+      break;
+  }
+}
+
+function drawGeometricTerrainTile(renderer, x, y, size, tileType, baseColor, col, row) {
+  // Base terrain tile
+  renderer.fillRect(x, y, size, size, baseColor);
+
+  // Add geometric details based on terrain type
+  switch (tileType) {
+    case 1: // Sand/beach - geometric dune patterns
+      // Diagonal stripes for wind pattern
+      for (let i = 0; i < 3; i++) {
+        const stripeY = y + i * 16 + 8;
+        const stripeOffset = (col + row + i) % 8;
+        renderer.fillRect(x + stripeOffset, stripeY, size - stripeOffset - 4, 2, adjustColorBrightness(baseColor, 0.15));
+      }
+      break;
+      
+    case 2: // Vegetation - geometric leaf patterns
+      // Square "leaf" clusters
+      const leafSize = 8;
+      for (let ly = 0; ly < 2; ly++) {
+        for (let lx = 0; lx < 2; lx++) {
+          const leafX = x + 12 + lx * 20 + ((col + row) % 4) * 2;
+          const leafY = y + 12 + ly * 20 + ((col + row) % 3) * 2;
+          renderer.fillRect(leafX, leafY, leafSize, leafSize, adjustColorBrightness(baseColor, 0.2));
+          // Smaller highlight
+          renderer.fillRect(leafX + 1, leafY + 1, 3, 3, adjustColorBrightness(baseColor, 0.4));
+        }
+      }
+      break;
+      
+    case 3: // Rock - sharp geometric facets
+      // Angular rock face pattern
+      renderer.fillRect(x, y, size, size, baseColor);
+      // Triangular facets
+      const facetColor = adjustColorBrightness(baseColor, 0.25);
+      renderer.fillPoly([
+        { x: x + 8, y: y + 8 },
+        { x: x + 24, y: y + 4 },
+        { x: x + 32, y: y + 20 }
+      ], facetColor);
+      renderer.fillPoly([
+        { x: x + 40, y: y + 16 },
+        { x: x + 56, y: y + 8 },
+        { x: x + 52, y: y + 32 }
+      ], facetColor);
+      // Sharp highlights
+      renderer.fillRect(x + 12, y + 6, 2, 8, adjustColorBrightness(baseColor, 0.5));
+      renderer.fillRect(x + 44, y + 10, 2, 6, adjustColorBrightness(baseColor, 0.5));
+      break;
+      
+    case 4: // Structures - clean architectural lines
+      // Base structure
+      renderer.fillRect(x, y, size, size, baseColor);
+      // Architectural elements
+      const borderColor = adjustColorBrightness(baseColor, -0.2);
+      const highlightColor = adjustColorBrightness(baseColor, 0.3);
+      
+      // Border frame
+      renderer.fillRect(x, y, size, 4, borderColor);
+      renderer.fillRect(x, y + size - 4, size, 4, borderColor);
+      renderer.fillRect(x, y, 4, size, borderColor);
+      renderer.fillRect(x + size - 4, y, 4, size, borderColor);
+      
+      // Interior geometric pattern
+      renderer.fillRect(x + 12, y + 12, 16, 16, highlightColor);
+      renderer.fillRect(x + 36, y + 12, 16, 16, highlightColor);
+      renderer.fillRect(x + 24, y + 36, 16, 16, highlightColor);
+      break;
+  }
+}
+
+// Utility function to adjust color brightness
+function adjustColorBrightness(hexColor, factor) {
+  // Parse hex color
+  const hex = hexColor.replace('#', '');
+  const r = parseInt(hex.substr(0, 2), 16);
+  const g = parseInt(hex.substr(2, 2), 16);
+  const b = parseInt(hex.substr(4, 2), 16);
+  
+  // Apply brightness factor
+  const newR = Math.min(255, Math.max(0, r + (factor * 255)));
+  const newG = Math.min(255, Math.max(0, g + (factor * 255)));
+  const newB = Math.min(255, Math.max(0, b + (factor * 255)));
+  
+  // Convert back to hex
+  return `#${Math.round(newR).toString(16).padStart(2, '0')}${Math.round(newG).toString(16).padStart(2, '0')}${Math.round(newB).toString(16).padStart(2, '0')}`;
+}

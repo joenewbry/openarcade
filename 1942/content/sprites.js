@@ -315,6 +315,36 @@ const pickupBomb = [
   '..MMMM.',
 ];
 
+// Turret sprites for destroyable ship turrets
+const turretSmall = [
+  '..KKKK..',
+  '.KLLLLK.',
+  '.LLLLLLL',
+  '.LLLLLLL',
+  '.KLLLLK.',
+  '..KKKK..',
+];
+
+const turretCannon = [
+  '..KKKK..',
+  '.KLLLLK.',
+  'KLLLLLLK',
+  'KLLLLLLK',
+  'KLLLLLLK',
+  'KLLLLLLK',
+  '.KLLLLK.',
+  '..KKKK..',
+];
+
+const turretDestroyed = [
+  '..HH.H..',
+  '.H.FFF..',
+  'HH.FFF.H',
+  '.HFFFH..',
+  '..FFF...',
+  '.H.F.H..',
+];
+
 export const SPRITES = {
   plane_falcon: planeBase,
   plane_lancer: clone(planeBase),
@@ -379,6 +409,9 @@ export const SPRITES = {
   pickup_shield: pickupShield,
   pickup_repair: pickupRepair,
   pickup_bomb: pickupBomb,
+  turret_small: turretSmall,
+  turret_cannon: turretCannon,
+  turret_destroyed: turretDestroyed,
 };
 
 export function getSprite(id) {

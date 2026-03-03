@@ -24,6 +24,13 @@
     </select>
     <span class="sep"></span>
     <button id="gridBtn">Grid: ON</button>
+    <button id="pathsBtn">Paths: ON</button>
+    <span class="sep"></span>
+    <label>Zoom:</label>
+    <button id="zoomOutBtn">-</button>
+    <span id="zoomLevel">100%</span>
+    <button id="zoomInBtn">+</button>
+    <button id="zoomFitBtn">Fit</button>
     <span class="status" id="statusText">Ready</span>
   </div>
   <div id="main">
@@ -49,16 +56,21 @@
         <button class="tool-btn" data-tool="eraser" title="Eraser (E)">⌫ Eraser</button>
         <button class="tool-btn" data-tool="rect" title="Rectangle (R)">▭ Rect</button>
       </div>
+      <h3>Minimap</h3>
+      <div id="minimapContainer">
+        <canvas id="minimap"></canvas>
+      </div>
     </div>
     <div id="canvasContainer">
       <canvas id="editorCanvas"></canvas>
     </div>
   </div>
   <div id="statusBar">
-    <span id="posInfo">Col: - Row: -</span>
+    <span id="posInfo">Col: - Row: - | Coords: (-, -)</span>
     <span id="layerInfo">Layer: water</span>
     <span id="tileInfo">Tile: deep</span>
-    <span id="zoomInfo">Zoom: 100%</span>
+    <span id="cameraInfo">Camera: (0, 0) | Zoom: 100%</span>
+    <span id="helpText">WASD: Move | Mouse Wheel: Zoom | Shift+G: Toggle Grid | Shift+P: Toggle Paths</span>
   </div>
   <script type="module" src="editor.js"></script>
 </body>
