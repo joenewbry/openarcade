@@ -6,7 +6,7 @@ import { ENEMIES, MINI_BOSSES, FINAL_BOSSES } from './content/enemies.js';
 import { getDialogue } from './content/dialogue.js';
 import { getSprite, colorForKey } from './content/sprites.js';
 import { MultiplayerManager } from './multiplayer.js';
-import { generateTilemap, drawTilemapLayer, drawGroundEnemies, getTilePalette, CAMPAIGN_MAP_ROWS, TILE_SIZE, MAP_COLS, updateWaveEffects, drawWaveEffects } from './content/tilemap.js';
+import { getCampaignTilemap, drawTilemapLayer, drawGroundEnemies, getTilePalette, CAMPAIGN_MAP_ROWS, TILE_SIZE, MAP_COLS, updateWaveEffects, drawWaveEffects } from './content/tilemap.js';
 
 const W = 960;
 const H = 1280;
@@ -2228,7 +2228,7 @@ const _tilemapCache = {};
 function getOrCreateTilemap(campaignId) {
   if (!_tilemapCache[campaignId]) {
     const rows = CAMPAIGN_MAP_ROWS[campaignId] || 120;
-    _tilemapCache[campaignId] = generateTilemap(campaignId, rows);
+    _tilemapCache[campaignId] = getCampaignTilemap(campaignId, rows);
   }
   return _tilemapCache[campaignId];
 }
@@ -2246,6 +2246,10 @@ function drawBackground(renderer, campaign, flashTimer, tick) {
   // Layer 1: Terrain — medium scroll (0.5 px/frame)
   const terrainScrollY = (tick * 0.5) % totalMapH;
   drawTilemapLayer(renderer, tilemap, 'terrainLayer', palette, terrainScrollY, 1, tick);
+
+  // Layer 2: Clouds — faster than terrain for closer parallax.
+  const cloudScrollY = (tick * 0.8) % totalMapH;
+  drawTilemapLayer(renderer, tilemap, 'cloudLayer', palette, cloudScrollY, 0.85, tick);
 
   // Draw ground enemies (bunkers, ships) attached to terrain scroll
   drawGroundEnemies(renderer, null, tilemap, palette, terrainScrollY, tick);
