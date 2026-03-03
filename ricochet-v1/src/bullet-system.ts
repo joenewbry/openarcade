@@ -29,6 +29,16 @@ export const PAINTBALL_TUNING = {
   RUBBER_BALL_LIFETIME_MS: 3600,
   MAX_RUBBER_BALLS: 24,
 
+  SMOKE_THROW_RANGE: 18,
+  SMOKE_RADIUS: 3.2,
+  SMOKE_LIFETIME_MS: 9000,
+  SMOKE_COOLDOWN_MS: 7000,
+  MAX_SMOKE_VOLUMES: 3,
+  SMOKE_TEXTURE_SIZE: 256,
+  SMOKE_MUZZLE_OFFSET: 0.28,
+  SMOKE_VERTICAL_OFFSET: 0.12,
+  SMOKE_MAX_OPACITY: 0.88,
+
   COLLIDER_CACHE_MS: 350
 }
 
@@ -74,6 +84,15 @@ type FirePaintballOptions = {
   remote?: boolean;
 };
 
+interface SmokeVolume {
+  center: THREE.Vector3;
+  radius: number;
+  bornMs: number;
+  group: THREE.Group;
+  coreMaterial: THREE.SpriteMaterial;
+  shellMaterial: THREE.SpriteMaterial;
+}
+
 export class BulletSystem {
   private readonly scene: THREE.Scene;
   private readonly raycaster: THREE.Raycaster;
@@ -81,10 +100,12 @@ export class BulletSystem {
   private readonly splatTexture: THREE.CanvasTexture;
   private readonly paintballGeometry: THREE.SphereGeometry;
   private readonly rubberBallGeometry: THREE.SphereGeometry;
+  private readonly smokeTexture: THREE.CanvasTexture;
 
   private readonly paintballs: PaintballProjectile[] = [];
   private readonly rubberBalls: RubberBallProjectile[] = [];
   private readonly paintSplats: PaintSplat[] = [];
+  private readonly smokeVolumes: SmokeVolume[] = [];
 
   private readonly impactListeners: PaintImpactListener[] = [];
 
@@ -93,14 +114,17 @@ export class BulletSystem {
   private colliderCacheAtMs = 0;
 
   private lastRubberBallShotMs = 0;
+  private lastSmokeDeployMs = 0;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.raycaster = new THREE.Raycaster();
     this.splatGeometry = new THREE.PlaneGeometry(1, 1);
     this.splatTexture = this.createSplatTexture();
+    this.smokeTexture = this.createSmokeTexture();
     this.paintballGeometry = new THREE.SphereGeometry(PAINTBALL_TUNING.PAINTBALL_RADIUS, 10, 10);
     this.rubberBallGeometry = new THREE.SphereGeometry(PAINTBALL_TUNING.RUBBER_BALL_RADIUS, 12, 12);
+    this.lastSmokeDeployMs = -PAINTBALL_TUNING.SMOKE_COOLDOWN_MS;
   }
 
   public addImpactListener(listener: PaintImpactListener): void {
@@ -109,7 +133,62 @@ export class BulletSystem {
     }
   }
 
+  public reset(): void {
+    for (let i = this.paintballs.length - 1; i >= 0; i--) {
+      this.removePaintball(i);
+    }
+
+    for (let i = this.rubberBalls.length - 1; i >= 0; i--) {
+      this.removeRubberBall(i);
+    }
+
+    for (let i = this.paintSplats.length - 1; i >= 0; i--) {
+      this.removeOldestSplat();
+    }
+
+    for (let i = this.smokeVolumes.length - 1; i >= 0; i--) {
+      this.removeSmoke(i);
+    }
+
+    this.lastSmokeDeployMs = performance.now() - PAINTBALL_TUNING.SMOKE_COOLDOWN_MS;
+  }
+
+  public getSmokeStatus(nowMs = performance.now()): { canDeploy: boolean; cooldownRemainingMs: number; activeCount: number; maxActive: number } {
+    const cooldownRemainingMs = Math.max(0, PAINTBALL_TUNING.SMOKE_COOLDOWN_MS - (nowMs - this.lastSmokeDeployMs));
+
+    return {
+      canDeploy: cooldownRemainingMs <= 0,
+      cooldownRemainingMs,
+      activeCount: this.smokeVolumes.length,
+      maxActive: PAINTBALL_TUNING.MAX_SMOKE_VOLUMES
+    };
+  }
+
+  public getSmokeDensityAtPoint(point: THREE.Vector3, nowMs = performance.now()): number {
+    let density = 0;
+
+    for (const volume of this.smokeVolumes) {
+      const ageMs = nowMs - volume.bornMs;
+      if (ageMs >= PAINTBALL_TUNING.SMOKE_LIFETIME_MS) {
+        continue;
+      }
+
+      const distance = point.distanceTo(volume.center);
+      if (distance >= volume.radius) {
+        continue;
+      }
+
+      const normalizedDistance = 1 - (distance / volume.radius);
+      const ageRatio = 1 - (ageMs / PAINTBALL_TUNING.SMOKE_LIFETIME_MS);
+      const densityAtPoint = Math.max(0, normalizedDistance * normalizedDistance * ageRatio);
+      density = Math.max(density, Math.min(1, densityAtPoint));
+    }
+
+    return density;
+  }
+
   public firePaintball(
+
     origin: THREE.Vector3,
     direction: THREE.Vector3,
     options: FirePaintballOptions = {}
@@ -198,11 +277,84 @@ export class BulletSystem {
       this.removeRubberBall(0);
     }
   }
+  public deploySmoke(origin: THREE.Vector3, direction: THREE.Vector3): boolean {
+    const now = performance.now();
+    if (now - this.lastSmokeDeployMs < PAINTBALL_TUNING.SMOKE_COOLDOWN_MS) {
+      return false;
+    }
+
+    const forward = direction.clone().normalize();
+    const start = origin.clone().addScaledVector(forward, PAINTBALL_TUNING.SHOT_ORIGIN_FORWARD_OFFSET);
+
+    const hit = this.castToArena(
+      start,
+      forward,
+      PAINTBALL_TUNING.SMOKE_THROW_RANGE
+    );
+
+    const impactPoint = hit ? hit.point.clone() : start.clone().addScaledVector(forward, PAINTBALL_TUNING.SMOKE_THROW_RANGE);
+
+    const groundProbe = this.castToArena(
+      impactPoint.clone().add(new THREE.Vector3(0, 1.8, 0)),
+      new THREE.Vector3(0, -1, 0),
+      3.6
+    );
+
+    const center = (groundProbe ? groundProbe.point : impactPoint).clone();
+    center.y += PAINTBALL_TUNING.SMOKE_VERTICAL_OFFSET;
+
+    const radius = PAINTBALL_TUNING.SMOKE_RADIUS;
+    const { coreMaterial, shellMaterial, group } = this.createSmokeVisual(radius);
+
+    group.position.copy(center);
+    this.scene.add(group);
+
+    this.smokeVolumes.push({
+      center: center.clone(),
+      radius,
+      bornMs: now,
+      group,
+      coreMaterial,
+      shellMaterial
+    });
+
+    this.lastSmokeDeployMs = now;
+
+    while (this.smokeVolumes.length > PAINTBALL_TUNING.MAX_SMOKE_VOLUMES) {
+      this.removeSmoke(0);
+    }
+
+    return true;
+  }
+
 
   public update(deltaTime: number): void {
     this.updatePaintballs(deltaTime);
     this.updateRubberBalls(deltaTime);
+    this.updateSmokeVolumes();
     this.cleanupExpiredSplats();
+  }
+
+  private updateSmokeVolumes(): void {
+    const now = performance.now();
+
+    for (let i = this.smokeVolumes.length - 1; i >= 0; i--) {
+      const smoke = this.smokeVolumes[i];
+      const ageMs = now - smoke.bornMs;
+
+      if (ageMs >= PAINTBALL_TUNING.SMOKE_LIFETIME_MS) {
+        this.removeSmoke(i);
+        continue;
+      }
+
+      const fadeRatio = 1 - (ageMs / PAINTBALL_TUNING.SMOKE_LIFETIME_MS);
+      const clampedFade = THREE.MathUtils.clamp(fadeRatio, 0, 1);
+      const opacity = Math.pow(clampedFade, 0.85);
+
+      smoke.coreMaterial.opacity = PAINTBALL_TUNING.SMOKE_MAX_OPACITY * 0.34 * opacity;
+      smoke.shellMaterial.opacity = PAINTBALL_TUNING.SMOKE_MAX_OPACITY * 0.18 * opacity;
+    }
+
   }
 
   private updatePaintballs(deltaTime: number): void {
