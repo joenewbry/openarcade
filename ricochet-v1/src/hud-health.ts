@@ -4,11 +4,11 @@
  */
 
 export class HealthHUD {
-    private healthBar: HTMLElement;
-    private damageFlash: HTMLElement;
-    private lowHealthVignette: HTMLElement;
-    private deathScreen: HTMLElement;
-    private healthValue: HTMLElement;
+    private healthBar!: HTMLElement;
+    private damageFlash!: HTMLElement;
+    private lowHealthVignette!: HTMLElement;
+    private deathScreen!: HTMLElement;
+    private healthValue!: HTMLElement;
     private maxHealth: number = 100;
     private currentHealth: number = 100;
     private isDead: boolean = false;

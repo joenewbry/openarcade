@@ -147,6 +147,14 @@ export class RespawnSystem {
     return detail;
   }
 
+  public reset(): void {
+    this.clearTimers();
+    this.activePlayerId = null;
+    this.autoComplete = true;
+    this.activeRespawnAt = null;
+    this.pendingPosition = null;
+  }
+
   private emitTick(): void {
     if (!this.activePlayerId || this.activeRespawnAt === null) return;
 
