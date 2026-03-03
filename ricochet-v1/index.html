@@ -213,6 +213,77 @@
       font-size: 1.2rem;
       text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
     }
+
+    #hud .hud-divider {
+      margin: 8px 0;
+      height: 1px;
+      width: 260px;
+      background: rgba(255, 255, 255, 0.2);
+      opacity: 0.6;
+    }
+
+    #replay-panel {
+      margin-top: 10px;
+      width: 340px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 8px;
+      font-size: 0.8rem;
+      display: none;
+      box-sizing: border-box;
+    }
+
+    #replay-panel button {
+      margin: 2px;
+      padding: 6px 10px;
+      font-size: 0.75rem;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.14);
+      color: #fff;
+      cursor: pointer;
+    }
+
+    #replay-panel button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    #replay-controls {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    #replay-json {
+      margin-top: 6px;
+      width: 100%;
+      min-height: 72px;
+      max-height: 120px;
+      resize: vertical;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      padding: 6px;
+      font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Courier New', monospace;
+      font-size: 0.7rem;
+      box-sizing: border-box;
+    }
+
+    #replay-status {
+      color: #d7dcff;
+      font-weight: 600;
+    }
+
+    #replay-progress {
+      margin-top: 6px;
+      color: #b6c3ff;
+      font-size: 0.78rem;
+      font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Courier New', monospace;
+    }
     
     #canvas {
       display: block;
@@ -358,6 +429,96 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
+
+    #keybinds-panel {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(560px, calc(100vw - 40px));
+      max-height: min(78vh, 620px);
+      background: rgba(12, 16, 36, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 16px 18px;
+      color: #fff;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+      z-index: 110;
+      display: none;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .keybinds-panel-title {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+
+    .keybinds-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin: 16px 0;
+    }
+
+    .keybinds-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .keybinds-label {
+      color: #d7dcff;
+      font-size: 0.95rem;
+      flex: 1;
+    }
+
+    .keybinds-bind-btn {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      cursor: pointer;
+      min-width: 120px;
+      text-align: center;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .keybinds-bind-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .keybinds-options {
+      margin-top: 12px;
+      color: #d7dcff;
+      font-size: 0.92rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .keybinds-actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .keybinds-note {
+      color: #b7c3ff;
+      font-size: 0.86rem;
+      margin-top: 12px;
+      opacity: 0.95;
+    }
   </style>
 </head>
 <body>
@@ -367,6 +528,20 @@
     <div id="hud" style="display: none;">
       <div>Health: <span id="health">1/1 (ONE SHOT)</span></div>
       <div>Score: <span id="score">0-0</span></div>
+      <div class="hud-divider"></div>
+      <div id="replay-panel">
+        <div>Replay: <span id="replay-status">Idle</span></div>
+        <div id="replay-controls">
+          <button id="replay-export" title="Generate JSON from current session">Export</button>
+          <button id="replay-copy" title="Copy current replay JSON to clipboard">Copy</button>
+          <button id="replay-import" title="Load replay JSON from textarea">Import</button>
+          <button id="replay-play" title="Start playback">Play</button>
+          <button id="replay-pause" title="Pause playback">Pause</button>
+          <button id="replay-restart" title="Restart playback">Restart</button>
+        </div>
+        <textarea id="replay-json" placeholder="Replay JSON payload"></textarea>
+        <div id="replay-progress">00:00 / 00:00</div>
+      </div>
     </div>
 
     <div id="crosshair" aria-hidden="true"></div>
@@ -375,7 +550,7 @@
     <div id="scoreboard-overlay" aria-hidden="true">
       <div class="scoreboard-panel">
         <div class="scoreboard-head">
-          <h2 class="scoreboard-title">Scoreboard (TAB)</h2>
+          <h2 id="scoreboard-title" class="scoreboard-title">Scoreboard (Tab)</h2>
           <div id="scoreboard-state">Waiting for match start</div>
         </div>
 
@@ -423,12 +598,33 @@
         <div class="game-buttons">
           <button class="game-button play-button" id="quick-play">Quick Play</button>
           <button class="game-button invite-button" id="invite-friend">Invite Friend</button>
+          <button class="game-button play-button" id="open-keybinds">Controls</button>
         </div>
 
         <p id="menu-invite-hint" class="menu-hint"></p>
 
         <p style="color: #ccc; margin-top: 2rem; font-size: 0.9rem;">
-          Controls: LMB paint splash, RMB bouncing paint ball, Q to quit to menu, M to swap arenas.
+          Controls: LMB paint splash, RMB bouncing paint ball, Tab opens scoreboard.
+          Rebind keys from the Controls panel.
+        </p>
+      </div>
+
+      <div id="keybinds-panel" class="keybinds-panel">
+        <h2 class="keybinds-panel-title">Keybinds</h2>
+        <div id="keybinds-list" class="keybinds-list"></div>
+
+        <div class="keybinds-options">
+          <label><input id="keybinds-crouch-toggle" type="checkbox" /> Crouch is toggle</label>
+          <span id="keybinds-status" style="margin-left: auto; font-size: 0.85rem; opacity: 0.85;">Press Esc while remapping to cancel</span>
+        </div>
+
+        <div class="keybinds-actions">
+          <button class="game-button invite-button" id="keybinds-reset" type="button">Reset defaults</button>
+          <button class="game-button play-button" id="keybinds-close" type="button">Close</button>
+        </div>
+
+        <p class="keybinds-note">
+          Changes are saved to your browser (localStorage).
         </p>
       </div>
 

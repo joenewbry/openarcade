@@ -1,6 +1,8 @@
 // Input manager for RICOCHET FPS controls
 // Handles keyboard, mouse, and touch input mapping
 
+import type { ActionBindingMap, InputAction } from './input-bindings.js';
+
 declare global {
   interface Window {
     requestPointerLock: () => void;
@@ -118,6 +120,11 @@ export class InputManager {
 
   public getAnyKey(keys: string[]): boolean {
     return keys.some((key) => this.getKey(key));
+  }
+
+  public isActionActive(action: InputAction, bindings: ActionBindingMap): boolean {
+    const keys = bindings[action] || [];
+    return this.getAnyKey(keys);
   }
 
   public getMouseDelta(): { x: number; y: number } {

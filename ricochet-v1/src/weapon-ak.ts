@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { WeaponSystem, WeaponConfig } from './weapon-system';
+import { WeaponSystem, WeaponMovementState } from './weapon-system';
 
 export class AKWeapon extends WeaponSystem {
   private loader: GLTFLoader;
@@ -9,9 +9,10 @@ export class AKWeapon extends WeaponSystem {
   private readonly firstPersonLayer = 1;
   private readonly baseViewPosition = new THREE.Vector3(0.32, -0.26, -0.45);
   private readonly muzzleLocalPosition = new THREE.Vector3(0.02, 0.02, -0.62);
+  private readonly weaponWalkBobScale = 0.32;
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
-    const config: WeaponConfig = {
+    const config = {
       damage: 35,
       fireRate: 600, // 600 RPM
       magazineSize: 30,
@@ -107,7 +108,7 @@ export class AKWeapon extends WeaponSystem {
     this.camera.add(this.weaponModel);
   }
 
-  update(deltaTime: number): void {
+  update(deltaTime: number, movementState?: WeaponMovementState): void {
     if (!this.weaponModel) return;
 
     // Handle recoil animation and recovery
@@ -118,9 +119,12 @@ export class AKWeapon extends WeaponSystem {
     }
 
     const recoilKick = this.recoilAnimation * 0.2;
+    const movingBobX = (movementState?.walkBobOffset.x ?? 0) * this.weaponWalkBobScale;
+    const movingBobY = (movementState?.walkBobOffset.y ?? 0) * this.weaponWalkBobScale;
+
     this.weaponModel.position.set(
-      this.baseViewPosition.x,
-      this.baseViewPosition.y + recoilKick,
+      this.baseViewPosition.x + movingBobX,
+      this.baseViewPosition.y + recoilKick + movingBobY,
       this.baseViewPosition.z
     );
   }
@@ -151,6 +155,6 @@ export class AKWeapon extends WeaponSystem {
 
   // Public method to manually trigger reload (for input binding)
   public triggerReload(): void {
-    this.reload();
+    super.triggerReload();
   }
 }

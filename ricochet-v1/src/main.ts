@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { InputManager } from './input-manager.js';
-import { PlayerController } from './player-controller.js';
+import { PlayerController, type PlayerMovementState } from './player-controller.js';
+import { KeyBindingManager, type InputAction } from './input-bindings.js';
+import { KeybindsPanel } from './keybinds-panel.ts';
 import { AKWeapon } from './weapon-ak';
 import { BulletSystem, createBulletSystem } from './bullet-system.ts';
 import { WarehouseArena } from './arena-warehouse.js';
 import { ContainerYardArena } from './arena-containers.js';
 import { createHealthSystem } from './health-system.ts';
 import { matchSystem, type MatchSnapshot } from './match-system.ts';
+import { ReplayIO, ReplayPlayer, ReplayRecorder, type ReplayProjectileEvent, type ReplayStateSample, type ReplayPayload } from './replay-system.ts';
 import { ScoreboardSystem } from './scoreboard-system.ts';
 import { AmmoHUD } from './hud-ammo.ts';
 import {
@@ -60,7 +63,7 @@ class RicochetGame {
   private renderer!: THREE.WebGLRenderer;
 
   private selectedCharacter: string = SHARED_CHARACTER.id;
-  private gameState: 'menu' | 'loading' | 'playing' = 'menu';
+  private gameState: 'menu' | 'loading' | 'playing' | 'replay' = 'menu';
   private loader!: GLTFLoader;
   private characterModels: Map<string, THREE.Group> = new Map();
   private dummyTargets: Map<string, DummyTargetState> = new Map();
@@ -70,12 +73,16 @@ class RicochetGame {
   private ambientMusicInterval: number | null = null;
   private musicEnabled = true;
 
+  private keyBindingManager: KeyBindingManager;
+  private keybindsPanel: KeybindsPanel | null = null;
   private inputManager: InputManager;
   private playerController: PlayerController;
   private weapon: AKWeapon | null = null;
   private bulletSystem: BulletSystem | null = null;
   private healthSystem: any | null = null;
   private ammoHUD: AmmoHUD | null = null;
+  private smokeStatusEl: HTMLElement | null = null;
+  private smokeVisionOverlay: HTMLDivElement | null = null;
   private firstPersonBodyProxy: THREE.Group | null = null;
   private glassCharacterSystem: GlassCharacterSystem;
   private respawnSystem = createRespawnSystem({ respawnDelayMs: 5000, arena: 'warehouse' });
@@ -86,7 +93,7 @@ class RicochetGame {
   private currentArena: 'warehouse' | 'container' = 'warehouse';
 
   private pendingInviteId: string | null;
-  private networkMode: 'offline' | 'host' | 'client' = 'offline';
+  private networkMode: 'offline' | 'online' = 'offline';
   private networkClient: NetworkClient | null = null;
   private networkState: NetworkState = new NetworkState();
   private remotePlayerMesh: THREE.Mesh | null = null;
@@ -101,13 +108,47 @@ class RicochetGame {
   private lastNetworkSyncMs = 0;
   private lastFrameMs = performance.now();
 
+  private readonly replayRecorder = new ReplayRecorder({
+    maxDurationMs: 60_000,
+    maxEvents: 1200,
+    maxStates: 720
+  });
+  private replayPlayer: ReplayPlayer | null = null;
+  private replayPayload: ReplayPayload | null = null;
+  private isReplayMode = false;
+  private replayStatusEl: HTMLElement | null = null;
+  private replayProgressEl: HTMLElement | null = null;
+  private replayExportButton: HTMLButtonElement | null = null;
+  private replayCopyButton: HTMLButtonElement | null = null;
+  private replayImportButton: HTMLButtonElement | null = null;
+  private replayPlayButton: HTMLButtonElement | null = null;
+  private replayPauseButton: HTMLButtonElement | null = null;
+  private replayRestartButton: HTMLButtonElement | null = null;
+  private replayJsonEl: HTMLTextAreaElement | null = null;
+  private remoteReplayHealth = ONE_SHOT_HP;
+  private replayLastState: ReplayStateSample | null = null;
+
   constructor() {
     const params = new URLSearchParams(window.location.search);
     this.pendingInviteId = params.get('invite');
 
     this.init();
+
+    this.keyBindingManager = new KeyBindingManager();
+    this.inputManager = new InputManager();
     this.glassCharacterSystem = new GlassCharacterSystem(this.scene, this.camera);
-    this.scoreboardSystem = new ScoreboardSystem();
+    this.playerController = new PlayerController(
+      this.camera,
+      this.scene,
+      this.inputManager,
+      this.keyBindingManager
+    );
+    this.scoreboardSystem = new ScoreboardSystem((action: InputAction) => {
+      return this.inputManager.isActionActive(action, this.keyBindingManager.getBindings());
+    });
+
+    this.keybindsPanel = new KeybindsPanel(this.keyBindingManager);
+
     this.lobbySystem = new LobbySystem({
       pendingInviteId: this.pendingInviteId,
       onRetry: () => {
@@ -117,11 +158,9 @@ class RicochetGame {
         this.returnToCharacterMenu();
       }
     });
+
     this.setupCharacterSelection();
     this.setupWeapon();
-
-    this.inputManager = new InputManager();
-    this.playerController = new PlayerController(this.camera, this.scene, this.inputManager);
 
     this.warehouseArena = new WarehouseArena(this.scene);
     this.containerYardArena = new ContainerYardArena(this.scene);
@@ -130,10 +169,13 @@ class RicochetGame {
     this.setupNetworkStatusUI();
     this.setupRespawnHooks();
     this.setupMatchHooks();
+    this.setupReplayUI();
+    this.setupSmokeHUD();
     this.setGameplayOverlayVisible(false);
 
     window.game = this;
     window.addEventListener('weaponFired', this.onWeaponFired as EventListener);
+    window.addEventListener('projectileFired', this.onProjectileFired as EventListener);
   }
 
   public getHealthSystem(): any | null {
@@ -263,7 +305,16 @@ class RicochetGame {
         const direction = new THREE.Vector3();
         this.camera.getWorldPosition(origin);
         this.camera.getWorldDirection(direction);
+
         this.bulletSystem?.fireRubberBall(origin, direction);
+        window.dispatchEvent(new CustomEvent('projectileFired', {
+          detail: {
+            source: 'local',
+            projectileType: 'rubber',
+            origin: { x: origin.x, y: origin.y, z: origin.z },
+            direction: { x: direction.x, y: direction.y, z: direction.z }
+          }
+        }));
       }
     });
 
@@ -274,10 +325,112 @@ class RicochetGame {
     });
 
     document.addEventListener('keydown', (event) => {
-      if (event.key.toLowerCase() === 'r' && this.gameState === 'playing' && !this.isRespawning && this.weapon) {
+      if (event.repeat) return;
+
+      if (this.gameState !== 'playing' || this.isRespawning) return;
+
+      const bindings = this.keyBindingManager.getBindings();
+
+      if (!this.weapon) return;
+
+      if (this.inputManager.isActionActive('reload', bindings)) {
         this.weapon.triggerReload();
+        return;
+      }
+
+      if (this.inputManager.isActionActive('throwSmoke', bindings) && this.bulletSystem) {
+        const origin = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        this.camera.getWorldPosition(origin);
+        this.camera.getWorldDirection(direction);
+
+        this.deploySmoke(origin, direction);
       }
     });
+  }
+
+  private setupSmokeHUD(): void {
+    this.smokeVisionOverlay = document.getElementById('smoke-vision-overlay') as HTMLDivElement | null;
+    if (!this.smokeVisionOverlay) {
+      this.smokeVisionOverlay = document.createElement('div');
+      this.smokeVisionOverlay.id = 'smoke-vision-overlay';
+      this.smokeVisionOverlay.className = 'smoke-vision-overlay';
+      document.body.appendChild(this.smokeVisionOverlay);
+    }
+
+    this.smokeStatusEl = document.getElementById('smoke-status');
+    if (!this.smokeStatusEl) {
+      const hud = document.getElementById('hud');
+      if (hud) {
+        const status = document.createElement('div');
+        status.id = 'smoke-status';
+        status.style.marginTop = '6px';
+        status.style.fontSize = '0.95rem';
+        status.style.color = '#e2ddff';
+        hud.appendChild(status);
+        this.smokeStatusEl = status;
+      }
+    }
+
+    if (this.smokeStatusEl) {
+      this.smokeStatusEl.textContent = 'Smoke: READY';
+    }
+  }
+
+  private deploySmoke(origin: THREE.Vector3, direction: THREE.Vector3): void {
+    if (!this.bulletSystem) return;
+
+    const system: any = this.bulletSystem as unknown as { deploySmoke?: (origin: THREE.Vector3, direction: THREE.Vector3) => boolean; getSmokeStatus?: (nowMs: number) => {
+      canDeploy: boolean;
+      cooldownRemainingMs: number;
+      activeCount: number;
+      maxActive: number;
+    } };
+
+    if (!system.deploySmoke || !system.deploySmoke(origin, direction)) {
+      return;
+    }
+
+    const now = performance.now();
+    const status = system.getSmokeStatus?.(now);
+    if (status) {
+      this.updateSmokeStatusLabel(status);
+    }
+  }
+
+  private updateSmokeStatusLabel(status: { canDeploy: boolean; cooldownRemainingMs: number; activeCount: number; maxActive: number; }): void {
+    if (!this.smokeStatusEl) return;
+
+    const cooldownText = status.canDeploy
+      ? 'READY'
+      : `${Math.ceil(status.cooldownRemainingMs / 1000)}s`;
+
+    this.smokeStatusEl.textContent = `Smoke: ${cooldownText} • ${status.activeCount}/${status.maxActive}`;
+  }
+
+  private applySmokeVision(nowMs: number): void {
+    if (!this.smokeVisionOverlay || !this.bulletSystem) {
+      return;
+    }
+
+    const system: any = this.bulletSystem as unknown as { getSmokeDensityAtPoint?: (point: THREE.Vector3, nowMs?: number) => number };
+    const intensity = system.getSmokeDensityAtPoint
+      ? system.getSmokeDensityAtPoint(this.camera.position, nowMs)
+      : 0;
+
+    if (intensity <= 0.01) {
+      this.smokeVisionOverlay.classList.remove('smoke-active');
+      this.smokeVisionOverlay.style.opacity = '0';
+      return;
+    }
+
+    const clamped = THREE.MathUtils.clamp(intensity, 0, 1);
+    this.smokeVisionOverlay.classList.add('smoke-active');
+    this.smokeVisionOverlay.style.opacity = String(THREE.MathUtils.clamp(clamped * 0.88, 0, 0.9));
+    this.smokeVisionOverlay.style.setProperty('--smoke-strength', String(clamped));
+
+    const status = this.bulletSystem.getSmokeStatus(nowMs);
+    this.updateSmokeStatusLabel(status);
   }
 
   private setupCharacterSelection() {
@@ -350,7 +503,7 @@ class RicochetGame {
   private async createInviteLink() {
     if (!this.selectedCharacter) return;
 
-    this.networkMode = 'host';
+    this.networkMode = 'online';
     this.activeLobbyFlow = 'host';
     this.awaitingLobbyReady = true;
     this.onlineMatchStarting = false;
@@ -387,7 +540,7 @@ class RicochetGame {
   private async joinInviteMatch(inviteId: string) {
     if (!this.selectedCharacter) return;
 
-    this.networkMode = 'client';
+    this.networkMode = 'online';
     this.activeLobbyFlow = 'join';
     this.awaitingLobbyReady = true;
     this.onlineMatchStarting = false;
@@ -471,6 +624,7 @@ class RicochetGame {
     client.on<Extract<NetServerMessage, { type: 'player_fire' }>>('player_fire', (msg) => {
       if (msg.playerId !== client.playerId) {
         this.renderRemoteShot(msg.origin, msg.direction);
+        this.replayRecorder.recordProjectile('paintball', 'remote', msg.origin, msg.direction, msg.shotId);
       }
     });
 
@@ -480,15 +634,19 @@ class RicochetGame {
         return;
       }
 
+      this.remoteReplayHealth = Math.max(0, Math.round(msg.hp));
       this.glassCharacterSystem.setRemoteHealth(msg.hp);
+      this.replayRecorder.recordHealth('remote', this.remoteReplayHealth, this.remoteReplayHealth <= 0);
     });
 
     client.on<Extract<NetServerMessage, { type: 'death' }>>('death', (msg) => {
       if (msg.victimId === client.playerId) {
         this.beginLocalRespawn(msg.respawnMs, true);
       } else {
+        this.remoteReplayHealth = 0;
         this.glassCharacterSystem.setRemoteHealth(0);
         this.glassCharacterSystem.shatterRemote(this.remotePlayerMesh?.position);
+        this.replayRecorder.recordHealth('remote', 0, true);
       }
 
       this.applyScoreMap(msg.scores);
@@ -498,10 +656,13 @@ class RicochetGame {
       if (msg.playerId === client.playerId) {
         this.glassCharacterSystem.resetLocal();
         this.respawnSystem.completeRespawn(msg.position, msg.playerId);
+        this.replayRecorder.recordRespawn('local', msg.position, ONE_SHOT_HP);
       } else if (this.remotePlayerMesh) {
+        this.remoteReplayHealth = ONE_SHOT_HP;
         this.remotePlayerMesh.position.set(msg.position.x, msg.position.y, msg.position.z);
         this.remotePlayerMesh.visible = true;
         this.glassCharacterSystem.resetRemote();
+        this.replayRecorder.recordRespawn('remote', msg.position, ONE_SHOT_HP);
       }
     });
 
@@ -524,11 +685,15 @@ class RicochetGame {
 
       if (localPlayer) {
         this.glassCharacterSystem.setLocalHealth(localPlayer.hp);
+        const localHealth = Math.max(0, Math.round(localPlayer.hp));
+        this.replayRecorder.recordHealth('local', localHealth, localHealth <= 0);
       }
 
       if (remotePlayer) {
         this.ensureRemotePlayerMesh().visible = true;
+        this.remoteReplayHealth = Math.max(0, Math.round(remotePlayer.hp));
         this.glassCharacterSystem.setRemoteHealth(remotePlayer.hp);
+        this.replayRecorder.recordHealth('remote', this.remoteReplayHealth, this.remoteReplayHealth <= 0);
       }
     });
 
@@ -818,6 +983,8 @@ class RicochetGame {
     this.activeLobbyFlow = null;
     this.pendingJoinInviteId = null;
     this.networkMode = 'offline';
+    this.keybindsPanel?.hide();
+    void this.stopReplayModeIfActive();
 
     if (this.networkClient) {
       this.networkClient.close();
@@ -865,7 +1032,16 @@ class RicochetGame {
     this.gameState = 'menu';
     this.networkState = new NetworkState();
     this.lobbySystem.showCharacterSelect();
+    this.replayRecorder.stopSession();
+    this.updateReplayControlsState();
+    if (this.isReplayMode) {
+      this.isReplayMode = false;
+      this.replayPlayer?.stop();
+      this.replayPlayer = null;
+    }
+    this.updateReplayStatus('Idle — no replay loaded');
     this.updateNetworkStatus(this.pendingInviteId ? `Invite detected: ${this.pendingInviteId}` : 'Offline mode', '#cccccc');
+    this.refreshReplayUIVisibility(false);
   }
 
   private async startGameplayCore(): Promise<void> {
@@ -878,6 +1054,18 @@ class RicochetGame {
     if (hud) hud.style.display = 'block';
     this.scoreboardSystem.close();
     this.setGameplayOverlayVisible(true);
+
+    this.replayPayload = null;
+    this.replayPlayer = null;
+    this.replayLastState = null;
+    this.remoteReplayHealth = ONE_SHOT_HP;
+    this.isReplayMode = false;
+
+    this.replayRecorder.startSession({
+      startCharacter: selectedCharacter,
+      arena: this.currentArena,
+      sessionMode: this.networkMode
+    });
 
     this.gameState = 'loading';
     this.isRespawning = false;
@@ -904,6 +1092,16 @@ class RicochetGame {
         if (!info.object) return;
         this.handleProjectileImpact(info);
       });
+    } else {
+      this.bulletSystem.reset();
+    }
+
+    if (this.bulletSystem) {
+      this.updateSmokeStatusLabel(this.bulletSystem.getSmokeStatus(performance.now()));
+      if (this.smokeVisionOverlay) {
+        this.smokeVisionOverlay.classList.remove('smoke-active');
+        this.smokeVisionOverlay.style.opacity = '0';
+      }
     }
 
     const healthLabel = document.getElementById('health');
@@ -945,6 +1143,7 @@ class RicochetGame {
     this.scoreboardSystem.setPlayerPing('player1', null);
     this.scoreboardSystem.setPlayerPing('player2', null);
     this.scoreboardSystem.setMatchStateOverride(this.networkMode === 'offline' ? 'Offline skirmish' : 'Waiting for opponent…');
+    this.updateReplayMatchDisplay(matchSystem.getSnapshot());
 
     this.updateNetworkStatus(this.networkMode === 'offline' ? 'Offline mode' : 'Connected', '#cccccc');
 
@@ -952,6 +1151,8 @@ class RicochetGame {
 
     this.gameState = 'playing';
     window.dispatchEvent(new Event('gameStarted'));
+    this.refreshReplayUIVisibility(true);
+    this.updateReplayControlsState();
   }
 
   private async loadCharacter(characterId: string) {
@@ -1032,27 +1233,73 @@ class RicochetGame {
       arenaInfo.style.color = 'white';
       arenaInfo.style.fontSize = '1rem';
       arenaInfo.style.textShadow = '2px 2px 4px rgba(0,0,0,0.8)';
-      arenaInfo.innerHTML = `
-        <div>Arena: <span id="arena-name">WAREHOUSE</span></div>
-        <div style="font-size: 0.8rem; margin-top: 5px;">Press 'M' to switch maps</div>
-        <div style="font-size: 0.8rem; margin-top: 5px;">Press 'Q' to return to menu</div>
-        <div style="font-size: 0.8rem; margin-top: 2px; opacity: 0.8;">Mode: ${ROUND_END_NOTE}</div>
-      `;
       hudElement.appendChild(arenaInfo);
     }
 
-    document.addEventListener('keydown', (event) => {
-      const key = event.key.toLowerCase();
+    this.refreshPointerLockHint();
+    this.refreshArenaInfoText();
+    this.refreshScoreboardTitle();
 
-      if (key === 'm' && this.gameState === 'playing') {
+    this.keyBindingManager.subscribe(() => {
+      this.refreshPointerLockHint();
+      this.refreshArenaInfoText();
+      this.refreshScoreboardTitle();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      const isReplayState = this.gameState === 'playing' || this.gameState === 'replay';
+      if (event.repeat || !isReplayState) return;
+
+      if (this.inputManager.isActionActive('switchMap', this.keyBindingManager.getBindings()) &&
+        (this.gameState === 'playing' || this.gameState === 'replay')) {
+        event.preventDefault();
         void this.switchArena();
+        return;
       }
 
-      if (key === 'q' && this.gameState === 'playing') {
+      if (this.inputManager.isActionActive('returnToMenu', this.keyBindingManager.getBindings()) &&
+        (this.gameState === 'playing' || this.gameState === 'replay')) {
         event.preventDefault();
         this.returnToCharacterMenu();
       }
     });
+  }
+
+  private refreshPointerLockHint(): void {
+    const hint = document.getElementById('pointer-lock-hint');
+    if (!hint) return;
+
+    const forwardKeys = this.keyBindingManager.getBindingLabel('moveForward');
+    const backwardKeys = this.keyBindingManager.getBindingLabel('moveBackward');
+    const leftKeys = this.keyBindingManager.getBindingLabel('moveLeft');
+    const rightKeys = this.keyBindingManager.getBindingLabel('moveRight');
+
+    hint.textContent = `Click to capture mouse • Move with ${forwardKeys}/${backwardKeys}/${leftKeys}/${rightKeys}`;
+  }
+
+  private refreshArenaInfoText(): void {
+    const arenaInfo = document.getElementById('arena-info');
+    if (!arenaInfo) return;
+
+    const mapText = this.keyBindingManager.getBindingLabel('switchMap');
+    const menuText = this.keyBindingManager.getBindingLabel('returnToMenu');
+    const smokeText = this.keyBindingManager.getBindingLabel('throwSmoke');
+
+    arenaInfo.innerHTML = `
+      <div>Arena: <span id="arena-name">${this.currentArena.toUpperCase()}</span></div>
+      <div style="font-size: 0.8rem; margin-top: 5px;">Press ${mapText} to switch maps</div>
+      <div style="font-size: 0.8rem; margin-top: 5px;">Press ${smokeText} to throw smoke grenade</div>
+      <div style="font-size: 0.8rem; margin-top: 5px;">Press ${menuText} to return to menu</div>
+      <div style="font-size: 0.8rem; margin-top: 2px; opacity: 0.8;">Mode: ${ROUND_END_NOTE}</div>
+    `;
+  }
+
+  private refreshScoreboardTitle(): void {
+    const title = document.getElementById('scoreboard-title');
+    if (!title) return;
+
+    const scoreboardText = this.keyBindingManager.getBindingLabel('toggleScoreboard');
+    title.textContent = `Scoreboard (${scoreboardText})`;
   }
 
   private setupNetworkStatusUI(): void {
@@ -1085,6 +1332,514 @@ class RicochetGame {
     window.addEventListener('matchStateChanged', this.onMatchStateChanged as EventListener);
   }
 
+  private setupReplayUI(): void {
+    const hud = document.getElementById('hud');
+    if (!hud) return;
+
+    this.replayStatusEl = document.getElementById('replay-status');
+    this.replayProgressEl = document.getElementById('replay-progress');
+    this.replayExportButton = document.getElementById('replay-export') as HTMLButtonElement | null;
+    this.replayCopyButton = document.getElementById('replay-copy') as HTMLButtonElement | null;
+    this.replayImportButton = document.getElementById('replay-import') as HTMLButtonElement | null;
+    this.replayPlayButton = document.getElementById('replay-play') as HTMLButtonElement | null;
+    this.replayPauseButton = document.getElementById('replay-pause') as HTMLButtonElement | null;
+    this.replayRestartButton = document.getElementById('replay-restart') as HTMLButtonElement | null;
+    this.replayJsonEl = document.getElementById('replay-json') as HTMLTextAreaElement | null;
+
+    this.replayExportButton?.addEventListener('click', () => {
+      const payload = this.replayRecorder.payload;
+      if (!payload) {
+        this.updateReplayStatus('No replay data to export yet.');
+        return;
+      }
+
+      const value = JSON.stringify(payload);
+      if (this.replayJsonEl) {
+        this.replayJsonEl.value = value;
+      }
+      this.updateReplayStatus('Replay payload exported.');
+    });
+
+    this.replayCopyButton?.addEventListener('click', async () => {
+      if (!this.replayJsonEl || !this.replayJsonEl.value) {
+        this.updateReplayStatus('No replay payload available to copy.');
+        return;
+      }
+
+      const text = this.replayJsonEl.value;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          this.updateReplayStatus('Replay payload copied to clipboard.');
+          return;
+        } catch {
+          // fall through
+        }
+      }
+
+      this.replayJsonEl.select();
+      document.execCommand('copy');
+      this.updateReplayStatus('Replay payload copied.');
+    });
+
+    this.replayImportButton?.addEventListener('click', async () => {
+      if (!this.replayJsonEl) return;
+      const payload = ReplayIO.parsePayload(this.replayJsonEl.value);
+      if (!payload) {
+        this.updateReplayStatus('Invalid replay JSON.');
+        return;
+      }
+
+      await this.importReplayPayload(payload);
+      this.updateReplayStatus('Replay imported. Press Play to begin.');
+    });
+
+    this.replayPlayButton?.addEventListener('click', async () => {
+      await this.startReplayFromPayload();
+    });
+
+    this.replayPauseButton?.addEventListener('click', () => {
+      if (!this.isReplayMode || !this.replayPlayer) return;
+      this.replayPlayer.pause();
+      this.updateReplayStatus('Replay paused.');
+      this.updateReplayControlsState();
+    });
+
+    this.replayRestartButton?.addEventListener('click', () => {
+      if (!this.isReplayMode || !this.replayPlayer) return;
+      this.replayPlayer.restart();
+      this.updateReplayStatus('Replay restarted.');
+      this.updateReplayControlsState();
+    });
+
+    this.updateReplayControlsState();
+    this.updateReplayStatus('Replay recorder ready.');
+
+    if (hud.querySelector('#replay-import-hint')) return;
+
+    const note = document.createElement('div');
+    note.id = 'replay-import-hint';
+    note.style.display = 'none';
+    note.style.marginTop = '8px';
+    note.style.color = '#d4d9ff';
+    note.style.fontSize = '0.75rem';
+    note.textContent = 'Paste replay payload and press Import Replay.';
+    hud.appendChild(note);
+  }
+
+  private async startReplayFromPayload(): Promise<void> {
+    if (!this.replayPayload) {
+      this.updateReplayStatus('No replay loaded. Import payload first.');
+      return;
+    }
+
+    if (!this.isReplayMode) {
+      await this.launchReplayPlayback(this.replayPayload);
+    }
+
+    if (!this.replayPlayer) {
+      this.updateReplayStatus('Replay not initialized yet.');
+      return;
+    }
+
+    if (!this.replayPlayer.playing) {
+      this.replayPlayer.play();
+      this.updateReplayStatus('Replay playing…');
+    }
+
+    this.updateReplayControlsState();
+  }
+
+  private async importReplayPayload(payload: ReplayPayload): Promise<void> {
+    const parsed = this.sanitizeReplayPayload(payload);
+    this.replayPayload = parsed;
+
+    if (!this.isReplayMode) {
+      if (this.replayJsonEl) {
+        this.replayJsonEl.value = JSON.stringify(parsed, null, 2);
+      }
+      this.updateReplayStatus('Replay loaded. Press Play to replay.');
+      this.updateReplayControlsState();
+      return;
+    }
+
+    await this.launchReplayPlayback(parsed);
+    this.replayPlayer?.play();
+    this.updateReplayStatus('Replay loaded and playing.');
+    this.updateReplayControlsState();
+  }
+
+  private sanitizeReplayPayload(payload: ReplayPayload): ReplayPayload {
+    const clampedStates = payload.states.filter((state) => Number.isFinite(state.at)).sort((a, b) => a.at - b.at);
+    const clampedEvents = payload.events.filter((event) => Number.isFinite(event.at)).sort((a, b) => a.at - b.at);
+
+    return {
+      ...payload,
+      states: clampedStates,
+      events: clampedEvents,
+      durationMs: Math.max(1, payload.durationMs)
+    };
+  }
+
+  private async launchReplayPlayback(payload: ReplayPayload): Promise<void> {
+    const menuOverlay = document.getElementById('menu-overlay');
+    const hud = document.getElementById('hud');
+    if (menuOverlay) menuOverlay.style.display = 'none';
+    if (hud) hud.style.display = 'block';
+
+    this.scoreboardSystem.close();
+    this.setGameplayOverlayVisible(true);
+
+    this.isReplayMode = true;
+    this.gameState = 'replay';
+
+    this.stopAmbientMusic();
+    if (this.networkClient) {
+      this.networkClient.close();
+      this.networkClient = null;
+    }
+
+    this.stopPingLoop();
+
+    this.playerController.disable();
+    this.isRespawning = false;
+
+    if (!this.networkMode) {
+      this.networkMode = 'offline';
+    }
+
+    this.currentArena = payload.meta.arena;
+    this.clearDummyTargets();
+    await this.loadCharacter(payload.meta.startCharacter ?? SHARED_CHARACTER.id);
+    await this.loadCurrentArena();
+    this.setupStaticDummyTargets();
+    this.respawnSystem.setArena(this.currentArena);
+    this.ensureFirstPersonBodyProxy();
+    if (this.firstPersonBodyProxy) {
+      this.firstPersonBodyProxy.visible = true;
+    }
+
+    this.glassCharacterSystem.resetLocal();
+    this.glassCharacterSystem.setLocalHealth(100);
+    this.glassCharacterSystem.resetRemote();
+
+    if (!this.bulletSystem) {
+      this.bulletSystem = createBulletSystem(this.scene);
+      this.bulletSystem.addImpactListener((info) => {
+        if (!info.object) return;
+        this.handleProjectileImpact(info);
+      });
+    } else {
+      this.bulletSystem.reset();
+    }
+
+    this.healthSystem = null;
+    const playerModel = this.characterModels.get(payload.meta.startCharacter ?? SHARED_CHARACTER.id);
+    if (playerModel) {
+      this.healthSystem = createHealthSystem(playerModel);
+      this.healthSystem.setHealth?.(ONE_SHOT_HP);
+      this.cachePlayerMaterialState(playerModel);
+    }
+
+    const selectedArenaState = payload.meta.arena === 'container' ? 'CONTAINER YARD' : 'WAREHOUSE';
+    const arenaNameElement = document.getElementById('arena-name');
+    if (arenaNameElement) {
+      arenaNameElement.textContent = selectedArenaState;
+    }
+
+    this.scoreboardSystem.setMatchStateOverride('Replay');
+
+    const healthLabel = document.getElementById('health');
+    if (healthLabel) {
+      healthLabel.textContent = `${ONE_SHOT_HP}/${ONE_SHOT_HP} (${ROUND_END_NOTE})`;
+    }
+
+    this.replayRecorder.stopSession();
+    this.replayPlayer = new ReplayPlayer(payload, {
+      applyState: (state: ReplayStateSample) => {
+        this.applyReplayState(state);
+      },
+      triggerProjectile: (event: ReplayProjectileEvent) => {
+        this.triggerReplayProjectile(event);
+      }
+    });
+
+    this.replayLastState = null;
+    this.remoteReplayHealth = ONE_SHOT_HP;
+    this.updateReplayStatus('Replay loaded. Press play to begin.');
+    this.updateReplayControlsState();
+    this.refreshReplayUIVisibility(true);
+  }
+
+  private refreshReplayUIVisibility(visible: boolean): void {
+    const panel = document.getElementById('replay-panel');
+    if (panel) {
+      panel.style.display = visible ? 'block' : 'none';
+    }
+
+    const overlay = document.getElementById('menu-overlay');
+    if (overlay && visible && this.gameState !== 'menu') {
+      overlay.style.display = 'none';
+    }
+  }
+
+  private async stopReplayModeIfActive(): Promise<void> {
+    if (!this.isReplayMode) return;
+
+    this.replayPlayer?.stop();
+    this.replayPlayer = null;
+    this.isReplayMode = false;
+    this.gameState = 'menu';
+    this.refreshReplayUIVisibility(false);
+
+    await Promise.resolve();
+  }
+
+  private onProjectileFired = (event: Event): void => {
+    const custom = event as CustomEvent;
+    const detail = custom.detail ?? {};
+    const projectileType = detail.projectileType as ('paintball' | 'rubber' | undefined);
+    const source = detail.source as ('local' | 'remote' | undefined);
+    const origin = detail.origin as Vec3 | undefined;
+    const direction = detail.direction as Vec3 | undefined;
+
+    if (!projectileType || !source || !origin || !direction) return;
+    if (this.isReplayMode) return;
+
+    // Paintball projectiles from local weapon are handled by onWeaponFired.
+    if (projectileType === 'paintball' && source === 'local') return;
+
+    this.replayRecorder.recordProjectile(projectileType, source, origin, direction, detail.shotId);
+
+    if (!this.isReplayMode) {
+      this.recordReplayFrame();
+    }
+  };
+
+  private triggerReplayProjectile(event: ReplayProjectileEvent): void {
+    if (!this.bulletSystem) return;
+
+    const origin = new THREE.Vector3(event.origin.x, event.origin.y, event.origin.z);
+    const direction = new THREE.Vector3(event.direction.x, event.direction.y, event.direction.z);
+
+    if (event.projectileType === 'paintball') {
+      this.bulletSystem.firePaintball(origin, direction);
+      return;
+    }
+
+    this.bulletSystem.fireRubberBall(origin, direction);
+  }
+
+  private updateReplayMatchDisplay(snapshot: MatchSnapshot): void {
+    const scoreValue = document.getElementById('score');
+    if (scoreValue) {
+      scoreValue.textContent = `${snapshot.player1Score}-${snapshot.player2Score}`;
+    }
+
+    const stateText = this.isReplayMode
+      ? `Replay • ${snapshot.player1Name} vs ${snapshot.player2Name}`
+      : 'Match';
+    this.scoreboardSystem.setMatchStateOverride(`${stateText} (${snapshot.targetScore})`);
+  }
+
+  private updateReplayStatus(text: string): void {
+    if (this.replayStatusEl) {
+      this.replayStatusEl.textContent = text;
+    }
+
+    if (this.replayJsonEl && !this.replayPayload) {
+      return;
+    }
+
+    if (this.replayPayload && this.replayJsonEl) {
+      this.replayJsonEl.value = JSON.stringify(this.replayPayload);
+    }
+  }
+
+  private formatReplayTime(milliseconds: number): string {
+    const totalSec = Math.max(0, Math.floor(milliseconds / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = String(totalSec % 60).padStart(2, '0');
+    return `${min}:${sec}`;
+  }
+
+  private updateReplayProgress(forceNowMs?: number): void {
+    if (!this.replayPayload && !this.replayPlayer) {
+      if (this.replayProgressEl) {
+        this.replayProgressEl.textContent = '00:00 / 00:00';
+      }
+      return;
+    }
+
+    const payloadDuration = this.replayPlayer?.durationMs ?? this.replayPayload?.durationMs ?? 0;
+    const nowMs = forceNowMs ?? this.replayPlayer?.progressMs ?? 0;
+
+    if (this.replayProgressEl) {
+      this.replayProgressEl.textContent = `${this.formatReplayTime(nowMs)} / ${this.formatReplayTime(payloadDuration)}`;
+    }
+  }
+
+  private updateReplayControlsState(): void {
+    const hasImported = Boolean(this.replayPayload);
+    const hasBuffer = Boolean(this.replayRecorder.payload);
+
+    if (this.replayExportButton) {
+      this.replayExportButton.disabled = !hasImported && !hasBuffer;
+    }
+
+    if (this.replayCopyButton) {
+      this.replayCopyButton.disabled = !hasImported && !hasBuffer;
+    }
+
+    if (this.replayImportButton) {
+      this.replayImportButton.disabled = false;
+    }
+
+    if (this.replayPlayButton) {
+      const isPlaying = Boolean(this.replayPlayer?.playing);
+      this.replayPlayButton.disabled = !hasImported || isPlaying;
+    }
+
+    if (this.replayPauseButton) {
+      this.replayPauseButton.disabled = !this.replayPlayer?.playing;
+    }
+
+    if (this.replayRestartButton) {
+      this.replayRestartButton.disabled = !this.isReplayMode || !this.replayPlayer;
+    }
+
+    if (this.replayProgressEl) {
+      this.updateReplayProgress();
+    }
+
+    if (this.replayPayload && this.replayJsonEl) {
+      this.replayJsonEl.value = JSON.stringify(this.replayPayload);
+    }
+  }
+
+  private recordReplayFrame(): void {
+    if (this.isReplayMode) return;
+
+    const remote = this.remotePlayerMesh
+      ? {
+        visible: this.remotePlayerMesh.visible,
+        position: this.toVec3FromVector(this.remotePlayerMesh.position),
+        quaternion: {
+          x: this.remotePlayerMesh.quaternion.x,
+          y: this.remotePlayerMesh.quaternion.y,
+          z: this.remotePlayerMesh.quaternion.z,
+          w: this.remotePlayerMesh.quaternion.w
+        },
+        yaw: this.remotePlayerMesh.rotation.y,
+        pitch: this.remotePlayerMesh.rotation.x,
+        health: this.remoteReplayHealth,
+        isDead: this.remoteReplayHealth <= 0
+      }
+      : null;
+
+    const euler = new THREE.Euler().setFromQuaternion(this.camera.quaternion, 'YXZ');
+
+    const localHp = this.healthSystem?.getHealth?.() ?? ONE_SHOT_HP;
+    const localDead = this.healthSystem?.isPlayerDead?.() ?? localHp <= 0;
+
+    this.replayRecorder.recordState({
+      local: {
+        position: this.toVec3FromVector(this.camera.position),
+        quaternion: {
+          x: this.camera.quaternion.x,
+          y: this.camera.quaternion.y,
+          z: this.camera.quaternion.z,
+          w: this.camera.quaternion.w
+        },
+        yaw: euler.y,
+        pitch: euler.x,
+        health: localHp,
+        isRespawning: this.isRespawning,
+        isDead: localDead
+      },
+      remote,
+      match: matchSystem.getSnapshot()
+    });
+  }
+
+  private applyReplayState(state: ReplayStateSample): void {
+    const prev = this.replayLastState;
+
+    this.camera.position.set(
+      state.local.position.x,
+      state.local.position.y,
+      state.local.position.z
+    );
+    this.camera.quaternion.set(
+      state.local.quaternion.x,
+      state.local.quaternion.y,
+      state.local.quaternion.z,
+      state.local.quaternion.w
+    );
+
+    this.playerController.resetMovementState();
+
+    this.healthSystem?.setHealth?.(state.local.health);
+    if (this.healthSystem && state.local.isDead) {
+      this.healthSystem.die();
+    }
+
+    if (prev && !prev.local.isDead && state.local.isDead) {
+      this.glassCharacterSystem.shatterLocal();
+    }
+
+    if (prev && prev.local.isDead && !state.local.isDead) {
+      this.glassCharacterSystem.resetLocal();
+    }
+
+    this.glassCharacterSystem.setLocalHealth(state.local.health);
+
+    if (state.remote && this.remotePlayerMesh) {
+      this.remotePlayerMesh.visible = state.remote.visible;
+      const remotePos = state.remote.position;
+      if (remotePos) {
+        this.remotePlayerMesh.position.set(remotePos.x, remotePos.y, remotePos.z);
+      }
+      this.remotePlayerMesh.quaternion.set(
+        state.remote.quaternion.x,
+        state.remote.quaternion.y,
+        state.remote.quaternion.z,
+        state.remote.quaternion.w
+      );
+
+      this.glassCharacterSystem.setRemoteHealth(state.remote.health);
+      this.remoteReplayHealth = state.remote.health;
+
+      if (prev?.remote && !prev.remote?.isDead && state.remote.isDead) {
+        this.glassCharacterSystem.shatterRemote(this.remotePlayerMesh.position);
+      }
+
+      if (prev?.remote && prev.remote?.isDead && !state.remote.isDead) {
+        this.glassCharacterSystem.resetRemote();
+      }
+    } else if (this.remotePlayerMesh) {
+      this.remotePlayerMesh.visible = false;
+      this.glassCharacterSystem.resetRemote();
+      this.remoteReplayHealth = ONE_SHOT_HP;
+    }
+
+    this.glassCharacterSystem.setRemoteHealth(state.remote?.health ?? this.remoteReplayHealth);
+
+    const healthValueEl = document.getElementById('health');
+    if (healthValueEl) {
+      healthValueEl.textContent = `${Math.max(0, state.local.health)}/${ONE_SHOT_HP} (${ROUND_END_NOTE})`;
+    }
+
+    if (window.healthHUD) {
+      window.healthHUD.updateHealth?.(Math.max(0, state.local.health), ONE_SHOT_HP);
+    }
+
+    this.updateReplayMatchDisplay(state.match);
+    this.replayLastState = state;
+    this.updateReplayProgress(state.at);
+    this.updateReplayControlsState();
+  }
+
   private onMatchStateChanged = (event: Event): void => {
     const detail = (event as CustomEvent<MatchSnapshot>).detail;
     if (!detail) return;
@@ -1092,6 +1847,12 @@ class RicochetGame {
     const basicScore = document.getElementById('score');
     if (basicScore) {
       basicScore.textContent = `${detail.player1Score}-${detail.player2Score}`;
+    }
+
+    this.updateReplayMatchDisplay(detail);
+
+    if (!this.isReplayMode) {
+      this.replayRecorder.recordMatchSnapshot(detail);
     }
   };
 
@@ -1101,7 +1862,7 @@ class RicochetGame {
   };
 
   private beginLocalRespawn(delayMs?: number, serverAuthoritative = false): void {
-    if (this.gameState !== 'playing' || this.isRespawning) {
+    if ((this.gameState !== 'playing' && this.gameState !== 'replay') || this.isRespawning) {
       return;
     }
 
@@ -1111,6 +1872,11 @@ class RicochetGame {
     this.glassCharacterSystem.setLocalHealth(0);
     this.glassCharacterSystem.shatterLocal();
     window.dispatchEvent(new Event('playerDied'));
+
+    this.replayRecorder.recordHealth('local', 0, true);
+    if (!this.isReplayMode) {
+      this.recordReplayFrame();
+    }
 
     this.respawnSystem.startRespawn(this.getLocalPlayerId(), {
       delayMs,
@@ -1137,14 +1903,20 @@ class RicochetGame {
     if (!detail || detail.playerId !== this.getLocalPlayerId()) return;
 
     this.healthSystem?.revive?.();
-    this.healthSystem?.setHealth?.(100);
+    this.healthSystem?.setHealth?.(ONE_SHOT_HP);
     this.glassCharacterSystem.resetLocal();
+    this.replayRecorder.recordRespawn('local', {
+      x: detail.position.x,
+      y: detail.position.y,
+      z: detail.position.z
+    }, ONE_SHOT_HP);
     this.playerController.resetMovementState();
     const respawnY = Math.max(1.6, detail.position.y);
     this.playerController.setPosition(detail.position.x, respawnY, detail.position.z);
     this.playerController.unlockMovement();
     this.isRespawning = false;
 
+    this.recordReplayFrame();
     this.applyGlassVisualState('full');
 
     if (window.healthHUD) {
@@ -1194,6 +1966,8 @@ class RicochetGame {
     this.healthSystem?.takeDamage?.(amount);
     this.healthSystem?.setHealth?.(hp);
     this.glassCharacterSystem.setLocalHealth(hp);
+
+    this.replayRecorder.recordHealth('local', remainingHp, remainingHp <= 0);
 
     if (window.healthHUD) {
       window.healthHUD.takeDamage?.(amount);
@@ -1412,16 +2186,27 @@ class RicochetGame {
 
     const origin: Vec3 = detail.origin ?? this.toVec3FromVector(this.camera.position);
     const direction: Vec3 = detail.direction ?? this.getCameraForward();
+    if (detail.projectileType && detail.projectileType !== 'paintball') {
+      return;
+    }
 
     this.bulletSystem?.firePaintball(
       new THREE.Vector3(origin.x, origin.y, origin.z),
       new THREE.Vector3(direction.x, direction.y, direction.z)
     );
 
+    const shotId = NetworkClient.createShotId(this.networkClient?.playerId ?? 'local-player');
+
+    if (!this.isReplayMode) {
+      this.replayRecorder.recordProjectile('paintball', 'local', origin, direction, shotId);
+    }
+
+    this.recordReplayFrame();
+
     if (!this.networkClient?.connected) return;
 
     this.networkClient.sendFire({
-      shotId: NetworkClient.createShotId(this.networkClient.playerId),
+      shotId,
       t: Date.now(),
       origin,
       direction
@@ -1515,7 +2300,7 @@ class RicochetGame {
     const deltaTime = Math.min(0.05, (nowMs - this.lastFrameMs) / 1000);
     this.lastFrameMs = nowMs;
 
-    if (this.gameState !== 'playing') {
+    if (this.gameState === 'menu') {
       this.characterModels.forEach(model => {
         model.rotation.y += 0.01;
       });
@@ -1523,22 +2308,49 @@ class RicochetGame {
 
     if (this.bulletSystem) {
       this.bulletSystem.update(deltaTime);
-    }
+      this.applySmokeVision(nowMs);
+      const system: any = this.bulletSystem as unknown as {
+        getSmokeStatus?: (nowMs: number) => {
+          canDeploy: boolean;
+          cooldownRemainingMs: number;
+          activeCount: number;
+          maxActive: number;
+        }
+      };
 
-    if (this.weapon) {
-      this.weapon.update(deltaTime * 1000);
+      const smokeStatus = system.getSmokeStatus?.(nowMs);
+      if (smokeStatus) {
+        this.updateSmokeStatusLabel(smokeStatus);
+      }
     }
 
     this.glassCharacterSystem.update(deltaTime);
 
-    if (this.gameState === 'playing') {
-      if (!this.isRespawning) {
-        this.playerController.update(deltaTime);
-      }
+    let weaponState: PlayerMovementState | undefined;
+
+    if (this.gameState === 'playing' && !this.isRespawning) {
+      this.playerController.update(deltaTime);
+      weaponState = this.playerController.getMovementState();
       this.syncLocalTransform(nowMs);
       this.updateRemoteInterpolation();
+      this.recordReplayFrame();
     }
 
+    const replayState = this.gameState === 'replay';
+    if (replayState && this.isReplayMode && this.replayPlayer) {
+      const replayResult = this.replayPlayer.tick();
+      this.updateReplayProgress(replayResult.currentTimeMs);
+      if (replayResult.ended) {
+        this.updateReplayStatus('Replay finished. Press Restart for another pass.');
+      }
+      this.updateReplayControlsState();
+    }
+
+    if (this.weapon && !this.isReplayMode) {
+      this.weapon.update(deltaTime * 1000, weaponState);
+    }
+
+    this.updateReplayControlsState();
     this.renderer.render(this.scene, this.camera);
   };
 }
