@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 export class HealthSystem {
-  private hp: number = 100;
-  private maxHp: number = 100;
-  private isDead: boolean = false;
-  private player: THREE.Group | null = null;
+  private hp = 100;
+  private readonly maxHp = 100;
+  private isDead = false;
+  private readonly player: THREE.Group;
 
   constructor(player: THREE.Group) {
     this.player = player;
@@ -13,8 +13,12 @@ export class HealthSystem {
   public takeDamage(amount: number): void {
     if (this.isDead) return;
 
-    this.hp = Math.max(0, this.hp - amount);
+    this.setHealth(this.hp - amount);
     console.log(`Player took ${amount} damage! HP: ${this.hp}/${this.maxHp}`);
+  }
+
+  public setHealth(hp: number): void {
+    this.hp = Math.max(0, Math.min(this.maxHp, Math.round(hp)));
 
     if (this.hp <= 0) {
       this.die();
@@ -22,27 +26,27 @@ export class HealthSystem {
   }
 
   public die(): void {
+    if (this.isDead) return;
+
     this.isDead = true;
     this.hp = 0;
+    this.player.visible = false;
     console.log('PLAYER IS DEAD');
-
-    // Disable player movement and controls
-    if (this.player) {
-      // Stop any player movement by clearing velocity
-      // (This assumes we can access the player controller or modify the player object)
-      // For now, we'll just log
-      console.log('Player movement disabled due to death');
-    }
   }
 
   public revive(): void {
     this.isDead = false;
     this.hp = this.maxHp;
+    this.player.visible = true;
     console.log('Player revived!');
   }
 
   public getHealth(): number {
     return this.hp;
+  }
+
+  public getMaxHealth(): number {
+    return this.maxHp;
   }
 
   public isPlayerDead(): boolean {

@@ -18,6 +18,7 @@ import {
 import { NetworkClient } from './network/network-client.ts';
 import { NetworkState } from './network/network-state.ts';
 import { LobbySystem } from './lobby-system.ts';
+import { GlassCharacterSystem } from './glass-character-system.ts';
 import type {
   NetServerMessage,
   PlayerTransform,
@@ -71,6 +72,7 @@ class RicochetGame {
   private healthSystem: any | null = null;
   private ammoHUD: AmmoHUD | null = null;
   private firstPersonBodyProxy: THREE.Group | null = null;
+  private glassCharacterSystem: GlassCharacterSystem;
   private respawnSystem = createRespawnSystem({ respawnDelayMs: 5000, arena: 'warehouse' });
   private isRespawning = false;
 
@@ -99,6 +101,7 @@ class RicochetGame {
     this.pendingInviteId = params.get('invite');
 
     this.init();
+    this.glassCharacterSystem = new GlassCharacterSystem(this.scene, this.camera);
     this.scoreboardSystem = new ScoreboardSystem();
     this.lobbySystem = new LobbySystem({
       pendingInviteId: this.pendingInviteId,
@@ -195,6 +198,8 @@ class RicochetGame {
     this.camera.add(bodyGroup);
 
     this.firstPersonBodyProxy = bodyGroup;
+    this.glassCharacterSystem.applyGlassToFirstPersonProxy(bodyGroup);
+    this.glassCharacterSystem.resetLocal();
   }
 
   private init() {
@@ -452,6 +457,7 @@ class RicochetGame {
     client.on<Extract<NetServerMessage, { type: 'player_left' }>>('player_left', (msg) => {
       this.networkState.removePlayer(msg.playerId);
       if (this.remotePlayerMesh) this.remotePlayerMesh.visible = false;
+      this.glassCharacterSystem.resetRemote();
       this.scoreboardSystem.setPlayerPing('player2', null);
       this.scoreboardSystem.setMatchStateOverride('Waiting for opponent…');
       this.updateNetworkStatus('Opponent disconnected', '#ffb347');
@@ -471,21 +477,31 @@ class RicochetGame {
     client.on<Extract<NetServerMessage, { type: 'damage' }>>('damage', (msg) => {
       if (msg.targetId === client.playerId) {
         this.applyAuthoritativeDamage(msg.amount, msg.hp);
+        return;
       }
+
+      this.glassCharacterSystem.setRemoteHealth(msg.hp);
     });
 
     client.on<Extract<NetServerMessage, { type: 'death' }>>('death', (msg) => {
       if (msg.victimId === client.playerId) {
         this.beginLocalRespawn(msg.respawnMs, true);
+      } else {
+        this.glassCharacterSystem.setRemoteHealth(0);
+        this.glassCharacterSystem.shatterRemote(this.remotePlayerMesh?.position);
       }
+
       this.applyScoreMap(msg.scores);
     });
 
     client.on<Extract<NetServerMessage, { type: 'respawn' }>>('respawn', (msg) => {
       if (msg.playerId === client.playerId) {
+        this.glassCharacterSystem.resetLocal();
         this.respawnSystem.completeRespawn(msg.position, msg.playerId);
       } else if (this.remotePlayerMesh) {
         this.remotePlayerMesh.position.set(msg.position.x, msg.position.y, msg.position.z);
+        this.remotePlayerMesh.visible = true;
+        this.glassCharacterSystem.resetRemote();
       }
     });
 
@@ -498,8 +514,21 @@ class RicochetGame {
       this.handleLobbyState(msg);
       this.syncScoreboardRoster(msg.players);
 
-      if (msg.players.length > 1) {
+      const localId = client.playerId;
+      const localPlayer = localId
+        ? msg.players.find((player) => player.playerId === localId)
+        : null;
+      const remotePlayer = localId
+        ? msg.players.find((player) => player.playerId !== localId)
+        : msg.players[0] ?? null;
+
+      if (localPlayer) {
+        this.glassCharacterSystem.setLocalHealth(localPlayer.hp);
+      }
+
+      if (remotePlayer) {
         this.ensureRemotePlayerMesh().visible = true;
+        this.glassCharacterSystem.setRemoteHealth(remotePlayer.hp);
       }
     });
 
@@ -522,6 +551,7 @@ class RicochetGame {
       this.stopPingLoop();
       this.scoreboardSystem.setPlayerPing('player1', null);
       this.scoreboardSystem.setPlayerPing('player2', null);
+      this.glassCharacterSystem.resetRemote();
       this.scoreboardSystem.setMatchStateOverride('Connection lost');
       this.updateNetworkStatus('Disconnected from networking server', '#ff6b6b');
 
@@ -602,6 +632,8 @@ class RicochetGame {
     if (this.remotePlayerMesh) {
       this.remotePlayerMesh.visible = false;
     }
+    this.glassCharacterSystem.resetRemote();
+    this.glassCharacterSystem.resetLocal();
 
     const menuOverlay = document.getElementById('menu-overlay');
     const hud = document.getElementById('hud');
@@ -714,6 +746,8 @@ class RicochetGame {
     if (this.remotePlayerMesh) {
       this.remotePlayerMesh.visible = false;
     }
+    this.glassCharacterSystem.resetRemote();
+    this.glassCharacterSystem.resetLocal();
 
     const menuOverlay = document.getElementById('menu-overlay');
     const hud = document.getElementById('hud');
@@ -750,6 +784,12 @@ class RicochetGame {
       this.firstPersonBodyProxy.visible = true;
     }
 
+    this.glassCharacterSystem.resetLocal();
+    this.glassCharacterSystem.setLocalHealth(100);
+    if (this.remotePlayerMesh) {
+      this.glassCharacterSystem.resetRemote();
+    }
+
     if (!this.bulletSystem) {
       this.bulletSystem = createBulletSystem(this.scene);
     }
@@ -761,6 +801,7 @@ class RicochetGame {
     const playerModel = this.characterModels.get(this.selectedCharacter);
     if (playerModel) {
       this.healthSystem = createHealthSystem(playerModel);
+      this.healthSystem.setHealth?.(100);
     }
 
     if (!this.ammoHUD && this.weapon) {
@@ -928,6 +969,8 @@ class RicochetGame {
     this.isRespawning = true;
     this.playerController.lockMovement();
     this.healthSystem?.die?.();
+    this.glassCharacterSystem.setLocalHealth(0);
+    this.glassCharacterSystem.shatterLocal();
     window.dispatchEvent(new Event('playerDied'));
 
     this.respawnSystem.startRespawn(this.getLocalPlayerId(), {
@@ -955,6 +998,8 @@ class RicochetGame {
     if (!detail || detail.playerId !== this.getLocalPlayerId()) return;
 
     this.healthSystem?.revive?.();
+    this.healthSystem?.setHealth?.(100);
+    this.glassCharacterSystem.resetLocal();
     this.playerController.resetMovementState();
     const respawnY = Math.max(1.6, detail.position.y);
     this.playerController.setPosition(detail.position.x, respawnY, detail.position.z);
@@ -991,11 +1036,16 @@ class RicochetGame {
     this.remotePlayerMesh.visible = false;
     this.scene.add(this.remotePlayerMesh);
 
+    this.glassCharacterSystem.applyGlassToRemoteMesh(this.remotePlayerMesh);
+    this.glassCharacterSystem.resetRemote();
+
     return this.remotePlayerMesh;
   }
 
   private applyAuthoritativeDamage(amount: number, hp: number): void {
     this.healthSystem?.takeDamage?.(amount);
+    this.healthSystem?.setHealth?.(hp);
+    this.glassCharacterSystem.setLocalHealth(hp);
 
     if (window.healthHUD) {
       window.healthHUD.takeDamage?.(amount);
@@ -1006,7 +1056,6 @@ class RicochetGame {
     if (healthValueEl) {
       healthValueEl.textContent = String(hp);
     }
-
   }
 
   private applyScoreMap(scores: ScoreMap): void {
@@ -1165,6 +1214,8 @@ class RicochetGame {
     if (this.weapon) {
       this.weapon.update(deltaTime * 1000);
     }
+
+    this.glassCharacterSystem.update(deltaTime);
 
     if (this.gameState === 'playing') {
       if (!this.isRespawning) {
