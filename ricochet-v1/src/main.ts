@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { InputManager } from './input-manager.js';
+import { PlayerController } from './player-controller.js';
 import { AKWeapon } from './weapon-ak';
 import { createBulletSystem } from './bullet-system.ts';
+import { WarehouseArena } from './arena-warehouse.js';
+import { ContainerYardArena } from './arena-containers.js';
 
 // Character definitions with unique looks and feels
 const CHARACTERS = [
@@ -32,12 +36,20 @@ class RicochetGame {
   private gameState: 'menu' | 'loading' | 'playing' = 'menu';
   private loader: GLTFLoader;
   private characterModels: Map<string, THREE.Group> = new Map();
+  private inputManager: InputManager;
+  private playerController: PlayerController;
   private weapon: AKWeapon | null = null;
+  private bulletSystem: any | null = null;
+  private warehouseArena: WarehouseArena;
+  private containerYardArena: ContainerYardArena;
+  private currentArena: 'warehouse' | 'container' = 'warehouse';
 
   constructor() {
     this.init();
     this.setupCharacterSelection();
     this.setupWeapon();
+    this.inputManager = new InputManager();
+    this.playerController = new PlayerController(this.camera, this.scene, this.inputManager);
   }
 
   private init() {
@@ -76,7 +88,7 @@ class RicochetGame {
     // Start render loop
     this.animate();
   }
-  
+
   private setupWeapon(): void {
     this.weapon = new AKWeapon(this.scene, this.camera);
     
@@ -169,6 +181,9 @@ class RicochetGame {
     // Initialize bullet system
     this.bulletSystem = createBulletSystem(this.scene);
     
+    // Enable player controller
+    this.playerController.enable();
+    
     this.gameState = 'playing';
     
     console.log(`Starting quick play with character: ${this.selectedCharacter}`);
@@ -183,7 +198,7 @@ class RicochetGame {
     
     // Copy to clipboard
     navigator.clipboard.writeText(inviteUrl).then(() => {
-      alert(`Invite link copied to clipboard!\\n\\nShare this link: ${inviteUrl}`);
+      alert(`Invite link copied to clipboard!\n\nShare this link: ${inviteUrl}`);
     });
   }
 
@@ -273,8 +288,6 @@ class RicochetGame {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
-  private bulletSystem: BulletSystem | null = null;
-
   private animate(deltaTime: number = 0.016) {
     requestAnimationFrame(() => this.animate());
     
@@ -291,6 +304,11 @@ class RicochetGame {
     // Update weapon system
     if (this.weapon) {
       this.weapon.update(deltaTime * 1000);
+    }
+    
+    // Update player controller
+    if (this.gameState === 'playing') {
+      this.playerController.update(deltaTime);
     }
     
     this.renderer.render(this.scene, this.camera);
