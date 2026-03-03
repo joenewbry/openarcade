@@ -391,6 +391,196 @@ export function getTilePalette(campaignId) {
   return TILE_PALETTES[campaignId] || TILE_PALETTES.coral_front;
 }
 
+// ── Wave Effects System ──
+// Manages boat wave animations that render ON TOP of water but BEHIND boat sprites
+
+// Spawn a new wave effect for a ship
+export function spawnWaveEffect(ship, type, offsetX = 0, offsetY = 0) {
+  // Limit to 3-4 wave effects per ship for performance
+  if (ship.waveEffects.length >= 4) {
+    // Remove oldest wave effect
+    ship.waveEffects.shift();
+  }
+  
+  const ts = TILE_SIZE;
+  const shipX = ship.col * ts + offsetX;
+  const shipY = ship.row * ts + offsetY;
+  
+  const waveEffect = {
+    type: type, // 'wake', 'splash', 'foam'
+    x: shipX,
+    y: shipY,
+    life: 60, // Fade out over 60 frames (1 second at 60fps)
+    maxLife: 60,
+    velocityX: Math.random() * 2 - 1, // Small random drift
+    velocityY: 1 + Math.random() * 2,  // Drift away from ship
+  };
+  
+  ship.waveEffects.push(waveEffect);
+}
+
+// Update wave effects lifecycle and position
+export function updateWaveEffects(tilemap, tick) {
+  for (const ship of tilemap.groundEnemySlots) {
+    if (ship.type !== 'ship' && ship.type !== 'battleship') continue;
+    
+    // Spawn new wave effects periodically
+    if (tick - ship.lastWaveSpawn > 30 + Math.random() * 30) {
+      // Spawn wake effect behind ship
+      const shipScale = ship.type === 'battleship' ? 3.5 : 2.2;
+      const shipHeight = TILE_SIZE * (shipScale * 0.8);
+      spawnWaveEffect(ship, 'wake', 0, shipHeight);
+      
+      // Occasionally spawn splash effects at ship sides
+      if (Math.random() < 0.3) {
+        const shipWidth = TILE_SIZE * shipScale;
+        spawnWaveEffect(ship, 'splash', -shipWidth * 0.4, shipHeight * 0.6);
+        spawnWaveEffect(ship, 'splash', shipWidth * 0.4, shipHeight * 0.6);
+      }
+      
+      // Spawn foam effects around ship
+      if (Math.random() < 0.4) {
+        spawnWaveEffect(ship, 'foam', 
+          (Math.random() - 0.5) * TILE_SIZE * 2, 
+          shipHeight + Math.random() * 20);
+      }
+      
+      ship.lastWaveSpawn = tick;
+    }
+    
+    // Update existing wave effects
+    for (let i = ship.waveEffects.length - 1; i >= 0; i--) {
+      const wave = ship.waveEffects[i];
+      wave.life--;
+      wave.x += wave.velocityX;
+      wave.y += wave.velocityY;
+      
+      // Remove expired waves
+      if (wave.life <= 0) {
+        ship.waveEffects.splice(i, 1);
+      }
+    }
+  }
+}
+
+// Draw wave effects at Z-index 400 (after ground enemies, before powerups)
+export function drawWaveEffects(renderer, tilemap, scrollY) {
+  const ts = TILE_SIZE;
+  
+  for (const ship of tilemap.groundEnemySlots) {
+    if (ship.type !== 'ship' && ship.type !== 'battleship') continue;
+    
+    for (const wave of ship.waveEffects) {
+      const screenX = wave.x;
+      const screenY = wave.y - scrollY;
+      
+      // Skip waves outside screen bounds
+      if (screenY > 1280 + 32 || screenY < -32) continue;
+      
+      // Calculate fade alpha (0 to 1 based on remaining life)
+      const alpha = Math.max(0, Math.min(1, wave.life / wave.maxLife));
+      
+      // Draw wave effect based on type
+      if (wave.type === 'wake') {
+        drawWakeEffect(renderer, screenX, screenY, alpha);
+      } else if (wave.type === 'splash') {
+        drawSplashEffect(renderer, screenX, screenY, alpha);
+      } else if (wave.type === 'foam') {
+        drawFoamEffect(renderer, screenX, screenY, alpha);
+      }
+    }
+  }
+}
+
+// Draw individual wave effect types with geometric patterns
+function drawWakeEffect(renderer, x, y, alpha) {
+  // V-shaped wake pattern (32x16px)
+  const fadeAlpha = (alpha * 0.8).toFixed(2);
+  const lightAlpha = (alpha * 0.4).toFixed(2);
+  
+  // Main V-shape
+  for (let i = 0; i < 8; i++) {
+    // Left side of V
+    renderer.fillRect(x + 8 - i, y + 8 + i, 2, 1, `rgba(255,255,255,${fadeAlpha})`);
+    // Right side of V
+    renderer.fillRect(x + 24 + i, y + 8 + i, 2, 1, `rgba(255,255,255,${fadeAlpha})`);
+  }
+  
+  // Lighter foam trails
+  for (let i = 0; i < 6; i++) {
+    renderer.fillRect(x + 10 - i, y + 10 + i, 1, 1, `rgba(255,255,255,${lightAlpha})`);
+    renderer.fillRect(x + 22 + i, y + 10 + i, 1, 1, `rgba(255,255,255,${lightAlpha})`);
+  }
+}
+
+function drawSplashEffect(renderer, x, y, alpha) {
+  // Circular splash pattern (32x16px)
+  const centerX = x + 16;
+  const centerY = y + 8;
+  
+  const outerAlpha = (alpha * 0.6).toFixed(2);
+  const innerAlpha = (alpha * 0.8).toFixed(2);
+  const coreAlpha = alpha.toFixed(2);
+  
+  // Outer splash ring
+  for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 8) {
+    const px = Math.floor(centerX + Math.cos(angle) * 7);
+    const py = Math.floor(centerY + Math.sin(angle) * 4);
+    renderer.fillRect(px, py, 2, 2, `rgba(255,255,255,${outerAlpha})`);
+  }
+  
+  // Middle ring
+  for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 6) {
+    const px = Math.floor(centerX + Math.cos(angle) * 4);
+    const py = Math.floor(centerY + Math.sin(angle) * 2);
+    renderer.fillRect(px, py, 2, 1, `rgba(255,255,255,${innerAlpha})`);
+  }
+  
+  // Center splash
+  renderer.fillRect(centerX - 1, centerY - 1, 3, 2, `rgba(255,255,255,${coreAlpha})`);
+}
+
+function drawFoamEffect(renderer, x, y, alpha) {
+  // Scattered foam pattern (32x16px)
+  const foamAlpha = (alpha * 0.9).toFixed(2);
+  const lightFoam = (alpha * 0.7).toFixed(2);
+  const speckleAlpha = (alpha * 0.5).toFixed(2);
+  
+  // Large foam patches
+  const patches = [
+    {x: x + 2, y: y + 2, w: 4, h: 3},
+    {x: x + 8, y: y + 1, w: 6, h: 2},
+    {x: x + 18, y: y + 3, w: 5, h: 4},
+    {x: x + 26, y: y + 1, w: 4, h: 3},
+    {x: x + 1, y: y + 8, w: 5, h: 3},
+    {x: x + 12, y: y + 10, w: 7, h: 4},
+    {x: x + 22, y: y + 9, w: 6, h: 4},
+  ];
+  
+  patches.forEach(patch => {
+    renderer.fillRect(patch.x, patch.y, patch.w, patch.h, `rgba(255,255,255,${foamAlpha})`);
+  });
+  
+  // Smaller foam dots
+  const dots = [
+    {x: x + 7, y: y + 5, w: 2, h: 2},
+    {x: x + 15, y: y + 1, w: 2, h: 1},
+    {x: x + 25, y: y + 6, w: 2, h: 2},
+    {x: x + 11, y: y + 7, w: 1, h: 2},
+  ];
+  
+  dots.forEach(dot => {
+    renderer.fillRect(dot.x, dot.y, dot.w, dot.h, `rgba(255,255,255,${lightFoam})`);
+  });
+  
+  // Fine foam speckles
+  for (let i = 0; i < 8; i++) {
+    const px = x + Math.floor(Math.random() * 32);
+    const py = y + Math.floor(Math.random() * 16);
+    renderer.fillRect(px, py, 1, 1, `rgba(255,255,255,${speckleAlpha})`);
+  }
+}
+
 // ── Campaign Tilemap Configs ──
 // Each campaign specifies map length. Longer maps = longer levels (F12).
 export const CAMPAIGN_MAP_ROWS = {

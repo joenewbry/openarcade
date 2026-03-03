@@ -6,7 +6,7 @@ import { ENEMIES, MINI_BOSSES, FINAL_BOSSES } from './content/enemies.js';
 import { getDialogue } from './content/dialogue.js';
 import { getSprite, colorForKey } from './content/sprites.js';
 import { MultiplayerManager } from './multiplayer.js';
-import { generateTilemap, drawTilemapLayer, drawGroundEnemies, getTilePalette, CAMPAIGN_MAP_ROWS, TILE_SIZE, MAP_COLS } from './content/tilemap.js';
+import { generateTilemap, drawTilemapLayer, drawGroundEnemies, getTilePalette, CAMPAIGN_MAP_ROWS, TILE_SIZE, MAP_COLS, updateWaveEffects, drawWaveEffects } from './content/tilemap.js';
 
 const W = 960;
 const H = 1280;
@@ -1120,11 +1120,44 @@ function activateBomb(state, game) {
     }
   }
 
-  // --- ARCADE-076: Bomb damages ground enemies too ---
+  // --- ARCADE-076: Bomb damages ground enemies and turrets ---
   for (const ge of state.groundEnemies) {
     if (ge.dead) continue;
-    ge.hp -= Math.ceil(ge.maxHp * 0.4); // 40% damage to ground targets
-    if (ge.hp <= 0) {
+    
+    if (ge.turrets) {
+      // Damage all turrets on ships
+      for (const turret of ge.turrets) {
+        if (!turret.destroyed) {
+          turret.hp -= Math.ceil(turret.maxHp * 0.6); // 60% damage to turrets
+          if (turret.hp <= 0) {
+            turret.destroyed = true;
+            turret.smokeTimer = 180;
+            state.score += turret.type === 'cannon' ? 300 : 200;
+            state.scorePops.push({
+              x: ge.col * TILE_SIZE + turret.x,
+              y: ge.row * TILE_SIZE + turret.y,
+              text: `+${turret.type === 'cannon' ? 300 : 200}`,
+              life: 30,
+            });
+          }
+        }
+      }
+    }
+    
+    // Damage hull/bunker
+    ge.hp -= Math.ceil(ge.maxHp * 0.4); // 40% damage to hull
+    
+    // Check if fully destroyed
+    if (ge.type === 'bunker' && ge.hp <= 0) {
+      ge.dead = true;
+      state.score += ge.score;
+      state.scorePops.push({
+        x: ge.col * TILE_SIZE + TILE_SIZE / 2,
+        y: ge.row * TILE_SIZE,
+        text: `+${ge.score}`, life: 30,
+      });
+    } else if (ge.turrets && ge.hp <= 0 && ge.turrets.every(t => t.destroyed)) {
+      // Ship destroyed when hull + all turrets destroyed
       ge.dead = true;
       state.score += ge.score;
       state.scorePops.push({
@@ -1364,6 +1397,11 @@ function getDebriefStory(campaignIndex) {
 function updateGame(state, game, input) {
   const player = state.player;
   state.tick += 1;
+
+  // Update wave effects for ships
+  const campaign = getCampaign(state.campaignIndex);
+  const tilemap = getOrCreateTilemap(campaign.id);
+  updateWaveEffects(tilemap, state.tick);
 
   // ARCADE-080: Debrief screen — pause gameplay, count down, allow skip
   if (state.debriefTimer > 0) {
@@ -1832,36 +1870,138 @@ function updateGame(state, game, input) {
         const b = state.bullets[bi];
         const bx = b.x + b.w / 2;
         const by = b.y + b.h / 2;
-        const hitDist = 32;
-        if (Math.abs(bx - screenX) < hitDist && Math.abs(by - screenY) < hitDist) {
-          ge.hp -= 1;
-          state.bullets.splice(bi, 1);
-          state.particles.push({
-            x: bx, y: by,
-            vx: rand(-2, 2), vy: rand(-3, 0),
-            life: 8, maxLife: 8,
-            color: '#ff8844', r: 4,
-          });
-          if (ge.hp <= 0) {
-            ge.dead = true;
-            state.score += ge.score;
-            state.scorePops.push({ x: screenX, y: screenY, text: `+${ge.score}`, life: 30 });
-            // Explosion particles
-            for (let p = 0; p < 12; p++) {
+        let bulletHit = false;
+
+        if (ge.type === 'bunker') {
+          // Simple bunker collision
+          const hitDist = 32;
+          if (Math.abs(bx - screenX) < hitDist && Math.abs(by - screenY) < hitDist) {
+            ge.hp -= 1;
+            bulletHit = true;
+            state.particles.push({
+              x: bx, y: by,
+              vx: rand(-2, 2), vy: rand(-3, 0),
+              life: 8, maxLife: 8,
+              color: '#ff8844', r: 4,
+            });
+            
+            if (ge.hp <= 0) {
+              ge.dead = true;
+              state.score += ge.score;
+              state.scorePops.push({ x: screenX, y: screenY, text: `+${ge.score}`, life: 30 });
+              // Explosion particles
+              for (let p = 0; p < 12; p++) {
+                state.particles.push({
+                  x: screenX + rand(-20, 20),
+                  y: screenY + rand(-20, 20),
+                  vx: rand(-4, 4), vy: rand(-4, 2),
+                  life: 18, maxLife: 18,
+                  color: ['#ff6644', '#ffaa22', '#ffffff'][Math.floor(Math.random() * 3)],
+                  r: rand(3, 8),
+                });
+              }
+              sfx.explode();
+              if (Math.random() < 0.25) {
+                spawnPowerup(state, screenX, screenY);
+              }
+            }
+          }
+        } else if (ge.turrets) {
+          // Check collision with individual turrets first
+          for (const turret of ge.turrets) {
+            if (turret.destroyed) continue;
+            
+            const turretX = screenX + turret.x;
+            const turretY = screenY + turret.y;
+            const turretHitDist = 18;
+            
+            if (Math.abs(bx - turretX) < turretHitDist && Math.abs(by - turretY) < turretHitDist) {
+              turret.hp -= 1;
+              bulletHit = true;
+              
+              // Hit particles
               state.particles.push({
-                x: screenX + rand(-20, 20),
-                y: screenY + rand(-20, 20),
-                vx: rand(-4, 4), vy: rand(-4, 2),
-                life: 18, maxLife: 18,
-                color: ['#ff6644', '#ffaa22', '#ffffff'][Math.floor(Math.random() * 3)],
-                r: rand(3, 8),
+                x: turretX, y: turretY,
+                vx: rand(-3, 3), vy: rand(-3, 0),
+                life: 10, maxLife: 10,
+                color: '#ffaa44', r: 3,
               });
+              
+              if (turret.hp <= 0 && !turret.destroyed) {
+                turret.destroyed = true;
+                turret.smokeTimer = 180; // 3 seconds of smoke
+                
+                // Turret destruction explosion
+                for (let p = 0; p < 8; p++) {
+                  state.particles.push({
+                    x: turretX + rand(-12, 12),
+                    y: turretY + rand(-12, 12),
+                    vx: rand(-4, 4), vy: rand(-4, 2),
+                    life: 15, maxLife: 15,
+                    color: ['#ff6644', '#ffaa22', '#ffffff'][Math.floor(Math.random() * 3)],
+                    r: rand(4, 8),
+                  });
+                }
+                
+                state.score += turret.type === 'cannon' ? 300 : 200;
+                state.scorePops.push({ 
+                  x: turretX, y: turretY, 
+                  text: `+${turret.type === 'cannon' ? 300 : 200}`, 
+                  life: 30 
+                });
+                sfx.explode();
+              }
+              break;
             }
-            sfx.explode();
-            // Chance to drop power-up
-            if (Math.random() < 0.25) {
-              spawnPowerup(state, screenX, screenY);
+          }
+          
+          // If no turret hit, check hull collision
+          if (!bulletHit) {
+            const hullHitDist = 35;
+            if (Math.abs(bx - screenX) < hullHitDist && Math.abs(by - screenY) < hullHitDist) {
+              ge.hp -= 1;
+              bulletHit = true;
+              state.particles.push({
+                x: bx, y: by,
+                vx: rand(-2, 2), vy: rand(-3, 0),
+                life: 8, maxLife: 8,
+                color: '#888888', r: 4,
+              });
+              
+              // Check if ship is destroyed (all turrets + hull destroyed)
+              const allTurretsDestroyed = ge.turrets.every(t => t.destroyed);
+              if (ge.hp <= 0 && allTurretsDestroyed) {
+                ge.dead = true;
+                state.score += ge.score;
+                state.scorePops.push({ x: screenX, y: screenY, text: `+${ge.score}`, life: 30 });
+                
+                // Massive ship explosion
+                for (let p = 0; p < 20; p++) {
+                  state.particles.push({
+                    x: screenX + rand(-40, 40),
+                    y: screenY + rand(-30, 30),
+                    vx: rand(-6, 6), vy: rand(-5, 3),
+                    life: rand(20, 35), maxLife: rand(20, 35),
+                    color: ['#ff4444', '#ffaa22', '#ffffff', '#ff8844'][Math.floor(Math.random() * 4)],
+                    r: rand(6, 12),
+                  });
+                }
+                sfx.explode();
+                
+                // Guaranteed power-up drop for destroying full ship
+                if (Math.random() < 0.4) {
+                  spawnPowerup(state, screenX, screenY);
+                }
+              }
             }
+          }
+        }
+        
+        if (bulletHit) {
+          if (b.pierce > 0) {
+            b.pierce -= 1;
+          } else {
+            state.bullets.splice(bi, 1);
           }
           break;
         }
@@ -2109,6 +2249,10 @@ function drawBackground(renderer, campaign, flashTimer, tick) {
 
   // Draw ground enemies (bunkers, ships) attached to terrain scroll
   drawGroundEnemies(renderer, null, tilemap, palette, terrainScrollY, tick);
+
+  // ── Z-index 400: Wave Effects ──
+  // Draw boat wave animations ON TOP of water tiles but BEHIND boat sprites
+  drawWaveEffects(renderer, tilemap, terrainScrollY);
 
   // Layer 2: Enhanced geometric shadow layer — cloud shadows with clean patterns
   const shadowH = 1000;
@@ -2722,19 +2866,95 @@ export function createGame() {
         const screenY = ge.row * TILE_SIZE - terrainScrollY;
         if (screenY < -TILE_SIZE * 2 || screenY > H + TILE_SIZE) continue;
 
-        // HP bar for damaged ground enemies
-        if (ge.hp < ge.maxHp) {
-          const barW = TILE_SIZE - 8;
-          const hpPct = ge.hp / ge.maxHp;
-          renderer.fillRect(screenX + 4, screenY - 10, barW, 5, '#2f3148');
-          renderer.fillRect(screenX + 4, screenY - 10, Math.floor(barW * hpPct), 5,
-            ge.type === 'bunker' ? '#ff8844' : '#ffcc44');
-        }
+        if (ge.type === 'bunker') {
+          // HP bar for damaged bunkers
+          if (ge.hp < ge.maxHp) {
+            const barW = TILE_SIZE - 8;
+            const hpPct = ge.hp / ge.maxHp;
+            renderer.fillRect(screenX + 4, screenY - 10, barW, 5, '#2f3148');
+            renderer.fillRect(screenX + 4, screenY - 10, Math.floor(barW * hpPct), 5, '#ff8844');
+          }
 
-        // Hit flash effect
-        if (ge.hp < ge.maxHp && ge.hp > 0 && state.tick % 4 < 2) {
-          renderer.fillRect(screenX + 4, screenY + 4, TILE_SIZE - 8, TILE_SIZE - 8,
-            'rgba(255,255,255,0.15)');
+          // Hit flash effect for bunkers
+          if (ge.hp < ge.maxHp && ge.hp > 0 && state.tick % 4 < 2) {
+            renderer.fillRect(screenX + 4, screenY + 4, TILE_SIZE - 8, TILE_SIZE - 8,
+              'rgba(255,255,255,0.15)');
+          }
+        } else if (ge.turrets) {
+          // Draw individual turrets on ships
+          for (const turret of ge.turrets) {
+            const turretX = screenX + turret.x;
+            const turretY = screenY + turret.y;
+            const turretSize = 16;
+            
+            if (turret.destroyed) {
+              // Draw destroyed turret sprite
+              if (renderer.hasSpriteTexture('turret-destroyed')) {
+                renderer.drawSprite('turret-destroyed', turretX - turretSize/2, turretY - turretSize/2, turretSize, turretSize, 1);
+              } else {
+                drawPixelSprite(renderer, 'turret_destroyed', turretX - turretSize/2, turretY - turretSize/2, 2, '#664422', 1);
+              }
+              
+              // Smoke effects
+              if (turret.smokeTimer > 0) {
+                turret.smokeTimer--;
+                if (state.tick % 8 === 0) {
+                  state.particles.push({
+                    x: turretX + rand(-4, 4),
+                    y: turretY - 8 + rand(-4, 4),
+                    vx: rand(-0.5, 0.5),
+                    vy: rand(-1.5, -0.5),
+                    life: 20, maxLife: 20,
+                    color: '#444444', r: rand(2, 4),
+                  });
+                }
+              }
+            } else {
+              // Draw active turret
+              const spriteName = turret.type === 'cannon' ? 'turret-cannon' : 'turret-small';
+              if (renderer.hasSpriteTexture(spriteName)) {
+                renderer.drawSprite(spriteName, turretX - turretSize/2, turretY - turretSize/2, turretSize, turretSize, 1);
+              } else {
+                const fallbackSprite = turret.type === 'cannon' ? 'turret_cannon' : 'turret_small';
+                drawPixelSprite(renderer, fallbackSprite, turretX - turretSize/2, turretY - turretSize/2, 2, '#888888', 1);
+              }
+              
+              // HP bar for damaged turrets
+              if (turret.hp < turret.maxHp) {
+                const barW = 20;
+                const hpPct = turret.hp / turret.maxHp;
+                renderer.fillRect(turretX - barW/2, turretY - 20, barW, 3, '#2f3148');
+                renderer.fillRect(turretX - barW/2, turretY - 20, Math.floor(barW * hpPct), 3, 
+                  turret.type === 'cannon' ? '#ffaa44' : '#ff8844');
+              }
+              
+              // Targeting indicators (gun barrels pointing at player)
+              if (!state.dialogue && screenY > 0 && screenY < H && turret.fireTimer < 20) {
+                const dx = (player.x + player.w / 2) - turretX;
+                const dy = (player.y + player.h / 2) - turretY;
+                const angle = Math.atan2(dy, dx);
+                const barrelLen = 12;
+                const ex = turretX + Math.cos(angle) * barrelLen;
+                const ey = turretY + Math.sin(angle) * barrelLen;
+                renderer.fillRect(Math.min(turretX, ex), Math.min(turretY, ey), 
+                  Math.abs(ex - turretX) + 2, Math.abs(ey - turretY) + 2, '#333333');
+              }
+            }
+          }
+          
+          // Ship hull HP bar
+          if (ge.hp < ge.maxHp) {
+            const barW = TILE_SIZE * 2;
+            const hpPct = ge.hp / ge.maxHp;
+            renderer.fillRect(screenX - 20, screenY - 15, barW, 6, '#2f3148');
+            renderer.fillRect(screenX - 20, screenY - 15, Math.floor(barW * hpPct), 6, '#66aaff');
+          }
+          
+          // Ship hit flash effect  
+          if (ge.hp < ge.maxHp && ge.hp > 0 && state.tick % 6 < 3) {
+            renderer.fillRect(screenX - 20, screenY + 8, TILE_SIZE * 2, TILE_SIZE - 16,
+              'rgba(255,255,255,0.1)');
+          }
         }
       }
     }
