@@ -171,11 +171,30 @@ export function generateTilemap(campaignId, mapRows = 120) {
     const col = 1 + Math.floor(rng() * (MAP_COLS - 3));
     // Only place ships on water tiles
     if (terrainLayer[row][col] === 0) {
-      groundEnemySlots.push({
+      const shipType = rng() < 0.4 ? 'battleship' : 'ship';
+      const slot = {
         col,
         row,
-        type: rng() < 0.4 ? 'battleship' : 'ship', // battleship = 3 turrets
-      });
+        type: shipType,
+        waveEffects: [], // Array to store wave effects for this ship
+        lastWaveSpawn: 0, // Timer to control wave spawning frequency
+      };
+
+      // Add turrets for ships
+      if (shipType === 'battleship') {
+        slot.turrets = [
+          { x: 16, y: 8, type: 'cannon', hp: 30 },
+          { x: 48, y: 8, type: 'cannon', hp: 30 },
+          { x: 32, y: 24, type: 'small', hp: 20 }
+        ];
+      } else if (shipType === 'ship') {
+        slot.turrets = [
+          { x: 24, y: 12, type: 'small', hp: 20 },
+          { x: 40, y: 12, type: 'small', hp: 20 }
+        ];
+      }
+
+      groundEnemySlots.push(slot);
     }
   }
 
@@ -331,7 +350,7 @@ export function drawGroundEnemies(renderer, text, tilemap, palette, scrollY, tic
       renderer.fillRect(Math.min(cx, ex), Math.min(cy, ey),
         Math.abs(ex - cx) + 3, Math.abs(ey - cy) + 3, '#333');
     } else if (slot.type === 'ship' || slot.type === 'battleship') {
-      // Larger naval vessels with multiple turrets
+      // Larger naval vessels with destroyable turrets
       const shipScale = slot.type === 'battleship' ? 3.5 : 2.2;
       const sx = screenX - (ts * 0.3); // Center larger ships
       const sy = screenY;
@@ -353,35 +372,6 @@ export function drawGroundEnemies(renderer, text, tilemap, palette, scrollY, tic
       // Bow (pointed front)
       renderer.fillRect(sx + sw / 2 - 8, sy - 6, 16, 14, '#4a4a4a');
       renderer.fillRect(sx + sw / 2 - 4, sy - 10, 8, 10, '#4a4a4a');
-
-      // Enhanced turrets with more detail
-      const turretCount = slot.type === 'battleship' ? 4 : 2;
-      for (let t = 0; t < turretCount; t++) {
-        const spacing = sh / (turretCount + 1);
-        const ty = sy + 20 + t * spacing;
-        const tx = sx + sw / 2 + (t % 2 === 0 ? -16 : 16); // Staggered positions
-        
-        // Larger turret base
-        renderer.fillRect(tx - 12, ty - 12, 24, 24, '#3a3a3a');
-        renderer.fillRect(tx - 10, ty - 10, 20, 20, '#4a4a4a');
-        
-        // Twin gun barrels
-        const angle = Math.sin(tick * 0.02 + slot.col + t * 1.5) * Math.PI * 0.3;
-        const barrelLen = 18;
-        const gunOffset = 3;
-        
-        // Gun barrel 1
-        const ex1 = tx - gunOffset + Math.sin(angle) * barrelLen;
-        const ey1 = ty + Math.cos(angle) * barrelLen;
-        renderer.fillRect(Math.min(tx - gunOffset, ex1), Math.min(ty, ey1),
-          Math.abs(ex1 - (tx - gunOffset)) + 3, Math.abs(ey1 - ty) + 3, '#2a2a2a');
-        
-        // Gun barrel 2  
-        const ex2 = tx + gunOffset + Math.sin(angle) * barrelLen;
-        const ey2 = ty + Math.cos(angle) * barrelLen;
-        renderer.fillRect(Math.min(tx + gunOffset, ex2), Math.min(ty, ey2),
-          Math.abs(ex2 - (tx + gunOffset)) + 3, Math.abs(ey2 - ty) + 3, '#2a2a2a');
-      }
 
       // Enhanced wake effects
       const wakeW = sw * 0.6;

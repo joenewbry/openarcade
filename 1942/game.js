@@ -1692,21 +1692,58 @@ function updateGame(state, game, input) {
       // Activate when scrolling into view
       if (screenY > -TILE_SIZE && screenY < H + TILE_SIZE) {
         state.groundEnemiesSpawned.add(slotKey);
-        const turretCount = slot.type === 'battleship' ? 3 : 1;
-        state.groundEnemies.push({
-          slotIndex: i,
-          type: slot.type,
-          col: slot.col,
-          row: slot.row,
-          hp: slot.type === 'bunker' ? 15 : (slot.type === 'battleship' ? 40 : 25),
-          maxHp: slot.type === 'bunker' ? 15 : (slot.type === 'battleship' ? 40 : 25),
-          turretCount,
-          fireTimer: Math.floor(rand(30, 80)),
-          fireRate: slot.type === 'bunker' ? 70 : 55,
-          bulletSpeed: 2.8,
-          score: slot.type === 'bunker' ? 500 : (slot.type === 'battleship' ? 1500 : 800),
-          dead: false,
-        });
+        
+        if (slot.type === 'bunker') {
+          // Bunkers remain simple single entities
+          state.groundEnemies.push({
+            slotIndex: i,
+            type: slot.type,
+            col: slot.col,
+            row: slot.row,
+            hp: 15,
+            maxHp: 15,
+            fireTimer: Math.floor(rand(30, 80)),
+            fireRate: 70,
+            bulletSpeed: 2.8,
+            score: 500,
+            dead: false,
+          });
+        } else {
+          // Ships have destroyable turrets + hull
+          const ship = {
+            slotIndex: i,
+            type: slot.type,
+            col: slot.col,
+            row: slot.row,
+            hp: slot.type === 'battleship' ? 60 : 40,
+            maxHp: slot.type === 'battleship' ? 60 : 40,
+            fireTimer: Math.floor(rand(30, 80)),
+            fireRate: 80,
+            bulletSpeed: 2.8,
+            score: slot.type === 'battleship' ? 2000 : 1200,
+            dead: false,
+            turrets: [],
+          };
+
+          // Create individual turrets
+          if (slot.turrets) {
+            for (const turretDef of slot.turrets) {
+              ship.turrets.push({
+                x: turretDef.x,
+                y: turretDef.y,
+                type: turretDef.type,
+                hp: turretDef.hp,
+                maxHp: turretDef.hp,
+                fireTimer: Math.floor(rand(20, 60)),
+                fireRate: turretDef.type === 'cannon' ? 90 : 70,
+                destroyed: false,
+                smokeTimer: 0,
+              });
+            }
+          }
+
+          state.groundEnemies.push(ship);
+        }
       }
     }
 
@@ -1723,30 +1760,71 @@ function updateGame(state, game, input) {
         continue;
       }
 
-      ge.fireTimer -= 1;
-      if (ge.fireTimer <= 0 && !state.dialogue && screenY > 0 && screenY < H) {
-        // Fire aimed shots at player
-        const dx = (player.x + player.w / 2) - screenX;
-        const dy = (player.y + player.h / 2) - screenY;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const bSpeed = ge.bulletSpeed;
-
-        for (let t = 0; t < ge.turretCount; t++) {
-          // Spread turret shots slightly
-          const spread = ge.turretCount > 1 ? (t - (ge.turretCount - 1) / 2) * 0.15 : 0;
-          const angle = Math.atan2(dy, dx) + spread;
+      // Handle firing - bunkers and ship turrets fire independently
+      if (ge.type === 'bunker') {
+        ge.fireTimer -= 1;
+        if (ge.fireTimer <= 0 && !state.dialogue && screenY > 0 && screenY < H) {
+          // Fire aimed shots at player
+          const dx = (player.x + player.w / 2) - screenX;
+          const dy = (player.y + player.h / 2) - screenY;
+          const angle = Math.atan2(dy, dx);
           state.enemyBullets.push({
             x: screenX - 6,
             y: screenY,
             w: 10,
             h: 10,
-            vx: Math.cos(angle) * bSpeed,
-            vy: Math.sin(angle) * bSpeed,
-            color: ge.type === 'bunker' ? '#ff6644' : '#ffaa22',
+            vx: Math.cos(angle) * ge.bulletSpeed,
+            vy: Math.sin(angle) * ge.bulletSpeed,
+            color: '#ff6644',
           });
+          ge.fireTimer = ge.fireRate + rand(-10, 10);
+          if (Math.random() < 0.3) sfx.enemyShoot();
         }
-        ge.fireTimer = ge.fireRate + rand(-10, 10);
-        if (Math.random() < 0.3) sfx.enemyShoot();
+      } else if (ge.turrets) {
+        // Ship turrets fire individually
+        for (const turret of ge.turrets) {
+          if (turret.destroyed) continue;
+          
+          turret.fireTimer -= 1;
+          if (turret.fireTimer <= 0 && !state.dialogue && screenY > 0 && screenY < H) {
+            const turretX = screenX + turret.x;
+            const turretY = screenY + turret.y;
+            const dx = (player.x + player.w / 2) - turretX;
+            const dy = (player.y + player.h / 2) - turretY;
+            const angle = Math.atan2(dy, dx);
+            
+            // Different bullet patterns for different turret types
+            if (turret.type === 'cannon') {
+              // Twin shots from cannon turrets
+              const spread = 0.1;
+              for (let s = -1; s <= 1; s += 2) {
+                state.enemyBullets.push({
+                  x: turretX - 8 + s * 6,
+                  y: turretY - 8,
+                  w: 12,
+                  h: 12,
+                  vx: Math.cos(angle + s * spread) * ge.bulletSpeed,
+                  vy: Math.sin(angle + s * spread) * ge.bulletSpeed,
+                  color: '#ffaa22',
+                });
+              }
+            } else {
+              // Single shot from small turrets
+              state.enemyBullets.push({
+                x: turretX - 6,
+                y: turretY - 6,
+                w: 10,
+                h: 10,
+                vx: Math.cos(angle) * ge.bulletSpeed,
+                vy: Math.sin(angle) * ge.bulletSpeed,
+                color: '#ff8844',
+              });
+            }
+            
+            turret.fireTimer = turret.fireRate + rand(-10, 10);
+            if (Math.random() < 0.25) sfx.enemyShoot();
+          }
+        }
       }
 
       // Check player bullets hitting ground enemies
@@ -2032,16 +2110,28 @@ function drawBackground(renderer, campaign, flashTimer, tick) {
   // Draw ground enemies (bunkers, ships) attached to terrain scroll
   drawGroundEnemies(renderer, null, tilemap, palette, terrainScrollY, tick);
 
-  // Layer 2: Shadow effects — subtle moving shadows for realism
-  const shadowH = 800;
+  // Layer 2: Enhanced geometric shadow layer — cloud shadows with clean patterns
+  const shadowH = 1000;
   const shadowOffset = (tick * 0.8) % shadowH;
-  for (let s = 0; s < 4; s++) {
-    const sx = (s * 240) + Math.sin(tick * 0.01 + s) * 50;
-    const sy = (s * shadowH / 4) + shadowOffset - shadowH;
-    const sw = 150 + Math.sin(tick * 0.008 + s * 2) * 30;
-    const sh = 80 + Math.cos(tick * 0.012 + s * 1.5) * 20;
-    const alpha = 0.12 + Math.sin(tick * 0.006 + s) * 0.04;
-    renderer.fillRect(sx, sy, sw, sh, `rgba(0,0,0,${alpha.toFixed(3)})`);
+  
+  // Main cloud shadows - geometric shapes
+  for (let s = 0; s < 3; s++) {
+    const baseX = s * 320 + Math.sin(tick * 0.008 + s) * 60;
+    const baseY = s * shadowH / 3 + shadowOffset - shadowH;
+    const alpha = 0.08 + Math.sin(tick * 0.004 + s * 2) * 0.03;
+    
+    // Geometric cloud shadow - stepped hexagonal shape
+    drawGeometricShadow(renderer, baseX, baseY, 180 + s * 40, alpha, s);
+  }
+  
+  // Secondary atmospheric shadows - thinner, faster
+  for (let s = 0; s < 2; s++) {
+    const fx = 100 + s * 400 + Math.sin(tick * 0.015 + s * 3) * 80;
+    const fy = s * shadowH / 2 + shadowOffset * 1.3 - shadowH;
+    const alpha = 0.04 + Math.sin(tick * 0.01 + s * 1.5) * 0.02;
+    
+    // Thin geometric wisps
+    drawGeometricWisp(renderer, fx, fy, 250, alpha);
   }
 
   if (flashTimer > 0) {
@@ -2871,6 +2961,92 @@ export function createGame() {
     updateAndDrawScorePops(text, state);
     drawUI(renderer, text, state);
   };
+
+  // ── Enhanced Geometric Shadow Functions ──
+
+  function drawGeometricShadow(renderer, x, y, size, alpha, shapeIndex) {
+    const shadowColor = `rgba(0,0,0,${alpha.toFixed(3)})`;
+    
+    switch (shapeIndex % 3) {
+      case 0: // Stepped hexagonal cloud
+        const steps = 4;
+        const stepW = size / steps;
+        const stepH = 20;
+        for (let i = 0; i < steps; i++) {
+          const stepAlpha = alpha * (0.7 + i * 0.1);
+          const sw = stepW * (1 + Math.sin(i * 0.8) * 0.3);
+          renderer.fillRect(
+            x + i * stepW + Math.sin(i) * 10, 
+            y + i * 6, 
+            sw, 
+            stepH + i * 8, 
+            `rgba(0,0,0,${stepAlpha.toFixed(3)})`
+          );
+        }
+        break;
+        
+      case 1: // Angular diamond pattern
+        const centerX = x + size / 2;
+        const centerY = y + 40;
+        for (let ring = 0; ring < 3; ring++) {
+          const ringSize = 30 + ring * 25;
+          const ringAlpha = alpha * (1 - ring * 0.25);
+          renderer.fillPoly([
+            { x: centerX, y: centerY - ringSize },
+            { x: centerX + ringSize * 0.6, y: centerY },
+            { x: centerX, y: centerY + ringSize },
+            { x: centerX - ringSize * 0.6, y: centerY }
+          ], `rgba(0,0,0,${ringAlpha.toFixed(3)})`);
+        }
+        break;
+        
+      case 2: // Rectangular strip formation
+        const strips = 5;
+        const stripW = size / strips;
+        for (let s = 0; s < strips; s++) {
+          const stripAlpha = alpha * (0.8 + Math.sin(s * 1.2) * 0.2);
+          const stripH = 25 + s * 8;
+          renderer.fillRect(
+            x + s * stripW + s * 5,
+            y + Math.sin(s * 0.6) * 15,
+            stripW - 3,
+            stripH,
+            `rgba(0,0,0,${stripAlpha.toFixed(3)})`
+          );
+        }
+        break;
+    }
+  }
+
+  function drawGeometricWisp(renderer, x, y, length, alpha) {
+    const segments = 6;
+    const segmentW = length / segments;
+    
+    for (let i = 0; i < segments; i++) {
+      const segAlpha = alpha * (1 - i * 0.1) * (0.7 + Math.sin(i * 1.5) * 0.3);
+      const segH = 8 + Math.sin(i * 0.8) * 6;
+      const segY = y + Math.sin(i * 0.4) * 20;
+      
+      renderer.fillRect(
+        x + i * segmentW,
+        segY,
+        segmentW - 2,
+        segH,
+        `rgba(0,0,0,${segAlpha.toFixed(3)})`
+      );
+      
+      // Add geometric accent lines
+      if (i % 2 === 0) {
+        renderer.fillRect(
+          x + i * segmentW,
+          segY - 3,
+          segmentW * 0.3,
+          2,
+          `rgba(0,0,0,${(segAlpha * 0.5).toFixed(3)})`
+        );
+      }
+    }
+  }
 
   game.start();
 }
