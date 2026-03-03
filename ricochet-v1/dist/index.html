@@ -213,7 +213,45 @@
       font-size: 1.2rem;
       text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
     }
+
+    #hud .hud-divider {
+      margin: 8px 0;
+      height: 1px;
+      width: 260px;
+      background: rgba(255, 255, 255, 0.2);
+      opacity: 0.6;
+    }
+
+    #smoke-status {
+      margin-top: 6px;
+      font-size: 0.9rem;
+      color: #d8dfff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+      opacity: 0.95;
+    }
     
+    #smoke-vision-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 68;
+      opacity: 0;
+      --smoke-strength: 0;
+      background: radial-gradient(
+        circle at center,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(18, 18, 18, 0.18) 38%,
+        rgba(0, 0, 0, 0.82) 74%,
+        rgba(0, 0, 0, 0.96) 100%
+      );
+      transition: opacity 110ms linear;
+      filter: blur(3.8px) contrast(1.2);
+    }
+
+    #smoke-vision-overlay.smoke-active {
+      opacity: var(--smoke-strength);
+    }
+
     #canvas {
       display: block;
     }
@@ -359,9 +397,9 @@
       letter-spacing: 0.04em;
     }
   </style>
-  <script type="module" crossorigin src="./assets/index-Darv8k6-.js"></script>
-  <link rel="modulepreload" crossorigin href="./assets/three-kTVWOhrW.js">
-  <link rel="stylesheet" crossorigin href="./assets/index-DyMdc2Rc.css">
+  <script type="module" crossorigin src="/assets/index-RiZ6Yppv.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/three-Co1PRZlI.js">
+  <link rel="stylesheet" crossorigin href="/assets/index-DyMdc2Rc.css">
 </head>
 <body>
   <div id="game-container">
@@ -370,8 +408,11 @@
     <div id="hud" style="display: none;">
       <div>Health: <span id="health">1/1 (ONE SHOT)</span></div>
       <div>Score: <span id="score">0-0</span></div>
+      <div class="hud-divider"></div>
+      <div id="smoke-status">Smoke: READY</div>
     </div>
 
+    <div id="smoke-vision-overlay" aria-hidden="true"></div>
     <div id="crosshair" aria-hidden="true"></div>
     <div id="pointer-lock-hint">Click to capture mouse • WASD / Arrow Keys to move</div>
 
@@ -431,7 +472,7 @@
         <p id="menu-invite-hint" class="menu-hint"></p>
 
         <p style="color: #ccc; margin-top: 2rem; font-size: 0.9rem;">
-          Controls: LMB paint splash, RMB bouncing paint ball, Q to quit to menu, M to swap arenas.
+          Controls: LMB paint splash, RMB bouncing paint ball, G throws smoke grenade, Q to quit to menu, M to swap arenas.
         </p>
       </div>
 

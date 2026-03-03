@@ -22,6 +22,7 @@ import { NetworkClient } from './network/network-client.ts';
 import { NetworkState } from './network/network-state.ts';
 import { LobbySystem } from './lobby-system.ts';
 import { GlassCharacterSystem } from './glass-character-system.ts';
+import { SmokeGrenadeSystem } from './smoke-grenade-system.ts';
 import type {
   NetServerMessage,
   PlayerTransform,
@@ -85,6 +86,7 @@ class RicochetGame {
   private smokeVisionOverlay: HTMLDivElement | null = null;
   private firstPersonBodyProxy: THREE.Group | null = null;
   private glassCharacterSystem: GlassCharacterSystem;
+  private smokeGrenadeSystem: SmokeGrenadeSystem;
   private respawnSystem = createRespawnSystem({ respawnDelayMs: 5000, arena: 'warehouse' });
   private isRespawning = false;
 
@@ -137,6 +139,7 @@ class RicochetGame {
     this.keyBindingManager = new KeyBindingManager();
     this.inputManager = new InputManager();
     this.glassCharacterSystem = new GlassCharacterSystem(this.scene, this.camera);
+    this.smokeGrenadeSystem = new SmokeGrenadeSystem(this.scene);
     this.playerController = new PlayerController(
       this.camera,
       this.scene,
@@ -148,7 +151,6 @@ class RicochetGame {
     });
 
     this.keybindsPanel = new KeybindsPanel(this.keyBindingManager);
-
     this.lobbySystem = new LobbySystem({
       pendingInviteId: this.pendingInviteId,
       onRetry: () => {
@@ -167,6 +169,7 @@ class RicochetGame {
 
     this.setupArenaControls();
     this.setupNetworkStatusUI();
+    this.setupSmokeHud();
     this.setupRespawnHooks();
     this.setupMatchHooks();
     this.setupReplayUI();
@@ -326,24 +329,25 @@ class RicochetGame {
 
     document.addEventListener('keydown', (event) => {
       if (event.repeat) return;
-
       if (this.gameState !== 'playing' || this.isRespawning) return;
 
       const bindings = this.keyBindingManager.getBindings();
 
-      if (!this.weapon) return;
-
-      if (this.inputManager.isActionActive('reload', bindings)) {
+      if (this.weapon && this.inputManager.isActionActive('reload', bindings)) {
         this.weapon.triggerReload();
         return;
       }
 
-      if (this.inputManager.isActionActive('throwSmoke', bindings) && this.bulletSystem) {
+      if (
+        this.inputManager.isActionActive('throwSmoke', bindings)
+        && this.inputManager?.isPointerLocked()
+        && this.bulletSystem
+      ) {
+        event.preventDefault();
         const origin = new THREE.Vector3();
         const direction = new THREE.Vector3();
         this.camera.getWorldPosition(origin);
         this.camera.getWorldDirection(direction);
-
         this.deploySmoke(origin, direction);
       }
     });
@@ -799,6 +803,7 @@ class RicochetGame {
     }
     this.glassCharacterSystem.resetRemote();
     this.glassCharacterSystem.resetLocal();
+    this.smokeGrenadeSystem.clear();
 
     const menuOverlay = document.getElementById('menu-overlay');
     const hud = document.getElementById('hud');
@@ -1010,6 +1015,7 @@ class RicochetGame {
     }
     this.glassCharacterSystem.resetRemote();
     this.glassCharacterSystem.resetLocal();
+    this.smokeGrenadeSystem.clear();
 
     const menuOverlay = document.getElementById('menu-overlay');
     const hud = document.getElementById('hud');
@@ -1069,6 +1075,7 @@ class RicochetGame {
 
     this.gameState = 'loading';
     this.isRespawning = false;
+    this.smokeGrenadeSystem.clear();
 
     this.clearDummyTargets();
     await this.loadCharacter(selectedCharacter);
@@ -1319,6 +1326,12 @@ class RicochetGame {
       : 'Offline mode';
 
     hud.appendChild(this.networkStatusEl);
+  }
+
+  private setupSmokeHud(): void {
+    const statusEl = document.getElementById('smoke-status');
+    const overlayEl = document.getElementById('smoke-vision-overlay');
+    this.smokeGrenadeSystem.bindHud(statusEl, overlayEl);
   }
 
   private setupRespawnHooks(): void {
@@ -2261,6 +2274,36 @@ class RicochetGame {
 
     mesh.position.lerp(target, 0.35);
     mesh.rotation.y = remote.transform.yaw;
+    this.applyRemoteSmokeOcclusion(mesh);
+  }
+
+  private applyRemoteSmokeOcclusion(mesh: THREE.Mesh): void {
+    const from = new THREE.Vector3();
+    this.camera.getWorldPosition(from);
+
+    const to = mesh.position.clone();
+    to.y += 0.9;
+
+    const visibility = this.smokeGrenadeSystem.getLineVisibilityMultiplier(from, to);
+
+    const applyMaterialOpacity = (material: THREE.Material): void => {
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+
+      const baseline = typeof material.userData.smokeBaseOpacity === 'number'
+        ? material.userData.smokeBaseOpacity
+        : material.opacity;
+
+      material.userData.smokeBaseOpacity = baseline;
+      material.transparent = true;
+      material.opacity = THREE.MathUtils.clamp(baseline * visibility, 0.08, 1);
+    };
+
+    if (Array.isArray(mesh.material)) {
+      mesh.material.forEach(applyMaterialOpacity);
+      return;
+    }
+
+    applyMaterialOpacity(mesh.material);
   }
 
   private resolveWsUrl(): string {
@@ -2281,6 +2324,7 @@ class RicochetGame {
       arenaNameElement.textContent = this.currentArena === 'warehouse' ? 'WAREHOUSE' : 'CONTAINER YARD';
     }
 
+    this.smokeGrenadeSystem.clear();
     await this.loadCurrentArena();
     this.setupStaticDummyTargets();
     this.respawnSystem.setArena(this.currentArena);
@@ -2325,6 +2369,7 @@ class RicochetGame {
     }
 
     this.glassCharacterSystem.update(deltaTime);
+    this.smokeGrenadeSystem.update(deltaTime, this.camera);
 
     let weaponState: PlayerMovementState | undefined;
 
