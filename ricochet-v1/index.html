@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RICOCHET - 1v1 Arena Shooter</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      font-family: 'Arial', sans-serif;
+      overflow: hidden;
+    }
+    
+    #game-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+    
+    #menu-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+    
+    .menu-title {
+      color: #fff;
+      font-size: 4rem;
+      font-weight: bold;
+      text-shadow: 0 4px 8px rgba(0,0,0,0.5);
+      margin-bottom: 2rem;
+      background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1);
+      background-size: 300% 300%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: gradient 3s ease infinite;
+    }
+    
+    @keyframes gradient {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    
+    .character-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      margin: 2rem 0;
+      max-width: 800px;
+    }
+    
+    .character-card {
+      background: rgba(255, 255, 255, 0.1);
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 15px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-align: center;
+    }
+    
+    .character-card:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.6);
+      transform: translateY(-5px);
+    }
+    
+    .character-card.selected {
+      border-color: #4ecdc4;
+      background: rgba(78, 205, 196, 0.2);
+    }
+    
+    .character-name {
+      color: #fff;
+      font-size: 1.2rem;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    
+    .character-preview {
+      width: 100px;
+      height: 100px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 0.8rem;
+    }
+    
+    .game-buttons {
+      display: flex;
+      gap: 20px;
+      margin-top: 2rem;
+    }
+    
+    .game-button {
+      padding: 15px 30px;
+      font-size: 1.2rem;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: bold;
+    }
+    
+    .play-button {
+      background: linear-gradient(45deg, #4ecdc4, #45b7d1);
+      color: white;
+    }
+    
+    .invite-button {
+      background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+      color: white;
+    }
+    
+    .game-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+    }
+    
+    .game-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    
+    #hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: white;
+      z-index: 50;
+      font-size: 1.2rem;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    }
+    
+    #canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="canvas"></canvas>
+    
+    <div id="hud" style="display: none;">
+      <div>Health: <span id="health">100</span></div>
+      <div>Ammo: <span id="ammo">30</span></div>
+      <div>Score: <span id="score">0-0</span></div>
+    </div>
+    
+    <div id="menu-overlay">
+      <h1 class="menu-title">RICOCHET</h1>
+      <p style="color: #fff; font-size: 1.2rem; margin-bottom: 2rem;">Choose Your Fighter</p>
+      
+      <div class="character-grid" id="character-grid">
+        <!-- Characters will be populated by JavaScript -->
+      </div>
+      
+      <div class="game-buttons">
+        <button class="game-button play-button" id="quick-play">Quick Play</button>
+        <button class="game-button invite-button" id="invite-friend">Invite Friend</button>
+      </div>
+      
+      <p style="color: #ccc; margin-top: 2rem; font-size: 0.9rem;">
+        Every bullet bounces! Master the angles, control the arena.
+      </p>
+    </div>
+  </div>
+  
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

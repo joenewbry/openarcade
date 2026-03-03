@@ -6,6 +6,7 @@
 - [Wave-by-Wave Visual Review](#wave-by-wave-visual-review)
 - [Asset Gallery](#asset-gallery)
 - [AI Art Pipeline](#ai-art-pipeline)
+- [Tile Generation Project](#tile-generation-project)
 
 ## Book
 
@@ -690,3 +691,68 @@ Expected generated assets:
 - [x] 80-wave visual review section.
 - [x] Sprite extraction pipeline and metadata.
 - [x] Updated upgrade/drop mechanics documented.
+- [ ] Tile generation project (in progress)
+
+## Tile Generation Project
+
+**Status:** 🏗️ Active Development (March 2, 2026)
+
+### Project Overview
+We're generating 64x64 pixel tile sets for the 1942 game's terrain system using nano-banana-pro (Gemini image generation). Four technical architect + game designer teams are creating different stylistic approaches for evaluation.
+
+### Teams & Approaches
+
+1. **ALPHA (Clean & Geometric)** - Tech Architect + Miyamoto
+   - Sharp, clean pixel art with geometric shapes
+   - High contrast for accessibility and joy
+   - Focus on clear gameplay readability
+
+2. **BETA (Organic & Textured)** - Tech Architect + Kojima  
+   - Natural, organic shapes with texture/gradients
+   - Atmospheric depth and hand-painted feel
+   - Cinematic environmental storytelling
+
+3. **GAMMA (Retro Arcade Classic)** - Tech Architect + Ikeda
+   - Authentic 80s/90s arcade pixel art style
+   - Limited color palettes, chunky pixels
+   - Classic shmup nostalgia factor
+
+4. **DELTA (Minimalist & Stylized)** - Tech Architect + Okamoto
+   - Simple, bold shapes with strong visual hierarchy
+   - Modern indie game aesthetics meets pixel art
+   - Clean, striking, arcade-focused
+
+### Deliverables (Coral Front Campaign)
+- Deep water, shallow water, sand terrain, grass terrain tiles
+- Edge pieces (N/S/E/W) and corner pieces for land/water transitions
+- Cloud tiles for atmospheric layering
+- 12x12 sample grid demonstrating good island formation
+- Documentation of approach and technical implementation
+
+### Tile Specifications
+- **Size:** 64×64 pixels (rendered at 4x scale from 16×16 native)
+- **Style:** Pixel art with chunky retro look
+- **Campaigns:** Coral Front (tutorial), Jungle Spear, Dust Convoy, Iron Monsoon
+- **Full spec:** See [tile-system-spec.md](tile-system-spec.md)
+
+### Evaluation Showcase
+**View progress:** [tile-showcase.html](tile-showcase.html)
+
+**Evaluation Criteria:**
+- Visual cohesion as a tile set
+- Gameplay readability during scrolling
+- Performance/compression for WebGL
+- Scalability to other campaigns
+- Authentic arcade shooter feel
+
+### Next Steps
+1. Complete tile generation across all 4 teams
+2. Review & select winning approach (or hybrid)
+3. Generate full tile sets for all campaigns
+4. Integrate tiles into game engine
+5. Update level editor with new tile system
+
+**Files:**
+- Individual tiles: `/1942/assets/tiles/{alpha,beta,gamma,delta}/`
+- Showcase page: `/1942/design/tile-showcase.html`
+- Technical spec: `/1942/design/tile-system-spec.md`

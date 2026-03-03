@@ -4,3 +4,14 @@ game-builder-server/node_modules/
 game-builder-server/package-lock.json
 
 VERSION
+node_modules/
+.openclaw/
+AGENTS.md
+BOOTSTRAP.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+*/node_modules/
+*/package-lock.json
