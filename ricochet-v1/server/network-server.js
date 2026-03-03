@@ -2,8 +2,8 @@ import { WebSocketServer } from 'ws';
 
 const PORT = Number(process.env.NET_PORT ?? 3001);
 const TICK_RATE_MS = 50;
-const PLAYER_RADIUS = 0.75;
-const HIT_DAMAGE = 35;
+const PLAYER_RADIUS = 0.76;
+const HIT_DAMAGE = 100;
 const MAX_HIT_DISTANCE = 80;
 const RESPAWN_MS = 3000;
 

@@ -26,26 +26,25 @@ import type {
   Vec3
 } from './network/network-types.ts';
 
-// Character definitions with unique looks and feels
-const CHARACTERS = [
-  // Hazmat variants
-  { id: 'hazmat-yellow', name: 'Toxin', model: 'Character_Hazmat.gltf', color: '#FFD700', description: 'Chemical Specialist' },
-  { id: 'hazmat-green', name: 'Poison', model: 'Character_Hazmat.gltf', color: '#32CD32', description: 'Bio Warfare Expert' },
-  { id: 'hazmat-orange', name: 'Reactor', model: 'Character_Hazmat.gltf', color: '#FF4500', description: 'Nuclear Engineer' },
-  { id: 'hazmat-purple', name: 'Venom', model: 'Character_Hazmat.gltf', color: '#9370DB', description: 'Toxic Avenger' },
+const SHARED_CHARACTER = {
+  id: 'hazmat-yellow',
+  name: 'Glass Cannon',
+  model: 'Character_Hazmat.gltf',
+  color: '#4ecdc4',
+  description: 'Single shared Glass Cannon profile'
+};
 
-  // Soldier variants
-  { id: 'soldier-red', name: 'Crimson', model: 'Character_Soldier.gltf', color: '#DC143C', description: 'Assault Specialist' },
-  { id: 'soldier-blue', name: 'Storm', model: 'Character_Soldier.gltf', color: '#4169E1', description: 'Tactical Leader' },
-  { id: 'soldier-black', name: 'Shadow', model: 'Character_Soldier.gltf', color: '#2F2F2F', description: 'Stealth Operative' },
-  { id: 'soldier-white', name: 'Ghost', model: 'Character_Soldier.gltf', color: '#F5F5F5', description: 'Arctic Commando' },
+const CHARACTERS = [SHARED_CHARACTER];
 
-  // Enemy variants
-  { id: 'rebel-brown', name: 'Desert', model: 'Character_Enemy.gltf', color: '#CD853F', description: 'Wasteland Warrior' },
-  { id: 'rebel-pink', name: 'Neon', model: 'Character_Enemy.gltf', color: '#FF1493', description: 'Cyber Punk' },
-  { id: 'rebel-teal', name: 'Ocean', model: 'Character_Enemy.gltf', color: '#20B2AA', description: 'Sea Raider' },
-  { id: 'rebel-gold', name: 'Midas', model: 'Character_Enemy.gltf', color: '#FFD700', description: 'Treasure Hunter' }
-];
+const ONE_SHOT_HP = 1;
+const ROUND_END_NOTE = 'ONE SHOT';
+
+type DummyTargetState = {
+  mesh: THREE.Mesh;
+  baseScale: number;
+  baseColor: THREE.Color;
+  hitsRemaining: number;
+};
 
 declare global {
   interface Window {
@@ -60,10 +59,16 @@ class RicochetGame {
   private camera!: THREE.PerspectiveCamera;
   private renderer!: THREE.WebGLRenderer;
 
-  private selectedCharacter: string | null = null;
+  private selectedCharacter: string = SHARED_CHARACTER.id;
   private gameState: 'menu' | 'loading' | 'playing' = 'menu';
   private loader!: GLTFLoader;
   private characterModels: Map<string, THREE.Group> = new Map();
+  private dummyTargets: Map<string, DummyTargetState> = new Map();
+  private pendingGlassStateTimer: number | null = null;
+  private localPlayerMaterials: WeakMap<THREE.Mesh, { color: THREE.Color; emissive: THREE.Color; roughness: number; metalness: number; transparent: boolean; opacity: number } > = new WeakMap();
+  private ambientAudioContext: AudioContext | null = null;
+  private ambientMusicInterval: number | null = null;
+  private musicEnabled = true;
 
   private inputManager: InputManager;
   private playerController: PlayerController;
@@ -280,34 +285,29 @@ class RicochetGame {
     const quickPlayBtn = document.getElementById('quick-play') as HTMLButtonElement;
     const inviteFriendBtn = document.getElementById('invite-friend') as HTMLButtonElement;
 
+    if (!characterGrid || !quickPlayBtn || !inviteFriendBtn) return;
+
     if (this.pendingInviteId) {
       quickPlayBtn.textContent = 'Join Invite Match';
     }
 
-    CHARACTERS.forEach(char => {
-      const card = document.createElement('div');
-      card.className = 'character-card';
-      card.innerHTML = `
-        <div class="character-name">${char.name}</div>
-        <div class="character-preview" style="background-color: ${char.color};">
-          ${char.description}
-        </div>
-      `;
+    characterGrid.innerHTML = '';
+    const card = document.createElement('div');
+    card.className = 'character-card selected';
+    card.innerHTML = `
+      <div class="character-name">${SHARED_CHARACTER.name}</div>
+      <div class="character-preview" style="background-color: ${SHARED_CHARACTER.color};">
+        ${SHARED_CHARACTER.description}
+      </div>
+      <div class="character-name" style="margin-top: 0.4rem; font-size: 0.8rem; opacity: 0.85;">
+        Shared Character (forced)
+      </div>
+    `;
+    characterGrid.appendChild(card);
 
-      card.addEventListener('click', () => {
-        document.querySelectorAll('.character-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        this.selectedCharacter = char.id;
-
-        quickPlayBtn.disabled = false;
-        inviteFriendBtn.disabled = false;
-      });
-
-      characterGrid?.appendChild(card);
-    });
-
-    quickPlayBtn.disabled = true;
-    inviteFriendBtn.disabled = true;
+    this.selectedCharacter = SHARED_CHARACTER.id;
+    quickPlayBtn.disabled = false;
+    inviteFriendBtn.disabled = false;
 
     quickPlayBtn.addEventListener('click', () => {
       if (this.pendingInviteId) {
@@ -712,6 +712,92 @@ class RicochetGame {
     }
   }
 
+  private startAmbientMusic(): void {
+    if (!this.musicEnabled) return;
+
+    if (!this.ambientAudioContext) {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      this.ambientAudioContext = new AudioContext();
+    }
+
+    const ctx = this.ambientAudioContext;
+    if (!ctx) return;
+
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => undefined);
+    }
+
+    if (this.ambientMusicInterval !== null) return;
+
+    const step = async () => {
+      if (this.gameState !== 'playing' || !ctx) return;
+      const now = ctx.currentTime;
+      const lead = ctx.createOscillator();
+      const sub = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const subGain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+
+      filter.type = 'lowpass';
+      filter.frequency.value = 420;
+
+      gain.gain.setValueAtTime(0.03, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+      subGain.gain.setValueAtTime(0.02, now);
+      subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+
+      lead.type = 'triangle';
+      sub.type = 'sawtooth';
+      lead.frequency.value = 329.63 + Math.random() * 60;
+      sub.frequency.value = 82.41 + Math.random() * 18;
+
+      lead.connect(filter);
+      filter.connect(gain);
+      sub.connect(subGain);
+      subGain.connect(ctx.destination);
+      gain.connect(ctx.destination);
+
+      lead.start(now);
+      lead.stop(now + 0.55);
+      sub.start(now);
+      sub.stop(now + 0.45);
+
+      lead.onended = () => {
+        lead.disconnect();
+      };
+      sub.onended = () => {
+        sub.disconnect();
+        gain.disconnect();
+        filter.disconnect();
+        subGain.disconnect();
+      };
+    };
+
+    const loop = async () => {
+      if (this.gameState !== 'playing') return;
+      step();
+    };
+
+    this.ambientMusicInterval = window.setInterval(() => {
+      loop();
+    }, 650);
+    loop();
+  }
+
+  private stopAmbientMusic(): void {
+    if (this.ambientMusicInterval !== null) {
+      window.clearInterval(this.ambientMusicInterval);
+      this.ambientMusicInterval = null;
+    }
+
+    if (!this.ambientAudioContext) return;
+
+    if (this.ambientAudioContext.state === 'running') {
+      void this.ambientAudioContext.suspend().catch(() => undefined);
+    }
+  }
+
   private async retryLobbyFlow(): Promise<void> {
     if (this.activeLobbyFlow === 'host') {
       await this.createInviteLink();
@@ -739,10 +825,19 @@ class RicochetGame {
     }
 
     this.stopPingLoop();
+    this.stopAmbientMusic();
     this.scoreboardSystem.setPlayerPing('player1', null);
     this.scoreboardSystem.setPlayerPing('player2', null);
     this.scoreboardSystem.setMatchStateOverride('Waiting for match start');
 
+    if (this.playerController) {
+      this.playerController.disable();
+    }
+
+    this.respawnSystem.reset?.();
+    this.clearDummyTargets();
+
+    this.isRespawning = false;
     if (this.remotePlayerMesh) {
       this.remotePlayerMesh.visible = false;
     }
@@ -753,6 +848,17 @@ class RicochetGame {
     const hud = document.getElementById('hud');
     if (menuOverlay) menuOverlay.style.display = 'flex';
     if (hud) hud.style.display = 'none';
+
+    if (window.healthHUD) {
+      window.healthHUD.hideAllEffects?.();
+      window.healthHUD.updateHealth?.(ONE_SHOT_HP, ONE_SHOT_HP);
+    }
+
+    const healthLabel = document.getElementById('health');
+    if (healthLabel) {
+      healthLabel.textContent = `${ONE_SHOT_HP}/${ONE_SHOT_HP} (${ROUND_END_NOTE})`;
+    }
+
     this.scoreboardSystem.close();
     this.setGameplayOverlayVisible(false);
 
@@ -763,7 +869,7 @@ class RicochetGame {
   }
 
   private async startGameplayCore(): Promise<void> {
-    if (!this.selectedCharacter) return;
+    const selectedCharacter = this.selectedCharacter ?? SHARED_CHARACTER.id;
 
     const menuOverlay = document.getElementById('menu-overlay');
     const hud = document.getElementById('hud');
@@ -776,8 +882,10 @@ class RicochetGame {
     this.gameState = 'loading';
     this.isRespawning = false;
 
-    await this.loadCharacter(this.selectedCharacter);
+    this.clearDummyTargets();
+    await this.loadCharacter(selectedCharacter);
     await this.loadCurrentArena();
+    this.setupStaticDummyTargets();
     this.respawnSystem.setArena(this.currentArena);
     this.ensureFirstPersonBodyProxy();
     if (this.firstPersonBodyProxy) {
@@ -792,16 +900,31 @@ class RicochetGame {
 
     if (!this.bulletSystem) {
       this.bulletSystem = createBulletSystem(this.scene);
+      this.bulletSystem.addImpactListener((info) => {
+        if (!info.object) return;
+        this.handleProjectileImpact(info);
+      });
+    }
+
+    const healthLabel = document.getElementById('health');
+    if (healthLabel) {
+      healthLabel.textContent = `${ONE_SHOT_HP}/${ONE_SHOT_HP} (${ROUND_END_NOTE})`;
+    }
+
+    if (window.healthHUD) {
+      window.healthHUD.updateHealth?.(ONE_SHOT_HP, ONE_SHOT_HP);
     }
 
     // Ensure camera/controller starts at a stable playable spawn.
     this.playerController.setPosition(0, 1.6, 5);
     this.playerController.enable();
 
-    const playerModel = this.characterModels.get(this.selectedCharacter);
+    const playerModel = this.characterModels.get(selectedCharacter);
     if (playerModel) {
       this.healthSystem = createHealthSystem(playerModel);
-      this.healthSystem.setHealth?.(100);
+      this.healthSystem.setHealth?.(ONE_SHOT_HP);
+      this.cachePlayerMaterialState(playerModel);
+      this.applyGlassVisualState('full');
     }
 
     if (!this.ammoHUD && this.weapon) {
@@ -809,7 +932,7 @@ class RicochetGame {
       this.ammoHUD.show();
     }
 
-    const localName = `You (${this.resolveCharacterName(this.selectedCharacter, 'Player')})`;
+    const localName = `You (${this.resolveCharacterName(selectedCharacter, 'Player')})`;
     const opponentName = this.networkMode === 'offline' ? 'Rival' : 'Opponent';
 
     matchSystem.startMatch({
@@ -823,6 +946,10 @@ class RicochetGame {
     this.scoreboardSystem.setPlayerPing('player2', null);
     this.scoreboardSystem.setMatchStateOverride(this.networkMode === 'offline' ? 'Offline skirmish' : 'Waiting for opponent…');
 
+    this.updateNetworkStatus(this.networkMode === 'offline' ? 'Offline mode' : 'Connected', '#cccccc');
+
+    this.startAmbientMusic();
+
     this.gameState = 'playing';
     window.dispatchEvent(new Event('gameStarted'));
   }
@@ -833,6 +960,7 @@ class RicochetGame {
 
     const existing = this.characterModels.get(characterId);
     if (existing) {
+      this.cachePlayerMaterialState(existing);
       return;
     }
 
@@ -873,11 +1001,13 @@ class RicochetGame {
 
     this.scene.add(model);
     this.characterModels.set(characterId, model);
+    this.cachePlayerMaterialState(model);
 
     console.log(`Loaded character: ${character.name}`);
   }
 
   private async loadCurrentArena() {
+    this.clearDummyTargets();
     console.log(`Loading ${this.currentArena} arena...`);
 
     try {
@@ -905,13 +1035,22 @@ class RicochetGame {
       arenaInfo.innerHTML = `
         <div>Arena: <span id="arena-name">WAREHOUSE</span></div>
         <div style="font-size: 0.8rem; margin-top: 5px;">Press 'M' to switch maps</div>
+        <div style="font-size: 0.8rem; margin-top: 5px;">Press 'Q' to return to menu</div>
+        <div style="font-size: 0.8rem; margin-top: 2px; opacity: 0.8;">Mode: ${ROUND_END_NOTE}</div>
       `;
       hudElement.appendChild(arenaInfo);
     }
 
     document.addEventListener('keydown', (event) => {
-      if (event.code === 'KeyM' && this.gameState === 'playing') {
-        this.switchArena();
+      const key = event.key.toLowerCase();
+
+      if (key === 'm' && this.gameState === 'playing') {
+        void this.switchArena();
+      }
+
+      if (key === 'q' && this.gameState === 'playing') {
+        event.preventDefault();
+        this.returnToCharacterMenu();
       }
     });
   }
@@ -1006,13 +1145,20 @@ class RicochetGame {
     this.playerController.unlockMovement();
     this.isRespawning = false;
 
+    this.applyGlassVisualState('full');
+
     if (window.healthHUD) {
-      window.healthHUD.updateHealth?.(100, 100);
+      window.healthHUD.updateHealth?.(ONE_SHOT_HP, ONE_SHOT_HP);
     }
 
     const healthValueEl = document.getElementById('health');
     if (healthValueEl) {
-      healthValueEl.textContent = '100';
+      healthValueEl.textContent = `${ONE_SHOT_HP}/${ONE_SHOT_HP} (${ROUND_END_NOTE})`;
+    }
+
+    if (this.pendingGlassStateTimer !== null) {
+      window.clearTimeout(this.pendingGlassStateTimer);
+      this.pendingGlassStateTimer = null;
     }
   };
 
@@ -1043,19 +1189,97 @@ class RicochetGame {
   }
 
   private applyAuthoritativeDamage(amount: number, hp: number): void {
+    const remainingHp = hp > 0 ? ONE_SHOT_HP : 0;
+
     this.healthSystem?.takeDamage?.(amount);
     this.healthSystem?.setHealth?.(hp);
     this.glassCharacterSystem.setLocalHealth(hp);
 
     if (window.healthHUD) {
       window.healthHUD.takeDamage?.(amount);
-      window.healthHUD.updateHealth?.(hp, 100);
+      window.healthHUD.updateHealth?.(remainingHp, ONE_SHOT_HP);
     }
 
     const healthValueEl = document.getElementById('health');
     if (healthValueEl) {
-      healthValueEl.textContent = String(hp);
+      healthValueEl.textContent = `${remainingHp}/${ONE_SHOT_HP} (${ROUND_END_NOTE})`;
     }
+
+    this.applyGlassVisualState('crack');
+    if (remainingHp <= 0) {
+      this.scheduleGlassShatterState();
+    }
+  }
+
+  private scheduleGlassShatterState(): void {
+    if (this.pendingGlassStateTimer !== null) {
+      window.clearTimeout(this.pendingGlassStateTimer);
+    }
+
+    this.pendingGlassStateTimer = window.setTimeout(() => {
+      this.applyGlassVisualState('shatter');
+    }, 120);
+  }
+
+  private cachePlayerMaterialState(playerModel: THREE.Group): void {
+    playerModel.traverse((child: any) => {
+      if (!child.isMesh) return;
+      const mesh = child as THREE.Mesh;
+      const material = mesh.material;
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+
+      const snapshot = {
+        color: material.color.clone(),
+        emissive: material.emissive.clone(),
+        roughness: material.roughness,
+        metalness: material.metalness,
+        transparent: material.transparent,
+        opacity: material.opacity
+      };
+
+      this.localPlayerMaterials.set(mesh, snapshot);
+    });
+  }
+
+  private applyGlassVisualState(state: 'full' | 'crack' | 'shatter'): void {
+    const localModel = this.characterModels.get(this.selectedCharacter);
+    if (!localModel) return;
+
+    localModel.traverse((child: any) => {
+      if (!child.isMesh) return;
+      const mesh = child as THREE.Mesh;
+      const material = mesh.material;
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+
+      const snapshot = this.localPlayerMaterials.get(mesh);
+      if (!snapshot) return;
+
+      if (state === 'full') {
+        material.color.copy(snapshot.color);
+        material.emissive.copy(snapshot.emissive);
+        material.roughness = snapshot.roughness;
+        material.metalness = snapshot.metalness;
+        material.transparent = snapshot.transparent;
+        material.opacity = snapshot.opacity;
+        material.opacity = 1;
+        return;
+      }
+
+      if (state === 'crack') {
+        material.color.lerpColors(snapshot.color, new THREE.Color(0xffd38a), 0.35);
+        material.emissive.set(0x5a2a10);
+        material.roughness = Math.min(1, snapshot.roughness + 0.25);
+        material.opacity = 1;
+        material.transparent = false;
+        return;
+      }
+
+      material.color.copy(snapshot.color).multiplyScalar(0.45);
+      material.emissive.set(0x1e1e1e);
+      material.roughness = 0.92;
+      material.transparent = true;
+      material.opacity = 0.55;
+    });
   }
 
   private applyScoreMap(scores: ScoreMap): void {
@@ -1075,20 +1299,109 @@ class RicochetGame {
   }
 
   private renderRemoteShot(origin: Vec3, direction: Vec3): void {
-    const start = new THREE.Vector3(origin.x, origin.y, origin.z);
-    const dir = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
-    const end = start.clone().add(dir.multiplyScalar(24));
+    this.bulletSystem?.firePaintball(
+      new THREE.Vector3(origin.x, origin.y, origin.z),
+      new THREE.Vector3(direction.x, direction.y, direction.z),
+      { muted: true }
+    );
+  }
 
-    const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-    const material = new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.9 });
-    const line = new THREE.Line(geometry, material);
+  private handleProjectileImpact = (info: {
+    point: THREE.Vector3;
+    normal: THREE.Vector3;
+    object: THREE.Object3D | null;
+    color: THREE.Color;
+    byRubber: boolean;
+  }): void => {
+    const target = this.resolvePaintTarget(info.object);
+    if (!target) return;
 
-    this.scene.add(line);
+    const state = this.dummyTargets.get(target.uuid);
+    if (!state) return;
+
+    state.hitsRemaining -= 1;
+
+    const material = target.material as THREE.MeshStandardMaterial;
+    material.color.set(info.color);
+    material.emissive.set(info.color).multiplyScalar(0.28);
+    target.position.y += 0.06;
+
+    const scaleBoost = 1 + (state.hitsRemaining <= 0 ? 0.16 : 0.08);
+    target.scale.setScalar(state.baseScale * scaleBoost);
+
     setTimeout(() => {
-      this.scene.remove(line);
-      geometry.dispose();
-      material.dispose();
-    }, 120);
+      material.color.copy(state.baseColor);
+      material.emissive.set(0x111111);
+      target.position.y -= 0.06;
+      target.scale.setScalar(state.baseScale);
+      if (state.hitsRemaining <= 0) {
+        material.opacity = 0.42;
+        material.transparent = true;
+      }
+    }, 170);
+  };
+
+  private resolvePaintTarget(object: THREE.Object3D | null): THREE.Mesh | null {
+    let node: THREE.Object3D | null = object;
+    while (node) {
+      if ((node as any).userData?.isPaintTarget) {
+        return node as THREE.Mesh;
+      }
+      node = node.parent;
+    }
+
+    return null;
+  }
+
+  private setupStaticDummyTargets(): void {
+    this.clearDummyTargets();
+
+    const geometry = new THREE.BoxGeometry(1.15, 1.2, 1.15);
+    const baseY = 0.55;
+
+    const spawnPositions: Array<{ x: number; y: number; z: number; color: number }> = [
+      { x: -5.8, y: baseY, z: -2.8, color: 0xf4a261 },
+      { x: 4.1, y: baseY, z: -4.2, color: 0x2a9d8f },
+      { x: 0.8, y: baseY, z: 4.8, color: 0xe76f51 }
+    ];
+
+    spawnPositions.forEach((item) => {
+      const mesh = new THREE.Mesh(
+        geometry,
+        new THREE.MeshStandardMaterial({
+          color: item.color,
+          emissive: 0x111111,
+          roughness: 0.7,
+          metalness: 0.08
+        })
+      );
+      mesh.position.set(item.x, item.y, item.z);
+      mesh.userData.isPaintTarget = true;
+      mesh.userData.isArenaObject = true;
+      mesh.userData.isWall = true;
+      mesh.userData.hitsRemaining = 4;
+      mesh.receiveShadow = true;
+      mesh.castShadow = true;
+      this.scene.add(mesh);
+
+      this.dummyTargets.set(mesh.uuid, {
+        mesh,
+        baseScale: mesh.scale.x,
+        baseColor: new THREE.Color(item.color),
+        hitsRemaining: 4
+      });
+    });
+  }
+
+  private clearDummyTargets(): void {
+    for (const state of this.dummyTargets.values()) {
+      this.scene.remove(state.mesh);
+      const material = state.mesh.material;
+      if (material instanceof THREE.Material) {
+        material.dispose();
+      }
+    }
+    this.dummyTargets.clear();
   }
 
   private onWeaponFired = (event: Event): void => {
@@ -1184,6 +1497,7 @@ class RicochetGame {
     }
 
     await this.loadCurrentArena();
+    this.setupStaticDummyTargets();
     this.respawnSystem.setArena(this.currentArena);
     this.playerController.setPosition(0, 1.6, 5);
   }
@@ -1237,7 +1551,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // HUD event hooks
 window.addEventListener('gameStarted', () => {
   if (window.healthHUD) {
-    window.healthHUD.updateHealth(100, 100);
+    window.healthHUD.updateHealth(ONE_SHOT_HP, ONE_SHOT_HP);
+  }
+
+  const healthValueEl = document.getElementById('health');
+  if (healthValueEl) {
+    healthValueEl.textContent = `${ONE_SHOT_HP}/${ONE_SHOT_HP} (${ROUND_END_NOTE})`;
   }
 });
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RICOCHET - 1v1 Arena Shooter</title>
+  <title>Glass Cannon</title>
   <style>
     body {
       margin: 0;
@@ -359,8 +359,8 @@
       letter-spacing: 0.04em;
     }
   </style>
-  <script type="module" crossorigin src="./assets/index-DyUn0UCa.js"></script>
-  <link rel="modulepreload" crossorigin href="./assets/three-B5txyUxY.js">
+  <script type="module" crossorigin src="./assets/index-Darv8k6-.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/three-kTVWOhrW.js">
   <link rel="stylesheet" crossorigin href="./assets/index-DyMdc2Rc.css">
 </head>
 <body>
@@ -368,7 +368,7 @@
     <canvas id="canvas"></canvas>
     
     <div id="hud" style="display: none;">
-      <div>Health: <span id="health">100</span></div>
+      <div>Health: <span id="health">1/1 (ONE SHOT)</span></div>
       <div>Score: <span id="score">0-0</span></div>
     </div>
 
@@ -415,8 +415,9 @@
     
     <div id="menu-overlay">
       <div id="menu-content">
-        <h1 class="menu-title">RICOCHET</h1>
-        <p style="color: #fff; font-size: 1.2rem; margin-bottom: 2rem;">Choose Your Fighter</p>
+        <h1 class="menu-title">Glass Cannon</h1>
+        <p style="color: #fff; font-size: 1.2rem; margin-bottom: 0.75rem;">Subtitle: Ricochet</p>
+        <p style="color: #fff; font-size: 1.2rem; margin-bottom: 2rem;">One-shot impact test loop (shared character)</p>
 
         <div class="character-grid" id="character-grid">
           <!-- Characters will be populated by JavaScript -->
@@ -430,7 +431,7 @@
         <p id="menu-invite-hint" class="menu-hint"></p>
 
         <p style="color: #ccc; margin-top: 2rem; font-size: 0.9rem;">
-          Every bullet bounces! Master the angles, control the arena.
+          Controls: LMB paint splash, RMB bouncing paint ball, Q to quit to menu, M to swap arenas.
         </p>
       </div>
 

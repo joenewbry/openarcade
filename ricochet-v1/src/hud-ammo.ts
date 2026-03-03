@@ -4,9 +4,8 @@
  */
 
 export class AmmoHUD {
-  private element: HTMLElement;
+  private element!: HTMLElement;
   private weaponSystem: any; // Will be connected to WeaponSystem
-  private isReloading: boolean = false;
   private reloadProgress: number = 0;
   
   constructor(weaponSystem: any) {
@@ -114,18 +113,19 @@ export class AmmoHUD {
   private updateReloadState(): void {
     const reloadIndicator = document.getElementById('reload-indicator');
     const progressContainer = document.getElementById('reload-progress-container');
-    
+
     if (this.weaponSystem.isReloading) {
-      if (reloadIndicator) reloadIndicator.style.display = 'block';
-      if (progressContainer) progressContainer.style.display = 'block';
-      
+      if (!reloadIndicator || !progressContainer) return;
+
+      reloadIndicator.style.display = 'block';
+      progressContainer.style.display = 'block';
+
       // Calculate progress (0 to 1)
-      const reloadTime = this.weaponSystem.config.reloadTime;
       // We don't have exact elapsed time, so we'll animate continuously
       // In a real implementation, we'd track the start time of reload
       this.reloadProgress += 0.05;
       if (this.reloadProgress > 1) this.reloadProgress = 0;
-      
+
       // Update text
       reloadIndicator.textContent = 'RELOADING...';
     } else {
