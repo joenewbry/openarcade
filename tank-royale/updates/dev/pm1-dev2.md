@@ -45,3 +45,6 @@ Implemented Tank Royale settings upgrades for PM1 lane:
 ## Notes
 - Updated `index.html` module import path to `./game.js?v=pm1-dev2` to avoid stale module caching during browser validation.
 - Backward compatibility included for legacy `reducedMotion` in stored settings (maps to Low graphics preset).
+
+## PR
+- https://github.com/joenewbry/openarcade/pull/86
