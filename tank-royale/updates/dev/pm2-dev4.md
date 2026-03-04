@@ -40,4 +40,4 @@ Upgraded `EnemyTankAI` from random grid patrol only to a lightweight **patrol + 
 - `tank-royale/updates/dev/pm2-dev4.md`
 
 ## PR
-- Opened PR: _pending creation in this session_
+- Opened PR: https://github.com/joenewbry/openarcade/pull/76
