@@ -79,6 +79,10 @@ let challengeModes = [];
 let selectedChallengeId = null;
 let currentChallenge = null;
 let challengeMetrics = { maxMapWidth: 22, maxMapHeight: 22 };
+let unlockedTier = 1;
+let clearedModeIds = new Set();
+
+const PROGRESS_STORAGE_KEY = 'tankRoyaleChallengeProgressV1';
 
 let arenaBounds = { minX: 2, minY: 2, maxX: W - 2, maxY: H - 2 };
 let arenaWallRects = [];
@@ -100,8 +104,13 @@ const phaseEl = document.getElementById('phase');
 const modeEl = document.getElementById('modeName');
 const timerEl = document.getElementById('timer');
 
-const modeSelectEl = document.getElementById('challengeModeSelect');
+const challengeCardsEl = document.getElementById('challengeCards');
 const modeLaunchBtn = document.getElementById('challengeLaunch');
+const challengeStateBadgeEl = document.getElementById('challengeStateBadge');
+const challengeTitleEl = document.getElementById('challengeTitle');
+const challengeRuleEl = document.getElementById('challengeRule');
+const challengeMetaEl = document.getElementById('challengeMeta');
+const challengeUnlockHintEl = document.getElementById('challengeUnlockHint');
 
 const overlayPlayBtn = document.getElementById('overlayPlay');
 const overlayRestartBtn = document.getElementById('overlayRestart');
@@ -279,39 +288,189 @@ function computeChallengeMetrics(modes) {
   );
 }
 
-function syncSelectedChallengeIdFromUI() {
-  if (modeSelectEl?.value) {
-    selectedChallengeId = modeSelectEl.value;
+function getHighestModeTier() {
+  return challengeModes.reduce((acc, mode) => Math.max(acc, mode.tier), 1);
+}
+
+function isChallengeUnlocked(mode) {
+  return mode.tier <= unlockedTier;
+}
+
+function hasClearedMode(mode) {
+  return clearedModeIds.has(mode.id);
+}
+
+function getUnlockRequirementText(mode) {
+  if (isChallengeUnlocked(mode)) {
+    return 'Ready to deploy.';
+  }
+
+  const requiredTier = Math.max(1, mode.tier - 1);
+  const requiredMode = challengeModes.find((candidate) => candidate.tier === requiredTier);
+  if (!requiredMode) {
+    return `Clear previous challenge to unlock Tier ${mode.tier}.`;
+  }
+
+  return `Beat Challenge ${requiredMode.tier} to unlock.`;
+}
+
+function loadChallengeProgress() {
+  unlockedTier = 1;
+  clearedModeIds = new Set();
+
+  try {
+    const raw = window.localStorage.getItem(PROGRESS_STORAGE_KEY);
+    if (!raw) return;
+
+    const parsed = JSON.parse(raw);
+    const parsedUnlockedTier = Math.floor(Number(parsed?.unlockedTier) || 1);
+    unlockedTier = Math.max(1, parsedUnlockedTier);
+
+    if (Array.isArray(parsed?.clearedModeIds)) {
+      clearedModeIds = new Set(parsed.clearedModeIds.map((id) => String(id)));
+    }
+  } catch (error) {
+    console.warn('Failed to load challenge progress; using defaults.', error);
+    unlockedTier = 1;
+    clearedModeIds = new Set();
   }
 }
 
+function saveChallengeProgress() {
+  try {
+    const payload = {
+      unlockedTier,
+      clearedModeIds: Array.from(clearedModeIds),
+    };
+    window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to save challenge progress.', error);
+  }
+}
+
+function unlockTier(tier) {
+  const highestTier = getHighestModeTier();
+  const nextTier = clamp(Math.floor(tier), 1, highestTier);
+
+  if (nextTier <= unlockedTier) {
+    return false;
+  }
+
+  unlockedTier = nextTier;
+  saveChallengeProgress();
+  return true;
+}
+
+function markChallengeCleared(mode) {
+  if (!mode) return;
+
+  clearedModeIds.add(mode.id);
+  saveChallengeProgress();
+}
+
 function getSelectedChallengeMode() {
-  syncSelectedChallengeIdFromUI();
   const fallbackMode = challengeModes[0];
   if (!selectedChallengeId) return fallbackMode;
   return challengeModes.find((mode) => mode.id === selectedChallengeId) ?? fallbackMode;
 }
 
+function canLaunchSelectedChallenge() {
+  const mode = getSelectedChallengeMode();
+  return Boolean(mode && isChallengeUnlocked(mode));
+}
+
+function renderChallengeDetails(mode) {
+  if (!mode) return;
+
+  const unlocked = isChallengeUnlocked(mode);
+  const cleared = hasClearedMode(mode);
+
+  if (challengeStateBadgeEl) {
+    challengeStateBadgeEl.className = `challenge-state ${unlocked ? (cleared ? 'cleared' : 'unlocked') : 'locked'}`;
+    challengeStateBadgeEl.textContent = unlocked ? (cleared ? 'CLEARED' : 'UNLOCKED') : 'LOCKED';
+  }
+
+  if (challengeTitleEl) {
+    challengeTitleEl.textContent = `Challenge ${mode.tier}: ${mode.name}`;
+  }
+
+  if (challengeRuleEl) {
+    challengeRuleEl.textContent = describeRule(mode);
+  }
+
+  if (challengeMetaEl) {
+    challengeMetaEl.textContent = `Target ${mode.killTarget} kills • Max enemies ${mode.enemyCount} • Spawn ${mode.spawnCadenceSeconds.toFixed(1)}s`;
+  }
+
+  if (challengeUnlockHintEl) {
+    challengeUnlockHintEl.textContent = unlocked
+      ? (cleared ? 'Completed. Replay anytime.' : 'Ready to launch.')
+      : getUnlockRequirementText(mode);
+  }
+
+  if (modeLaunchBtn) {
+    modeLaunchBtn.disabled = !unlocked;
+    modeLaunchBtn.textContent = unlocked ? `LAUNCH CHALLENGE ${mode.tier}` : 'LOCKED';
+    modeLaunchBtn.title = unlocked ? 'Launch selected challenge' : getUnlockRequirementText(mode);
+  }
+}
+
+function renderChallengeCards() {
+  if (!challengeCardsEl) return;
+
+  challengeCardsEl.innerHTML = '';
+
+  for (const mode of challengeModes) {
+    const unlocked = isChallengeUnlocked(mode);
+    const cleared = hasClearedMode(mode);
+    const selected = mode.id === selectedChallengeId;
+
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `challenge-card${selected ? ' is-selected' : ''}${unlocked ? '' : ' is-locked'}`;
+    card.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    card.dataset.modeId = mode.id;
+
+    const state = unlocked ? (cleared ? 'CLEARED' : 'READY') : 'LOCKED';
+
+    card.innerHTML = `
+      <span class="challenge-tier">CH ${mode.tier}</span>
+      <strong class="challenge-name">${mode.name}</strong>
+      <span class="challenge-card-state">${state}</span>
+    `;
+
+    card.addEventListener('click', () => {
+      selectedChallengeId = mode.id;
+      renderLevelSelect();
+    });
+
+    challengeCardsEl.appendChild(card);
+  }
+}
+
+function renderLevelSelect() {
+  const mode = getSelectedChallengeMode();
+  renderChallengeCards();
+  renderChallengeDetails(mode);
+}
+
 function setupChallengeSelector() {
-  if (!modeSelectEl) {
-    selectedChallengeId = challengeModes[0]?.id ?? null;
+  loadChallengeProgress();
+
+  if (challengeModes.length === 0) {
+    selectedChallengeId = null;
     return;
   }
 
-  modeSelectEl.innerHTML = '';
-  for (const mode of challengeModes) {
-    const option = document.createElement('option');
-    option.value = mode.id;
-    option.textContent = `Tier ${mode.tier} - ${mode.name}`;
-    modeSelectEl.appendChild(option);
-  }
+  const highestTier = getHighestModeTier();
+  unlockedTier = clamp(unlockedTier, 1, highestTier);
 
-  selectedChallengeId = challengeModes[0]?.id ?? null;
-  modeSelectEl.value = selectedChallengeId;
+  const initialMode = challengeModes.find((mode) => mode.tier === unlockedTier)
+    ?? challengeModes.find((mode) => isChallengeUnlocked(mode))
+    ?? challengeModes[0];
 
-  modeSelectEl.addEventListener('change', () => {
-    selectedChallengeId = modeSelectEl.value;
-  });
+  selectedChallengeId = initialMode?.id ?? challengeModes[0]?.id ?? null;
+  renderLevelSelect();
 }
 
 function computeArenaBoundsForMode(mode) {
@@ -597,24 +756,36 @@ function describeRule(mode) {
 function showMainMenu(game) {
   const mode = getSelectedChallengeMode();
   resetRound(mode);
+  renderLevelSelect();
   setPhaseLabel('MENU');
   showButtonState('menu');
   game.setState('waiting');
 
+  const lockHint = isChallengeUnlocked(mode)
+    ? 'Enter / Space / Play to start'
+    : `${getUnlockRequirementText(mode)}\nSelect an unlocked challenge to deploy.`;
+
   game.showOverlay(
     'TANK ROYALE',
-    `${mode.name}\n${describeRule(mode)}\n\nTarget: ${mode.killTarget} kills\nMax Enemies: ${mode.enemyCount} | Spawn: ${mode.spawnCadenceSeconds.toFixed(1)}s\nMap: ${mode.mapSize.width}x${mode.mapSize.height}\n\nEnter / Space / Play to start`,
+    `${mode.name}\n${describeRule(mode)}\n\nTarget: ${mode.killTarget} kills\nMax Enemies: ${mode.enemyCount} | Spawn: ${mode.spawnCadenceSeconds.toFixed(1)}s\nMap: ${mode.mapSize.width}x${mode.mapSize.height}\n\n${lockHint}`,
   );
 }
 
 function startRun(game) {
-  resetRound(getSelectedChallengeMode());
+  const mode = getSelectedChallengeMode();
+  if (!mode || !isChallengeUnlocked(mode)) {
+    renderLevelSelect();
+    return false;
+  }
+
+  resetRound(mode);
   setPhaseLabel('PLAY');
   showButtonState('play');
   game.setState('playing');
+  return true;
 }
 
-function endRun(game, didWin) {
+function endRun(game, didWin, extraLine = '') {
   endResult = didWin ? 'WIN' : 'LOSE';
   setPhaseLabel(endResult);
   game.setState('over');
@@ -625,9 +796,10 @@ function endRun(game, didWin) {
     ? `${currentChallenge.name} cleared!\nFinal score: ${score}`
     : `Your tank was destroyed.\nFinal score: ${score}`;
 
+  const extra = extraLine ? `\n${extraLine}` : '';
   game.showOverlay(
     title,
-    `${text}\nKills: ${killsThisRun}/${currentChallenge.killTarget}\n\nR / Enter: Restart\nM / Esc: Menu`,
+    `${text}${extra}\nKills: ${killsThisRun}/${currentChallenge.killTarget}\n\nR / Enter: Restart\nM / Esc: Menu`,
   );
 }
 
@@ -704,7 +876,24 @@ function onEnemyDestroyed(game) {
   updateHud();
 
   if (killsThisRun >= currentChallenge.killTarget) {
-    endRun(game, true);
+    const completedMode = currentChallenge;
+    markChallengeCleared(completedMode);
+
+    const unlockedNewTier = unlockTier(completedMode.tier + 1);
+    if (unlockedNewTier) {
+      const nextMode = challengeModes.find((mode) => mode.tier === completedMode.tier + 1);
+      if (nextMode) {
+        selectedChallengeId = nextMode.id;
+      }
+    }
+
+    renderLevelSelect();
+
+    const unlockLine = unlockedNewTier
+      ? `Challenge ${Math.min(completedMode.tier + 1, getHighestModeTier())} unlocked!`
+      : 'Challenge progress updated.';
+
+    endRun(game, true, unlockLine);
   }
 }
 
@@ -773,13 +962,25 @@ function updateBullets(dt, game) {
 
 function tryStartFromInput(game, input) {
   if (input.wasPressed('Enter') || input.wasPressed(' ') || touchState.fire) {
-    startRun(game);
+    const started = startRun(game);
+    if (!started) {
+      const mode = getSelectedChallengeMode();
+      if (mode) {
+        game.showOverlay('CHALLENGE LOCKED', `${getUnlockRequirementText(mode)}\n\nPick an unlocked challenge to launch.`);
+      }
+    }
   }
 }
 
 function tryHandleOverInput(game, input) {
   if (input.wasPressed('r') || input.wasPressed('R') || input.wasPressed('Enter') || input.wasPressed(' ')) {
-    startRun(game);
+    const started = startRun(game);
+    if (!started) {
+      const mode = getSelectedChallengeMode();
+      if (mode) {
+        game.showOverlay('CHALLENGE LOCKED', `${getUnlockRequirementText(mode)}\n\nPick an unlocked challenge to launch.`);
+      }
+    }
     return;
   }
 
@@ -823,20 +1024,54 @@ export async function createGame() {
   setupTouchControls();
 
   overlayPlayBtn?.addEventListener('click', () => {
-    if (game.state === 'waiting') startRun(game);
+    if (game.state === 'waiting') {
+      const started = startRun(game);
+      if (!started) {
+        const mode = getSelectedChallengeMode();
+        if (mode) {
+          game.showOverlay('CHALLENGE LOCKED', `${getUnlockRequirementText(mode)}\n\nPick an unlocked challenge to launch.`);
+        }
+      }
+    }
   });
 
   overlayRestartBtn?.addEventListener('click', () => {
-    if (game.state === 'over') startRun(game);
+    if (game.state === 'over') {
+      const started = startRun(game);
+      if (!started) {
+        const mode = getSelectedChallengeMode();
+        if (mode) {
+          game.showOverlay('CHALLENGE LOCKED', `${getUnlockRequirementText(mode)}\n\nPick an unlocked challenge to launch.`);
+        }
+      }
+    }
   });
 
   overlayMenuBtn?.addEventListener('click', () => {
     showMainMenu(game);
   });
 
+  challengeCardsEl?.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    const card = event.target.closest('.challenge-card');
+    if (!card) return;
+
+    if (game.state === 'waiting') {
+      showMainMenu(game);
+    } else {
+      renderLevelSelect();
+    }
+  });
+
   modeLaunchBtn?.addEventListener('click', () => {
     if (game.state === 'waiting' || game.state === 'over') {
-      startRun(game);
+      const started = startRun(game);
+      if (!started) {
+        const mode = getSelectedChallengeMode();
+        if (mode) {
+          game.showOverlay('CHALLENGE LOCKED', `${getUnlockRequirementText(mode)}\n\nPick an unlocked challenge to launch.`);
+        }
+      }
     }
   });
 

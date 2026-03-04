@@ -28,12 +28,17 @@ Optional rule data is also JSON-driven (e.g., Blitz timer and kill bonus).
   - Return to menu: `M` or `Esc`
 - Mobile: on-screen D-pad + `FIRE`
 
-## Mode Selection / Launch
+## Level Select / Launch
 
-Use the challenge selector bar above the game canvas:
+Use the challenge cards above the game canvas:
 
-- Pick a mode from the dropdown
-- Click **LAUNCH MODE** (or press **PLAY** in menu)
+- Challenge 1 starts unlocked by default.
+- Challenge 2 unlocks after clearing Challenge 1.
+- Challenge 3 unlocks after clearing Challenge 2.
+- Select any card to preview details; locked cards show unlock requirements.
+- Click **LAUNCH CHALLENGE** (or press **PLAY** in menu) to start the selected unlocked challenge.
+
+Progress is stored in `localStorage` under `tankRoyaleChallengeProgressV1`.
 
 ## Local Run
 
