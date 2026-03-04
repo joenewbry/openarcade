@@ -4,15 +4,21 @@ const W = 720;
 const H = 420;
 
 const TANK_RADIUS = 17;
-const TANK_SPEED = 2.7;
-const FIRE_COOLDOWN_MS = 180;
+const TANK_SPEED = 2.9;
+const FIRE_COOLDOWN_MS = 170;
+const PLAYER_MAX_HP = 100;
 
-const BULLET_SPEED = 7.8;
+const ENEMY_RADIUS = 16;
+const ENEMY_MAX_HP = 55;
+const ENEMY_SPEED = 1.6;
+const ENEMY_FIRE_COOLDOWN_MS = 760;
+const ENEMY_COUNT = 3;
+
+const BULLET_SPEED = 7.4;
 const BULLET_RADIUS = 3;
-const BULLET_LIFE_MS = 1200;
-
-const TARGET_RADIUS = 13;
-const TARGET_COUNT = 8;
+const BULLET_LIFE_MS = 1250;
+const PLAYER_BULLET_DAMAGE = 25;
+const ENEMY_BULLET_DAMAGE = 15;
 
 const touchState = {
   up: false,
@@ -23,46 +29,90 @@ const touchState = {
 };
 
 let player;
+let enemies;
 let bullets;
-let targets;
-let lastShotAt;
+let lastPlayerShotAt;
 let score;
 let bestScore;
+let endResult = null;
 
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
+const hpEl = document.getElementById('hp');
+const enemiesEl = document.getElementById('enemies');
+const phaseEl = document.getElementById('phase');
+
+const overlayPlayBtn = document.getElementById('overlayPlay');
+const overlayRestartBtn = document.getElementById('overlayRestart');
+const overlayMenuBtn = document.getElementById('overlayMenu');
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
-function spawnTarget() {
+function randomSpawn() {
   return {
     x: 60 + Math.random() * (W - 120),
     y: 60 + Math.random() * (H - 120),
-    r: TARGET_RADIUS,
-    pulse: Math.random() * Math.PI * 2,
   };
 }
 
-function initTargets() {
-  targets = [];
-  for (let i = 0; i < TARGET_COUNT; i++) {
-    targets.push(spawnTarget());
+function ensureSpawnAwayFromPlayer(spawn, minDist = 130) {
+  let attempts = 0;
+  while (attempts < 20) {
+    const d = Math.hypot(spawn.x - player.x, spawn.y - player.y);
+    if (d >= minDist) return spawn;
+    const next = randomSpawn();
+    spawn.x = next.x;
+    spawn.y = next.y;
+    attempts += 1;
   }
+  return spawn;
 }
 
-function resetGame() {
+function spawnEnemy(id) {
+  const spawn = ensureSpawnAwayFromPlayer(randomSpawn());
+  return {
+    id,
+    x: spawn.x,
+    y: spawn.y,
+    angle: Math.PI / 2,
+    hp: ENEMY_MAX_HP,
+    nextStrafeAt: 0,
+    strafeDir: Math.random() > 0.5 ? 1 : -1,
+    lastShotAt: -9999,
+  };
+}
+
+function updateHud() {
+  scoreEl.textContent = String(score);
+  bestEl.textContent = String(bestScore);
+  hpEl.textContent = String(Math.max(0, Math.ceil(player.hp)));
+  enemiesEl.textContent = String(enemies.length);
+}
+
+function setPhaseLabel(value) {
+  phaseEl.textContent = value;
+}
+
+function resetRound() {
   player = {
     x: W * 0.5,
-    y: H * 0.5,
+    y: H * 0.82,
     angle: -Math.PI / 2,
+    hp: PLAYER_MAX_HP,
   };
-  bullets = [];
+
   score = 0;
-  scoreEl.textContent = String(score);
-  initTargets();
-  lastShotAt = -9999;
+  bullets = [];
+  enemies = [];
+  for (let i = 0; i < ENEMY_COUNT; i++) {
+    enemies.push(spawnEnemy(i + 1));
+  }
+
+  lastPlayerShotAt = -9999;
+  endResult = null;
+  updateHud();
 }
 
 function bindTouchButton(id, stateKey) {
@@ -128,28 +178,46 @@ function shouldFire(input) {
   return input.isDown(' ') || touchState.fire;
 }
 
-function tryShoot(now) {
-  if (now - lastShotAt < FIRE_COOLDOWN_MS) return;
+function pushBullet(shooter, x, y, angle, damage) {
+  bullets.push({
+    shooter,
+    x,
+    y,
+    vx: Math.cos(angle) * BULLET_SPEED,
+    vy: Math.sin(angle) * BULLET_SPEED,
+    bornAt: performance.now(),
+    damage,
+  });
+}
+
+function tryShootPlayer(now) {
+  if (now - lastPlayerShotAt < FIRE_COOLDOWN_MS) return;
 
   const tipX = player.x + Math.cos(player.angle) * (TANK_RADIUS + 10);
   const tipY = player.y + Math.sin(player.angle) * (TANK_RADIUS + 10);
+  pushBullet('player', tipX, tipY, player.angle, PLAYER_BULLET_DAMAGE);
 
-  bullets.push({
-    x: tipX,
-    y: tipY,
-    vx: Math.cos(player.angle) * BULLET_SPEED,
-    vy: Math.sin(player.angle) * BULLET_SPEED,
-    bornAt: now,
-  });
-
-  lastShotAt = now;
+  lastPlayerShotAt = now;
 }
 
-function drawTank(renderer) {
-  const c = Math.cos(player.angle);
-  const s = Math.sin(player.angle);
+function tryShootEnemy(enemy, now) {
+  const jitteredCooldown = ENEMY_FIRE_COOLDOWN_MS + enemy.id * 70;
+  if (now - enemy.lastShotAt < jitteredCooldown) return;
 
-  // Tank body as rotated rectangle
+  const distToPlayer = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+  if (distToPlayer > 310) return;
+
+  const tipX = enemy.x + Math.cos(enemy.angle) * (ENEMY_RADIUS + 10);
+  const tipY = enemy.y + Math.sin(enemy.angle) * (ENEMY_RADIUS + 10);
+  pushBullet('enemy', tipX, tipY, enemy.angle, ENEMY_BULLET_DAMAGE);
+
+  enemy.lastShotAt = now;
+}
+
+function drawTank(renderer, tank, palette) {
+  const c = Math.cos(tank.angle);
+  const s = Math.sin(tank.angle);
+
   const hw = 18;
   const hh = 12;
   const corners = [
@@ -158,53 +226,226 @@ function drawTank(renderer) {
     { x: hw, y: hh },
     { x: -hw, y: hh },
   ].map((p) => ({
-    x: player.x + p.x * c - p.y * s,
-    y: player.y + p.x * s + p.y * c,
+    x: tank.x + p.x * c - p.y * s,
+    y: tank.y + p.x * s + p.y * c,
   }));
 
-  renderer.fillPoly(corners, '#5ab2ff');
+  renderer.fillPoly(corners, palette.body);
 
-  // Treads
   const treadOffset = 14;
   const treadA = {
-    x: player.x + (-14) * c - (-treadOffset) * s,
-    y: player.y + (-14) * s + (-treadOffset) * c,
+    x: tank.x + (-14) * c - (-treadOffset) * s,
+    y: tank.y + (-14) * s + (-treadOffset) * c,
   };
   const treadB = {
-    x: player.x + (14) * c - (-treadOffset) * s,
-    y: player.y + (14) * s + (-treadOffset) * c,
+    x: tank.x + (14) * c - (-treadOffset) * s,
+    y: tank.y + (14) * s + (-treadOffset) * c,
   };
   const treadC = {
-    x: player.x + (14) * c - (treadOffset) * s,
-    y: player.y + (14) * s + (treadOffset) * c,
+    x: tank.x + (14) * c - (treadOffset) * s,
+    y: tank.y + (14) * s + (treadOffset) * c,
   };
   const treadD = {
-    x: player.x + (-14) * c - (treadOffset) * s,
-    y: player.y + (-14) * s + (treadOffset) * c,
+    x: tank.x + (-14) * c - (treadOffset) * s,
+    y: tank.y + (-14) * s + (treadOffset) * c,
   };
-  renderer.drawLine(treadA.x, treadA.y, treadB.x, treadB.y, '#21496a', 4);
-  renderer.drawLine(treadD.x, treadD.y, treadC.x, treadC.y, '#21496a', 4);
+  renderer.drawLine(treadA.x, treadA.y, treadB.x, treadB.y, palette.tread, 4);
+  renderer.drawLine(treadD.x, treadD.y, treadC.x, treadC.y, palette.tread, 4);
 
-  // Turret and barrel
-  renderer.fillCircle(player.x, player.y, 9, '#8fd2ff');
+  renderer.fillCircle(tank.x, tank.y, 9, palette.turret);
   renderer.drawLine(
-    player.x,
-    player.y,
-    player.x + c * (TANK_RADIUS + 12),
-    player.y + s * (TANK_RADIUS + 12),
-    '#dff3ff',
+    tank.x,
+    tank.y,
+    tank.x + c * (TANK_RADIUS + 12),
+    tank.y + s * (TANK_RADIUS + 12),
+    palette.barrel,
     5,
   );
 }
 
-function drawTargets(renderer, now) {
-  for (const target of targets) {
-    const glowPulse = 0.2 + 0.15 * Math.sin(now * 0.004 + target.pulse);
-    renderer.setGlow('#ff5b6e', glowPulse);
-    renderer.fillCircle(target.x, target.y, target.r, '#ff5b6e');
-    renderer.setGlow(null);
-    renderer.fillRect(target.x - 2, target.y - 8, 4, 16, '#ffd2d8');
-    renderer.fillRect(target.x - 8, target.y - 2, 16, 4, '#ffd2d8');
+function drawHpBar(renderer, entity, maxHp, color, yOffset) {
+  const width = 30;
+  const ratio = clamp(entity.hp / maxHp, 0, 1);
+  const x = entity.x - width * 0.5;
+  const y = entity.y + yOffset;
+
+  renderer.fillRect(x, y, width, 4, '#000000aa');
+  renderer.fillRect(x, y, width * ratio, 4, color);
+}
+
+function showButtonState(mode) {
+  if (!overlayPlayBtn || !overlayRestartBtn || !overlayMenuBtn) return;
+
+  overlayPlayBtn.hidden = mode !== 'menu';
+  overlayRestartBtn.hidden = mode !== 'over';
+  overlayMenuBtn.hidden = mode !== 'over';
+}
+
+function showMainMenu(game) {
+  resetRound();
+  setPhaseLabel('MENU');
+  showButtonState('menu');
+  game.setState('waiting');
+  game.showOverlay(
+    'TANK ROYALE',
+    'Simple skirmish prototype\n\nWin: Destroy all enemy tanks\nLose: Your HP reaches 0\n\nEnter / Space / Play to start',
+  );
+}
+
+function startRun(game) {
+  resetRound();
+  setPhaseLabel('PLAY');
+  showButtonState('play');
+  game.setState('playing');
+}
+
+function endRun(game, didWin) {
+  endResult = didWin ? 'WIN' : 'LOSE';
+  setPhaseLabel(endResult);
+  game.setState('over');
+  showButtonState('over');
+
+  const title = didWin ? 'VICTORY' : 'DEFEAT';
+  const text = didWin
+    ? `All enemy tanks eliminated!\nFinal score: ${score}`
+    : `Your tank was destroyed.\nFinal score: ${score}`;
+
+  game.showOverlay(
+    title,
+    `${text}\n\nR / Enter: Restart\nM / Esc: Menu`,
+  );
+}
+
+function updateEnemies(dt) {
+  const step = dt / (1000 / 60);
+  const now = performance.now();
+
+  for (const enemy of enemies) {
+    const toPlayerX = player.x - enemy.x;
+    const toPlayerY = player.y - enemy.y;
+    const dist = Math.hypot(toPlayerX, toPlayerY) || 1;
+    enemy.angle = Math.atan2(toPlayerY, toPlayerX);
+
+    if (now >= enemy.nextStrafeAt) {
+      enemy.strafeDir *= -1;
+      enemy.nextStrafeAt = now + 600 + Math.random() * 500;
+    }
+
+    let moveX = 0;
+    let moveY = 0;
+
+    if (dist > 165) {
+      moveX = Math.cos(enemy.angle);
+      moveY = Math.sin(enemy.angle);
+    } else if (dist < 100) {
+      moveX = -Math.cos(enemy.angle);
+      moveY = -Math.sin(enemy.angle);
+    } else {
+      moveX = Math.cos(enemy.angle + (Math.PI / 2) * enemy.strafeDir);
+      moveY = Math.sin(enemy.angle + (Math.PI / 2) * enemy.strafeDir);
+    }
+
+    enemy.x += moveX * ENEMY_SPEED * step;
+    enemy.y += moveY * ENEMY_SPEED * step;
+    enemy.x = clamp(enemy.x, ENEMY_RADIUS + 2, W - ENEMY_RADIUS - 2);
+    enemy.y = clamp(enemy.y, ENEMY_RADIUS + 2, H - ENEMY_RADIUS - 2);
+
+    tryShootEnemy(enemy, now);
+  }
+}
+
+function updateBullets(dt, game) {
+  const now = performance.now();
+  const step = dt / (1000 / 60);
+
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.x += b.vx * step;
+    b.y += b.vy * step;
+
+    const expired = now - b.bornAt > BULLET_LIFE_MS;
+    const outOfBounds = b.x < -10 || b.x > W + 10 || b.y < -10 || b.y > H + 10;
+    if (expired || outOfBounds) {
+      bullets.splice(i, 1);
+      continue;
+    }
+
+    if (b.shooter === 'player') {
+      let hitEnemy = false;
+      for (let e = enemies.length - 1; e >= 0; e--) {
+        const enemy = enemies[e];
+        const d = Math.hypot(b.x - enemy.x, b.y - enemy.y);
+        if (d <= ENEMY_RADIUS + BULLET_RADIUS) {
+          enemy.hp -= b.damage;
+          bullets.splice(i, 1);
+          hitEnemy = true;
+
+          if (enemy.hp <= 0) {
+            enemies.splice(e, 1);
+            score += 100;
+            if (score > bestScore) {
+              bestScore = score;
+            }
+          }
+
+          updateHud();
+          if (enemies.length === 0) {
+            endRun(game, true);
+          }
+
+          break;
+        }
+      }
+      if (hitEnemy) continue;
+    }
+
+    if (b.shooter === 'enemy') {
+      const d = Math.hypot(b.x - player.x, b.y - player.y);
+      if (d <= TANK_RADIUS + BULLET_RADIUS) {
+        player.hp -= b.damage;
+        bullets.splice(i, 1);
+        updateHud();
+
+        if (player.hp <= 0) {
+          endRun(game, false);
+        }
+
+        continue;
+      }
+    }
+  }
+}
+
+function tryStartFromInput(game, input) {
+  if (input.wasPressed('Enter') || input.wasPressed(' ') || touchState.fire) {
+    startRun(game);
+  }
+}
+
+function tryHandleOverInput(game, input) {
+  if (input.wasPressed('r') || input.wasPressed('R') || input.wasPressed('Enter') || input.wasPressed(' ')) {
+    startRun(game);
+    return;
+  }
+
+  if (input.wasPressed('m') || input.wasPressed('M') || input.wasPressed('Escape')) {
+    showMainMenu(game);
+  }
+}
+
+function drawArena(renderer) {
+  renderer.fillRect(0, 0, W, H, '#0d1224');
+
+  renderer.drawLine(2, 2, W - 2, 2, '#2a4f82', 2);
+  renderer.drawLine(W - 2, 2, W - 2, H - 2, '#2a4f82', 2);
+  renderer.drawLine(W - 2, H - 2, 2, H - 2, '#2a4f82', 2);
+  renderer.drawLine(2, H - 2, 2, 2, '#2a4f82', 2);
+
+  for (let x = 40; x < W; x += 40) {
+    renderer.drawLine(x, 0, x, H, '#ffffff08', 1);
+  }
+  for (let y = 40; y < H; y += 40) {
+    renderer.drawLine(0, y, W, y, '#ffffff08', 1);
   }
 }
 
@@ -213,33 +454,46 @@ export function createGame() {
 
   setupTouchControls();
 
+  overlayPlayBtn?.addEventListener('click', () => {
+    if (game.state === 'waiting') startRun(game);
+  });
+
+  overlayRestartBtn?.addEventListener('click', () => {
+    if (game.state === 'over') startRun(game);
+  });
+
+  overlayMenuBtn?.addEventListener('click', () => {
+    showMainMenu(game);
+  });
+
   game.onInit = () => {
     bestScore = Number(bestEl.textContent) || 0;
-    resetGame();
-    game.showOverlay(
-      'TANK ROYALE',
-      'WASD / Arrows: Move\nSpace: Shoot\nTouch: D-pad + FIRE\n\nPress any movement control to start',
-    );
-    game.setState('waiting');
+    resetRound();
+    game.setScoreFn(() => score);
+    showMainMenu(game);
   };
-
-  game.setScoreFn(() => score);
 
   game.onUpdate = (dt) => {
     const input = game.input;
 
     if (game.state === 'waiting') {
-      const move = readMoveInput(input);
-      if (move.mx !== 0 || move.my !== 0 || input.wasPressed(' ') || touchState.fire) {
-        game.setState('playing');
-      }
+      tryStartFromInput(game, input);
+      return;
+    }
+
+    if (game.state === 'over') {
+      tryHandleOverInput(game, input);
       return;
     }
 
     if (game.state !== 'playing') return;
 
-    const move = readMoveInput(input);
+    if (input.wasPressed('Escape') || input.wasPressed('m') || input.wasPressed('M')) {
+      showMainMenu(game);
+      return;
+    }
 
+    const move = readMoveInput(input);
     if (move.mx !== 0 || move.my !== 0) {
       const len = Math.hypot(move.mx, move.my);
       const nx = move.mx / len;
@@ -256,75 +510,47 @@ export function createGame() {
 
     const now = performance.now();
     if (shouldFire(input)) {
-      tryShoot(now);
+      tryShootPlayer(now);
     }
 
-    const step = dt / (1000 / 60);
-    for (let i = bullets.length - 1; i >= 0; i--) {
-      const b = bullets[i];
-      b.x += b.vx * step;
-      b.y += b.vy * step;
-
-      const expired = now - b.bornAt > BULLET_LIFE_MS;
-      const outOfBounds = b.x < -10 || b.x > W + 10 || b.y < -10 || b.y > H + 10;
-      if (expired || outOfBounds) {
-        bullets.splice(i, 1);
-        continue;
-      }
-
-      let hit = false;
-      for (let t = targets.length - 1; t >= 0; t--) {
-        const target = targets[t];
-        const d = Math.hypot(b.x - target.x, b.y - target.y);
-        if (d <= target.r + BULLET_RADIUS) {
-          bullets.splice(i, 1);
-          targets.splice(t, 1);
-          targets.push(spawnTarget());
-          score += 10;
-          scoreEl.textContent = String(score);
-          if (score > bestScore) {
-            bestScore = score;
-            bestEl.textContent = String(bestScore);
-          }
-          hit = true;
-          break;
-        }
-      }
-
-      if (hit) continue;
-    }
+    updateEnemies(dt);
+    updateBullets(dt, game);
   };
 
   game.onDraw = (renderer, text) => {
-    const now = performance.now();
+    drawArena(renderer);
 
-    renderer.fillRect(0, 0, W, H, '#0d1224');
+    if (game.state !== 'waiting' || endResult) {
+      for (const enemy of enemies) {
+        drawTank(renderer, enemy, {
+          body: '#d25a72',
+          tread: '#662031',
+          turret: '#f39fb0',
+          barrel: '#ffe4ea',
+        });
+        drawHpBar(renderer, enemy, ENEMY_MAX_HP, '#ff7794', 22);
+      }
 
-    // Arena border
-    renderer.drawLine(2, 2, W - 2, 2, '#2a4f82', 2);
-    renderer.drawLine(W - 2, 2, W - 2, H - 2, '#2a4f82', 2);
-    renderer.drawLine(W - 2, H - 2, 2, H - 2, '#2a4f82', 2);
-    renderer.drawLine(2, H - 2, 2, 2, '#2a4f82', 2);
+      drawTank(renderer, player, {
+        body: '#5ab2ff',
+        tread: '#21496a',
+        turret: '#8fd2ff',
+        barrel: '#dff3ff',
+      });
+      drawHpBar(renderer, player, PLAYER_MAX_HP, '#63d3ff', 22);
 
-    // Grid lines
-    for (let x = 40; x < W; x += 40) {
-      renderer.drawLine(x, 0, x, H, '#ffffff08', 1);
-    }
-    for (let y = 40; y < H; y += 40) {
-      renderer.drawLine(0, y, W, y, '#ffffff08', 1);
-    }
-
-    drawTargets(renderer, now);
-    drawTank(renderer);
-
-    for (const b of bullets) {
-      renderer.setGlow('#ffe67d', 0.45);
-      renderer.fillCircle(b.x, b.y, BULLET_RADIUS, '#fff1ac');
-      renderer.setGlow(null);
+      for (const b of bullets) {
+        const glow = b.shooter === 'player' ? '#ffe67d' : '#ff8b9f';
+        const fill = b.shooter === 'player' ? '#fff1ac' : '#ffd6de';
+        renderer.setGlow(glow, 0.35);
+        renderer.fillCircle(b.x, b.y, BULLET_RADIUS, fill);
+        renderer.setGlow(null);
+      }
     }
 
     text.drawText('MOVE: WASD / ARROWS / TOUCH D-PAD', 10, 16, 10, '#7fb5ff', 'left');
     text.drawText('SHOOT: SPACE / TOUCH FIRE', 10, 30, 10, '#7fb5ff', 'left');
+    text.drawText('MENU: ESC / M', W - 10, 16, 10, '#7fb5ff', 'right');
   };
 
   game.start();
