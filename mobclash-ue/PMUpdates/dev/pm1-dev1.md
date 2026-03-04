@@ -12,8 +12,8 @@ Completed PM1-DEV1 board prototype scaffolding deliverables:
 - Logged missing **RPG Monster Wave Bundle PBR** dependency blocker and confirmed placeholder geometry workflow.
 
 ## Branch
-- Current workspace branch: `feat/tank-royale-main-menu-flow-pm1-dev1`
-- Recommended feature branch for this work: `mobclash-ue/pm1-dev1-board-prototype-level-setup`
+- Working branch: `mobclash-ue/pm1-dev1-board-prototype-level-setup`
+- Commit: `bcbef26`
 
 ## Files Changed
 1. `Docs/BOARD_PROTOTYPE_LEVEL_SETUP.md`
@@ -35,31 +35,6 @@ Completed PM1-DEV1 board prototype scaffolding deliverables:
 - Hook lane DataTable into BoardManager/spawner path assignment.
 - Run first 20-unit mixed-lane traversal test (>=95% completion target).
 
-## PR / Git Commands
-PR was **not opened automatically** due shared monorepo branch context containing unrelated in-flight changes. Use the exact commands below to publish only PM1-DEV1 files:
-
-```bash
-cd /Users/joe/dev/openarcade
-
-git checkout -b mobclash-ue/pm1-dev1-board-prototype-level-setup
-
-git add \
-  mobclash-ue/Docs/BOARD_PROTOTYPE_LEVEL_SETUP.md \
-  mobclash-ue/Docs/BLOCKERS.md \
-  mobclash-ue/Config/DefaultEngine.ini \
-  mobclash-ue/Config/DefaultGame.ini \
-  mobclash-ue/Content/Data/Board/DT_BoardLaneLayout.csv \
-  mobclash-ue/Content/Data/Board/DT_BoardGridConfig.csv \
-  mobclash-ue/Content/Maps/L_BoardPrototype_SETUP.txt \
-  mobclash-ue/Source/MobClash/Public/Data/MCBoardLaneRow.h \
-  mobclash-ue/PMUpdates/dev/pm1-dev1.md
-
-git commit -m "mobclash-ue(pm1-dev1): scaffold board prototype level setup + lane layout contract"
-
-git push -u origin mobclash-ue/pm1-dev1-board-prototype-level-setup
-
-gh pr create \
-  --title "[MobClash UE][PM1-DEV1] Board prototype level setup scaffold" \
-  --body "Adds PM1 board/grid layout plan, lane data contract CSV/schema, default map config stubs, blocker log for missing RPG Monster Wave Bundle PBR, and PM update." \
-  --base main
-```
+## PR
+- Opened: https://github.com/joenewbry/openarcade/pull/87
+- Title: `[MobClash UE][PM1-DEV1] Board prototype level setup scaffold`
