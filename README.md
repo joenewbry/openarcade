@@ -34,3 +34,14 @@ Unity/
 ```
 
 > All core architecture is defined in `Assets/Scripts/Core/`. Extend as needed following the interface patterns.
+
+## 30x30 Tilemap Grid Prototype
+
+`Assets/Scripts/Gameplay/TilemapGridSystem.cs` provides:
+
+- A fixed **30x30** generated grid
+- Randomized block placement using seeded RNG
+- Runtime Tilemap creation when none is assigned
+- Automatic camera fitting + grid snap to the orthographic camera view
+
+Attach it to a GameObject with a `Grid` component and press Play.
