@@ -1,5 +1,5 @@
 // TankProjectile.cs
-// Generic projectile behavior with optional Block-Buster breach mode.
+// Generic projectile behavior with optional Block-Buster breach mode and Ricochet bounce mode.
 
 using UnityEngine;
 
@@ -11,10 +11,16 @@ public class TankProjectile : MonoBehaviour
     [SerializeField] private bool destroyOnAnyCollision = true;
     [SerializeField] private string destructibleBlockTag = "Block";
 
+    [Header("Ricochet")]
+    [SerializeField, Min(0f)] private float postBounceSurfaceOffset = 0.02f;
+
     private bool blockBusterArmed;
+    private int ricochetBouncesRemaining;
     private bool hasResolvedHit;
 
     public bool IsBlockBusterArmed => blockBusterArmed;
+    public int RicochetBouncesRemaining => ricochetBouncesRemaining;
+    public bool IsRicochetArmed => ricochetBouncesRemaining > 0;
     public bool HasResolvedHit => hasResolvedHit;
 
     private void Start()
@@ -30,23 +36,38 @@ public class TankProjectile : MonoBehaviour
         blockBusterArmed = true;
     }
 
+    public void EnableRicochetBounce(int bounceCount = 1)
+    {
+        ricochetBouncesRemaining = Mathf.Max(0, bounceCount);
+    }
+
     private void OnCollisionEnter(Collision collision)
     {
-        ResolveImpact(collision.collider);
+        Vector3 hitNormal = collision.contactCount > 0
+            ? collision.GetContact(0).normal
+            : -transform.forward;
+
+        ResolveImpact(collision.collider, hitNormal);
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        ResolveImpact(other);
+        ResolveImpact(other, null);
     }
 
     // Exposed for deterministic edit-mode tests without physics simulation.
     public void SimulateImpactForTests(Collider hitCollider)
     {
-        ResolveImpact(hitCollider);
+        ResolveImpact(hitCollider, null);
     }
 
-    private void ResolveImpact(Collider hitCollider)
+    // Exposed for deterministic ricochet tests.
+    public void SimulateCollisionForTests(Collider hitCollider, Vector3 hitNormal)
+    {
+        ResolveImpact(hitCollider, hitNormal);
+    }
+
+    private void ResolveImpact(Collider hitCollider, Vector3? hitNormal)
     {
         if (hasResolvedHit || hitCollider == null)
         {
@@ -62,11 +83,15 @@ public class TankProjectile : MonoBehaviour
 
         if (!hitProcessed)
         {
-            ApplyStandardDamage(hitCollider);
-            hitProcessed = true;
+            hitProcessed = ApplyStandardDamage(hitCollider);
         }
 
-        if (hitProcessed && destroyOnAnyCollision)
+        if (!hitProcessed && hitNormal.HasValue && TryRicochet(hitNormal.Value))
+        {
+            return;
+        }
+
+        if (destroyOnAnyCollision || hitProcessed)
         {
             hasResolvedHit = true;
             Destroy(gameObject);
@@ -94,12 +119,49 @@ public class TankProjectile : MonoBehaviour
         return false;
     }
 
-    private void ApplyStandardDamage(Collider hitCollider)
+    private bool ApplyStandardDamage(Collider hitCollider)
     {
         var destructible = hitCollider.GetComponentInParent<DestructibleObject>();
         if (destructible != null)
         {
             destructible.TakeDamage(baseDamage);
+            return true;
         }
+
+        return false;
+    }
+
+    private bool TryRicochet(Vector3 hitNormal)
+    {
+        if (ricochetBouncesRemaining <= 0)
+        {
+            return false;
+        }
+
+        Rigidbody rb = GetComponent<Rigidbody>();
+        if (rb == null)
+        {
+            return false;
+        }
+
+        Vector3 incomingVelocity = rb.velocity;
+        if (incomingVelocity.sqrMagnitude <= 0.0001f)
+        {
+            return false;
+        }
+
+        Vector3 normalizedNormal = hitNormal.sqrMagnitude <= 0.0001f
+            ? -incomingVelocity.normalized
+            : hitNormal.normalized;
+
+        rb.velocity = Vector3.Reflect(incomingVelocity, normalizedNormal);
+
+        if (postBounceSurfaceOffset > 0f)
+        {
+            transform.position += normalizedNormal * postBounceSurfaceOffset;
+        }
+
+        ricochetBouncesRemaining = Mathf.Max(0, ricochetBouncesRemaining - 1);
+        return true;
     }
 }
