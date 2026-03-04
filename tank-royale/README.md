@@ -8,7 +8,11 @@ First end-to-end playable loop:
 
 - Move: `WASD` or `Arrow Keys`
 - Shoot: `Space`
-- Open menu during run: `Esc` or `M`
+- Pause during run: `Esc` or `P`
+- Pause menu shortcuts:
+  - Resume: `Enter`, `Space`, `Esc`, or `P`
+  - Restart: `R`
+  - Return to menu: `M`
 - Game-over shortcuts:
   - Restart: `R`, `Enter`, or `Space`
   - Return to menu: `M` or `Esc`

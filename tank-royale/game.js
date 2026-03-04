@@ -145,6 +145,22 @@ function bindTouchButton(id, stateKey) {
   el.addEventListener('touchcancel', onUp, { passive: false });
 }
 
+function clearTouchState() {
+  for (const key of Object.keys(touchState)) {
+    touchState[key] = false;
+  }
+  document.querySelectorAll('.touch-btn.active').forEach((el) => {
+    el.classList.remove('active');
+  });
+}
+
+function clearInputState(game) {
+  if (!game?.input) return;
+  game.input._down.clear();
+  game.input._pressed.clear();
+  game.input._released.clear();
+}
+
 function setupTouchControls() {
   bindTouchButton('btn-up', 'up');
   bindTouchButton('btn-down', 'down');
@@ -153,12 +169,7 @@ function setupTouchControls() {
   bindTouchButton('btn-fire', 'fire');
 
   window.addEventListener('blur', () => {
-    for (const key of Object.keys(touchState)) {
-      touchState[key] = false;
-    }
-    document.querySelectorAll('.touch-btn.active').forEach((el) => {
-      el.classList.remove('active');
-    });
+    clearTouchState();
   });
 }
 
@@ -276,12 +287,26 @@ function drawHpBar(renderer, entity, maxHp, color, yOffset) {
 function showButtonState(mode) {
   if (!overlayPlayBtn || !overlayRestartBtn || !overlayMenuBtn) return;
 
-  overlayPlayBtn.hidden = mode !== 'menu';
-  overlayRestartBtn.hidden = mode !== 'over';
-  overlayMenuBtn.hidden = mode !== 'over';
+  overlayPlayBtn.hidden = !(mode === 'menu' || mode === 'paused');
+  overlayRestartBtn.hidden = !(mode === 'paused' || mode === 'over');
+  overlayMenuBtn.hidden = !(mode === 'paused' || mode === 'over');
+
+  if (mode === 'menu') {
+    overlayPlayBtn.textContent = 'PLAY';
+    overlayMenuBtn.textContent = 'MENU';
+  } else if (mode === 'paused') {
+    overlayPlayBtn.textContent = 'RESUME';
+    overlayRestartBtn.textContent = 'RESTART';
+    overlayMenuBtn.textContent = 'RETURN TO MENU';
+  } else if (mode === 'over') {
+    overlayRestartBtn.textContent = 'RESTART';
+    overlayMenuBtn.textContent = 'MENU';
+  }
 }
 
 function showMainMenu(game) {
+  clearTouchState();
+  clearInputState(game);
   resetRound();
   setPhaseLabel('MENU');
   showButtonState('menu');
@@ -293,7 +318,29 @@ function showMainMenu(game) {
 }
 
 function startRun(game) {
+  clearTouchState();
+  clearInputState(game);
   resetRound();
+  setPhaseLabel('PLAY');
+  showButtonState('play');
+  game.setState('playing');
+}
+
+function showPauseMenu(game) {
+  clearTouchState();
+  clearInputState(game);
+  setPhaseLabel('PAUSED');
+  showButtonState('paused');
+  game.setState('paused');
+  game.showOverlay(
+    'PAUSED',
+    'Resume: Enter / Space / Esc / P\nRestart: R\nReturn to Menu: M',
+  );
+}
+
+function resumeRun(game) {
+  clearTouchState();
+  clearInputState(game);
   setPhaseLabel('PLAY');
   showButtonState('play');
   game.setState('playing');
@@ -433,6 +480,28 @@ function tryHandleOverInput(game, input) {
   }
 }
 
+function tryHandlePausedInput(game, input) {
+  if (
+    input.wasPressed('Enter') ||
+    input.wasPressed(' ') ||
+    input.wasPressed('Escape') ||
+    input.wasPressed('p') ||
+    input.wasPressed('P')
+  ) {
+    resumeRun(game);
+    return;
+  }
+
+  if (input.wasPressed('r') || input.wasPressed('R')) {
+    startRun(game);
+    return;
+  }
+
+  if (input.wasPressed('m') || input.wasPressed('M')) {
+    showMainMenu(game);
+  }
+}
+
 function drawArena(renderer) {
   renderer.fillRect(0, 0, W, H, '#0d1224');
 
@@ -455,15 +524,26 @@ export function createGame() {
   setupTouchControls();
 
   overlayPlayBtn?.addEventListener('click', () => {
-    if (game.state === 'waiting') startRun(game);
+    if (game.state === 'waiting') {
+      startRun(game);
+      return;
+    }
+
+    if (game.state === 'paused') {
+      resumeRun(game);
+    }
   });
 
   overlayRestartBtn?.addEventListener('click', () => {
-    if (game.state === 'over') startRun(game);
+    if (game.state === 'over' || game.state === 'paused') {
+      startRun(game);
+    }
   });
 
   overlayMenuBtn?.addEventListener('click', () => {
-    showMainMenu(game);
+    if (game.state === 'over' || game.state === 'paused') {
+      showMainMenu(game);
+    }
   });
 
   game.onInit = () => {
@@ -486,10 +566,15 @@ export function createGame() {
       return;
     }
 
+    if (game.state === 'paused') {
+      tryHandlePausedInput(game, input);
+      return;
+    }
+
     if (game.state !== 'playing') return;
 
-    if (input.wasPressed('Escape') || input.wasPressed('m') || input.wasPressed('M')) {
-      showMainMenu(game);
+    if (input.wasPressed('Escape') || input.wasPressed('p') || input.wasPressed('P')) {
+      showPauseMenu(game);
       return;
     }
 
@@ -550,7 +635,7 @@ export function createGame() {
 
     text.drawText('MOVE: WASD / ARROWS / TOUCH D-PAD', 10, 16, 10, '#7fb5ff', 'left');
     text.drawText('SHOOT: SPACE / TOUCH FIRE', 10, 30, 10, '#7fb5ff', 'left');
-    text.drawText('MENU: ESC / M', W - 10, 16, 10, '#7fb5ff', 'right');
+    text.drawText('PAUSE: ESC / P', W - 10, 16, 10, '#7fb5ff', 'right');
   };
 
   game.start();
