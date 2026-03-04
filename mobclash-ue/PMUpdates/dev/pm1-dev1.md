@@ -13,7 +13,7 @@ Completed PM1-DEV1 board prototype scaffolding deliverables:
 
 ## Branch
 - Working branch: `mobclash-ue/pm1-dev1-board-prototype-level-setup`
-- Commit: `bcbef26`
+- Commits: `bcbef26`, `0fffc5a`
 
 ## Files Changed
 1. `Docs/BOARD_PROTOTYPE_LEVEL_SETUP.md`
