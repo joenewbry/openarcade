@@ -38,7 +38,7 @@ public class BlockBusterPowerupTests
     {
         public bool WasDestroyed { get; private set; }
 
-        protected override void Destroy()
+        protected override void DestroyObject()
         {
             WasDestroyed = true;
         }
