@@ -96,6 +96,8 @@ const state = {
   selectedEntityType: ENTITY_TYPES[0],
   dragging: false,
   dragStart: null,
+  brushRectDrag: false,
+  dragRectPreview: null,
   hoverCell: null,
   forceEraser: false,
   selection: null,
@@ -140,12 +142,53 @@ function createEmptyLevel(campaign, name = "Coral Front - Level 1") {
       notes: "",
     },
     layerUi: {
-      water: { visible: true, opacity: 1 },
-      terrain: { visible: true, opacity: 1 },
-      clouds: { visible: true, opacity: 0.8 },
-      entities: { visible: true, opacity: 1 },
+      water: { visible: true, opacity: 1, locked: false },
+      terrain: { visible: true, opacity: 1, locked: false },
+      clouds: { visible: true, opacity: 0.8, locked: false },
+      entities: { visible: true, opacity: 1, locked: false },
     },
   };
+}
+
+function defaultLayerOpacity(layer) {
+  return layer === "clouds" ? 0.8 : 1;
+}
+
+function ensureLayerUiState() {
+  if (!state.level.layerUi || typeof state.level.layerUi !== "object") {
+    state.level.layerUi = {};
+  }
+
+  for (const layer of LAYERS) {
+    const existing = state.level.layerUi[layer] || {};
+    const opacity = Number(existing.opacity);
+    state.level.layerUi[layer] = {
+      visible: existing.visible !== false,
+      opacity: Number.isFinite(opacity)
+        ? Math.max(0, Math.min(1, opacity))
+        : defaultLayerOpacity(layer),
+      locked: Boolean(existing.locked),
+    };
+  }
+}
+
+function isLayerLocked(layer = state.activeLayer) {
+  return Boolean(state.level.layerUi?.[layer]?.locked);
+}
+
+function editingLayerForTool() {
+  return state.tool === "entity" ? "entities" : state.activeLayer;
+}
+
+function blockIfLayerLocked(toolOverride = state.tool) {
+  const editableTools = new Set(["paint", "eraser", "fill", "rect", "line", "stamp", "entity"]);
+  if (!editableTools.has(toolOverride)) return false;
+
+  const layer = toolOverride === "entity" ? "entities" : state.activeLayer;
+  if (!isLayerLocked(layer)) return false;
+
+  setStatus(`Layer "${layer}" is locked`);
+  return true;
 }
 
 function setStatus(message) {
@@ -244,11 +287,15 @@ function buildLayerTabs() {
 
 function syncLayerTabs() {
   ui.activeLayerButtons.querySelectorAll(".layer-tab").forEach((button) => {
-    button.classList.toggle("active", button.dataset.layer === state.activeLayer);
+    const layer = button.dataset.layer;
+    button.classList.toggle("active", layer === state.activeLayer);
+    button.classList.toggle("locked", isLayerLocked(layer));
+    button.textContent = isLayerLocked(layer) ? `${layer} 🔒` : layer;
   });
 }
 
 function buildLayerControls() {
+  ensureLayerUiState();
   ui.layerControls.innerHTML = "";
 
   for (const layer of LAYERS) {
@@ -258,21 +305,32 @@ function buildLayerControls() {
     const meta = document.createElement("div");
     meta.className = "layer-meta";
 
-    const label = document.createElement("label");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = state.level.layerUi[layer].visible;
-    checkbox.addEventListener("change", () => {
-      state.level.layerUi[layer].visible = checkbox.checked;
+    const visibleLabel = document.createElement("label");
+    const visibleCheckbox = document.createElement("input");
+    visibleCheckbox.type = "checkbox";
+    visibleCheckbox.checked = state.level.layerUi[layer].visible;
+    visibleCheckbox.addEventListener("change", () => {
+      state.level.layerUi[layer].visible = visibleCheckbox.checked;
       render();
     });
+    visibleLabel.append(visibleCheckbox, document.createTextNode(layer));
 
-    label.append(checkbox, document.createTextNode(layer));
+    const lockLabel = document.createElement("label");
+    lockLabel.title = `Lock ${layer} layer`;
+    const lockCheckbox = document.createElement("input");
+    lockCheckbox.type = "checkbox";
+    lockCheckbox.checked = state.level.layerUi[layer].locked;
+    lockCheckbox.addEventListener("change", () => {
+      state.level.layerUi[layer].locked = lockCheckbox.checked;
+      syncLayerTabs();
+      setStatus(`${lockCheckbox.checked ? "Locked" : "Unlocked"} ${layer} layer`);
+    });
+    lockLabel.append(lockCheckbox, document.createTextNode("lock"));
 
     const opacityValue = document.createElement("span");
     opacityValue.textContent = String(state.level.layerUi[layer].opacity.toFixed(2));
 
-    meta.append(label, opacityValue);
+    meta.append(visibleLabel, lockLabel, opacityValue);
 
     const slider = document.createElement("input");
     slider.type = "range";
@@ -467,12 +525,13 @@ function renderGrid() {
 }
 
 function renderSelection() {
-  if (!state.selection) return;
+  const selection = state.dragRectPreview || state.selection;
+  if (!selection) return;
   const scaledTile = TILE_SIZE * state.zoom;
-  const x0 = Math.min(state.selection.start.col, state.selection.end.col);
-  const y0 = Math.min(state.selection.start.row, state.selection.end.row);
-  const x1 = Math.max(state.selection.start.col, state.selection.end.col);
-  const y1 = Math.max(state.selection.start.row, state.selection.end.row);
+  const x0 = Math.min(selection.start.col, selection.end.col);
+  const y0 = Math.min(selection.start.row, selection.end.row);
+  const x1 = Math.max(selection.start.col, selection.end.col);
+  const y1 = Math.max(selection.start.row, selection.end.row);
 
   const x = x0 * scaledTile;
   const y = y0 * scaledTile;
@@ -718,7 +777,8 @@ function redo() {
 }
 
 function paintCell(action, cell, useErase = false) {
-  const layer = state.activeLayer;
+  const layer = editingLayerForTool();
+  if (isLayerLocked(layer)) return;
 
   if (layer === "entities") {
     if (useErase) {
@@ -756,7 +816,7 @@ function paintCell(action, cell, useErase = false) {
 
 function floodFill(action, startCell, useErase = false) {
   const layer = state.activeLayer;
-  if (layer === "entities") return;
+  if (layer === "entities" || isLayerLocked(layer)) return;
 
   const grid = state.level.layers[layer];
   const target = grid[startCell.row][startCell.col];
@@ -852,6 +912,7 @@ function handlePointerDown(event) {
   if (!leftClick && !rightClick) return;
 
   if (state.tool === "view") return;
+  if (blockIfLayerLocked()) return;
 
   state.forceEraser = rightClick;
   const useErase = state.tool === "eraser" || state.forceEraser;
@@ -876,8 +937,10 @@ function handlePointerDown(event) {
   beginAction();
   state.dragging = true;
   state.dragStart = cell;
+  state.brushRectDrag = state.tool === "paint" && event.shiftKey;
+  state.dragRectPreview = state.brushRectDrag ? { start: cell, end: cell } : null;
 
-  if (state.tool === "paint" || state.tool === "eraser" || state.tool === "entity") {
+  if ((state.tool === "paint" || state.tool === "eraser" || state.tool === "entity") && !state.brushRectDrag) {
     paintCell(state.currentAction, cell, useErase);
   }
 
@@ -903,6 +966,12 @@ function handlePointerMove(event) {
     return;
   }
 
+  if (state.brushRectDrag) {
+    state.dragRectPreview = { start: state.dragStart, end: cell };
+    render();
+    return;
+  }
+
   const useErase = state.tool === "eraser" || state.forceEraser;
   if (state.tool === "paint" || state.tool === "eraser" || state.tool === "entity") {
     paintCell(state.currentAction, cell, useErase);
@@ -916,7 +985,9 @@ function handlePointerUp(event) {
   const endCell = eventToCell(event);
   const useErase = state.tool === "eraser" || state.forceEraser;
 
-  if (state.tool === "rect") {
+  if (state.brushRectDrag) {
+    applyRect(state.currentAction, state.dragStart, endCell, useErase);
+  } else if (state.tool === "rect") {
     applyRect(state.currentAction, state.dragStart, endCell, useErase);
   } else if (state.tool === "line") {
     applyLine(state.currentAction, state.dragStart, endCell, useErase);
@@ -931,6 +1002,8 @@ function handlePointerUp(event) {
   state.dragging = false;
   state.forceEraser = false;
   state.dragStart = null;
+  state.brushRectDrag = false;
+  state.dragRectPreview = null;
   render();
 }
 
@@ -1074,11 +1147,26 @@ async function loadLevelFromObject(data) {
     notes: data.metadata?.notes || "",
   };
 
+  if (data.layerUi && typeof data.layerUi === "object") {
+    for (const layer of LAYERS) {
+      if (!data.layerUi[layer] || typeof data.layerUi[layer] !== "object") continue;
+      nextLevel.layerUi[layer] = {
+        ...nextLevel.layerUi[layer],
+        ...data.layerUi[layer],
+      };
+    }
+  }
+
   state.level = nextLevel;
+  ensureLayerUiState();
   state.undoStack = [];
   state.redoStack = [];
   state.paletteCategory = "all";
   state.manualEdgeOverrides = new Set();
+  state.dragging = false;
+  state.dragStart = null;
+  state.brushRectDrag = false;
+  state.dragRectPreview = null;
 
   ui.campaignSelect.value = campaign;
   ui.levelNameInput.value = state.level.name;
@@ -1094,12 +1182,17 @@ async function newLevel(campaign) {
   state.tileSet = await loadCampaignTileSet(campaignId);
   const campaignName = CAMPAIGNS.find((entry) => entry.id === campaignId)?.label || "Campaign";
   state.level = createEmptyLevel(campaignId, `${campaignName} - Level 1`);
+  ensureLayerUiState();
   state.undoStack = [];
   state.redoStack = [];
   state.activeLayer = "water";
   state.paletteCategory = "all";
   state.selectedTile = 1;
   state.manualEdgeOverrides = new Set();
+  state.dragging = false;
+  state.dragStart = null;
+  state.brushRectDrag = false;
+  state.dragRectPreview = null;
   ui.levelNameInput.value = state.level.name;
   ui.campaignSelect.value = campaignId;
 
