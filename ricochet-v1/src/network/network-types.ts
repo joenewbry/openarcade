@@ -25,6 +25,7 @@ export type NetClientMessage =
       t: number;
       origin: Vec3;
       direction: Vec3;
+      ricochetBounces?: number;
     }
   | { type: 'respawn_request' }
   | { type: 'ping'; t: number };
@@ -72,6 +73,7 @@ export type NetServerMessage =
       t: number;
       origin: Vec3;
       direction: Vec3;
+      ricochetBounces?: number;
     }
   | {
       type: 'damage';
