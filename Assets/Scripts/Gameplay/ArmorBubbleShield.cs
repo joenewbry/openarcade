@@ -36,6 +36,21 @@ public class ArmorBubbleShield : MonoBehaviour, IHitShield
         return true;
     }
 
+    /// <summary>
+    /// Deactivates the armor bubble without consuming a hit.
+    /// Returns true if a state change happened.
+    /// </summary>
+    public bool DeactivateShield()
+    {
+        if (!isArmed)
+        {
+            return false;
+        }
+
+        isArmed = false;
+        return true;
+    }
+
     public bool TryAbsorbHit(int incomingDamage)
     {
         if (!isArmed || incomingDamage <= 0)
@@ -45,6 +60,13 @@ public class ArmorBubbleShield : MonoBehaviour, IHitShield
 
         isArmed = false;
         ShieldConsumed?.Invoke(this, incomingDamage);
+
+        var tank = GetComponent<TankControllerBase>();
+        if (tank != null)
+        {
+            tank.NotifyArmorShieldConsumed();
+        }
+
         return true;
     }
 }
