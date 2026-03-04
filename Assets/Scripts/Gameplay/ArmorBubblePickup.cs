@@ -9,6 +9,7 @@ public class ArmorBubblePickup : MonoBehaviour
     [SerializeField] private string eligibleTag = "Player";
     [SerializeField] private bool autoAttachShieldIfMissing = true;
     [SerializeField] private bool consumeIfAlreadyShielded = false;
+    [SerializeField, Min(0f)] private float pickupLockoutSeconds = 5f;
 
     private void Reset()
     {
@@ -26,12 +27,23 @@ public class ArmorBubblePickup : MonoBehaviour
             return;
         }
 
+        GameObject pickupOwner = ResolvePickupOwner(other);
+        float nowSeconds = Time.time;
+
+        if (PowerupPickupLockout.IsLocked(pickupOwner, nowSeconds, out _))
+        {
+            return;
+        }
+
         var shield = other.GetComponentInParent<ArmorBubbleShield>();
 
-        if (shield == null && autoAttachShieldIfMissing)
+        if (shield == null && autoAttachShieldIfMissing && pickupOwner != null)
         {
-            var host = other.attachedRigidbody != null ? other.attachedRigidbody.gameObject : other.gameObject;
-            shield = host.AddComponent<ArmorBubbleShield>();
+            shield = pickupOwner.GetComponent<ArmorBubbleShield>();
+            if (shield == null)
+            {
+                shield = pickupOwner.AddComponent<ArmorBubbleShield>();
+            }
         }
 
         if (shield == null)
@@ -45,6 +57,28 @@ public class ArmorBubblePickup : MonoBehaviour
             return;
         }
 
+        PowerupPickupLockout.RegisterSuccessfulPickup(pickupOwner, pickupLockoutSeconds, nowSeconds);
         Destroy(gameObject);
+    }
+
+    private static GameObject ResolvePickupOwner(Collider other)
+    {
+        if (other == null)
+        {
+            return null;
+        }
+
+        if (other.attachedRigidbody != null)
+        {
+            return other.attachedRigidbody.gameObject;
+        }
+
+        var tank = other.GetComponentInParent<TankControllerBase>();
+        if (tank != null)
+        {
+            return tank.gameObject;
+        }
+
+        return other.gameObject;
     }
 }

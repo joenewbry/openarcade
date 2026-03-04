@@ -1,10 +1,10 @@
-// BlockBusterPickup.cs
-// Pickup that grants exactly one queued breach shot.
+// RicochetPickup.cs
+// Pickup that grants one held Ricochet offensive charge.
 
 using UnityEngine;
 
 [RequireComponent(typeof(Collider))]
-public class BlockBusterPickup : MonoBehaviour
+public class RicochetPickup : MonoBehaviour
 {
     [SerializeField] private string eligibleTag = "Player";
     [SerializeField] private bool consumeIfPowerupRejected = false;
@@ -40,7 +40,7 @@ public class BlockBusterPickup : MonoBehaviour
             return;
         }
 
-        bool granted = tank.TryGrantBlockBusterShot();
+        bool granted = tank.TryGrantOffensivePowerup(OffensivePowerupType.Ricochet);
         if (!granted && !consumeIfPowerupRejected)
         {
             return;
