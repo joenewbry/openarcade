@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mobclash://progression/schema/creature-unlock-row",
+  "title": "MobClash Creature Unlock DataTable Row",
+  "description": "UE DataTable JSON row schema for creature unlock progression.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "Name",
+    "CreatureId",
+    "UnlockRank",
+    "UnlockType"
+  ],
+  "properties": {
+    "Name": {
+      "type": "string",
+      "description": "UE DataTable row key (unique)."
+    },
+    "CreatureId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "Stable creature identifier used by roster/spawn systems."
+    },
+    "UnlockRank": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Minimum rank where creature becomes available."
+    },
+    "UnlockType": {
+      "type": "string",
+      "enum": [
+        "Starter",
+        "RankReward",
+        "Event",
+        "Shop"
+      ],
+      "description": "How the unlock is granted."
+    },
+    "PreviewInRosterBeforeUnlock": {
+      "type": "boolean",
+      "default": true,
+      "description": "If true, show as locked in roster before unlock condition is met."
+    },
+    "Notes": {
+      "type": "string",
+      "description": "Optional design note for iteration."
+    }
+  }
+}

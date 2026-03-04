@@ -1,0 +1,50 @@
+[
+  {
+    "Name": "Unlock_Starter_SlimeScout",
+    "CreatureId": "slime_scout",
+    "UnlockRank": 1,
+    "UnlockType": "Starter",
+    "PreviewInRosterBeforeUnlock": true,
+    "Notes": "Default starter creature."
+  },
+  {
+    "Name": "Unlock_02_EmberHound",
+    "CreatureId": "ember_hound",
+    "UnlockRank": 2,
+    "UnlockType": "RankReward",
+    "PreviewInRosterBeforeUnlock": true,
+    "Notes": "Early aggressive melee unlock."
+  },
+  {
+    "Name": "Unlock_03_MossTurtle",
+    "CreatureId": "moss_turtle",
+    "UnlockRank": 3,
+    "UnlockType": "RankReward",
+    "PreviewInRosterBeforeUnlock": true,
+    "Notes": "Tank-style creature unlock."
+  },
+  {
+    "Name": "Unlock_04_StormRaptor",
+    "CreatureId": "storm_raptor",
+    "UnlockRank": 4,
+    "UnlockType": "RankReward",
+    "PreviewInRosterBeforeUnlock": true,
+    "Notes": "Mobile DPS creature unlock."
+  },
+  {
+    "Name": "Unlock_06_VoidMantis",
+    "CreatureId": "void_mantis",
+    "UnlockRank": 6,
+    "UnlockType": "RankReward",
+    "PreviewInRosterBeforeUnlock": true,
+    "Notes": "Mid-game assassin unlock."
+  },
+  {
+    "Name": "Unlock_08_TitanBeetle",
+    "CreatureId": "titan_beetle",
+    "UnlockRank": 8,
+    "UnlockType": "RankReward",
+    "PreviewInRosterBeforeUnlock": true,
+    "Notes": "Late-game bruiser unlock."
+  }
+]
