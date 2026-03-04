@@ -18,6 +18,8 @@ This implementation adds C++ menu-shell scaffolding for Unreal UMG with the requ
   - Spawns menu root widget and enables UI input mode.
 - `AMCMenuGameMode`
   - Menu map GameMode using the menu player controller.
+- `UMCSettingsSubsystem` + `UMCSettingsSaveGame`
+  - Runtime settings owner with SaveGame persistence for audio/display/control stubs.
 
 ## Route map behavior
 
@@ -27,6 +29,11 @@ Default route bootstrapped in `NativeConstruct`:
 - `PlayBoard -> L_BoardPrototype`
 
 You can override this in the root widget blueprint instance if PM1 ships a different board map name.
+
+Settings route wiring:
+- Entering `Settings` triggers settings load via `UMCSettingsSubsystem`.
+- Leaving `Settings` via Back triggers settings save to slot `MC_PlayerSettings`.
+- Subsystem also loads once at startup (`Initialize`) and creates the save slot if absent.
 
 ## Blueprint wiring (Editor)
 

@@ -1,6 +1,8 @@
 #include "UI/MCMenuRootWidget.h"
 
 #include "Components/WidgetSwitcher.h"
+#include "Engine/GameInstance.h"
+#include "Game/MCSettingsSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "UI/MCMainMenuWidget.h"
 #include "UI/MCSubMenuWidget.h"
@@ -72,6 +74,17 @@ void UMCMenuRootWidget::NavigateToScreen(EMCMenuScreen Screen)
 		return;
 	}
 
+	if (Screen == EMCMenuScreen::Settings)
+	{
+		if (UGameInstance* GameInstance = GetGameInstance())
+		{
+			if (UMCSettingsSubsystem* SettingsSubsystem = GameInstance->GetSubsystem<UMCSettingsSubsystem>())
+			{
+				SettingsSubsystem->LoadSettings();
+			}
+		}
+	}
+
 	if (!ScreenSwitcher)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("MCMenuRootWidget: ScreenSwitcher is not bound; cannot navigate."));
@@ -113,7 +126,17 @@ void UMCMenuRootWidget::HandleMainMenuScreenRequested(EMCMenuScreen Screen)
 
 void UMCMenuRootWidget::HandleSubMenuBackRequested(EMCMenuScreen FromScreen)
 {
-	(void)FromScreen;
+	if (FromScreen == EMCMenuScreen::Settings)
+	{
+		if (UGameInstance* GameInstance = GetGameInstance())
+		{
+			if (UMCSettingsSubsystem* SettingsSubsystem = GameInstance->GetSubsystem<UMCSettingsSubsystem>())
+			{
+				SettingsSubsystem->SaveSettings();
+			}
+		}
+	}
+
 	ReturnToMainMenu();
 }
 
