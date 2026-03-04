@@ -145,12 +145,39 @@ function bindTouchButton(id, stateKey) {
   el.addEventListener('touchcancel', onUp, { passive: false });
 }
 
+function updateTouchControlLayout() {
+  const controlsEl = document.getElementById('touch-controls');
+  const rightEl = document.getElementById('btn-right');
+  const fireEl = document.getElementById('btn-fire');
+
+  if (!controlsEl || !rightEl || !fireEl) return;
+
+  controlsEl.classList.remove('compact', 'ultra-compact');
+
+  const hasOverlap = () => {
+    const rightRect = rightEl.getBoundingClientRect();
+    const fireRect = fireEl.getBoundingClientRect();
+    return rightRect.right + 8 > fireRect.left;
+  };
+
+  if (!hasOverlap()) return;
+  controlsEl.classList.add('compact');
+
+  if (!hasOverlap()) return;
+  controlsEl.classList.add('ultra-compact');
+}
+
 function setupTouchControls() {
   bindTouchButton('btn-up', 'up');
   bindTouchButton('btn-down', 'down');
   bindTouchButton('btn-left', 'left');
   bindTouchButton('btn-right', 'right');
   bindTouchButton('btn-fire', 'fire');
+
+  const relayout = () => requestAnimationFrame(updateTouchControlLayout);
+  window.addEventListener('resize', relayout, { passive: true });
+  window.addEventListener('orientationchange', relayout, { passive: true });
+  relayout();
 
   window.addEventListener('blur', () => {
     for (const key of Object.keys(touchState)) {

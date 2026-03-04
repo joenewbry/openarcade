@@ -6,6 +6,12 @@
 <title>Tank Royale - OpenArcade</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
 body {
   font-family: 'Courier New', monospace;
   background: #121625;
@@ -15,12 +21,13 @@ body {
   flex-direction: column;
   align-items: center;
   overflow-x: hidden;
+  padding: calc(var(--safe-top) + 6px) calc(var(--safe-right) + 10px) calc(var(--safe-bottom) + 8px) calc(var(--safe-left) + 10px);
 }
 a { color: #57b8ff; }
 #back-link {
   position: fixed;
-  top: 12px;
-  left: 16px;
+  top: calc(var(--safe-top) + 10px);
+  left: calc(var(--safe-left) + 12px);
   z-index: 20;
   color: #57b8ff;
   text-decoration: none;
@@ -30,17 +37,21 @@ a { color: #57b8ff; }
 #score-bar {
   width: 720px;
   max-width: 95vw;
-  margin-top: 44px;
+  margin-top: clamp(38px, 7vh, 56px);
   margin-bottom: 8px;
-  padding: 8px 12px;
+  padding: 8px 10px;
   border: 1px solid rgba(87, 184, 255, 0.3);
   border-radius: 8px;
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px 14px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
   background: rgba(28, 38, 66, 0.55);
   font-size: 13px;
+}
+#score-bar .hud-item {
+  display: block;
+  text-align: center;
+  white-space: nowrap;
 }
 #score-bar .value {
   color: #57b8ff;
@@ -98,6 +109,7 @@ canvas#game {
   letter-spacing: 0.4px;
   border-radius: 10px;
   min-width: 108px;
+  min-height: 42px;
   padding: 10px 14px;
   cursor: pointer;
 }
@@ -105,9 +117,26 @@ canvas#game {
   background: rgba(56, 96, 161, 0.85);
 }
 #touch-controls {
+  --control-size: clamp(56px, 11vw, 68px);
+  --control-gap: clamp(6px, 1.8vw, 10px);
+  --edge-pad: clamp(6px, 1.5vw, 12px);
+  --fire-size: clamp(82px, 16vw, 102px);
+
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+#touch-controls.compact {
+  --control-size: 52px;
+  --control-gap: 6px;
+  --edge-pad: 6px;
+  --fire-size: 78px;
+}
+#touch-controls.ultra-compact {
+  --control-size: 48px;
+  --control-gap: 4px;
+  --edge-pad: 4px;
+  --fire-size: 70px;
 }
 .touch-btn {
   pointer-events: auto;
@@ -118,10 +147,10 @@ canvas#game {
   border: 1px solid rgba(87, 184, 255, 0.5);
   background: rgba(25, 44, 78, 0.55);
   color: #cbe6ff;
-  font-size: 22px;
+  font-size: clamp(18px, 4vw, 24px);
   border-radius: 12px;
-  width: 58px;
-  height: 58px;
+  width: var(--control-size);
+  height: var(--control-size);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -131,17 +160,29 @@ canvas#game {
   background: rgba(87, 184, 255, 0.35);
   box-shadow: 0 0 10px rgba(87, 184, 255, 0.65);
 }
-#btn-up    { left: 66px;  bottom: 136px; }
-#btn-left  { left: 8px;   bottom: 78px; }
-#btn-down  { left: 66px;  bottom: 20px; }
-#btn-right { left: 124px; bottom: 78px; }
+#btn-up {
+  left: calc(var(--safe-left) + var(--edge-pad) + var(--control-size) + var(--control-gap));
+  bottom: calc(var(--safe-bottom) + var(--edge-pad) + (var(--control-size) + var(--control-gap)) * 2);
+}
+#btn-left {
+  left: calc(var(--safe-left) + var(--edge-pad));
+  bottom: calc(var(--safe-bottom) + var(--edge-pad) + var(--control-size) + var(--control-gap));
+}
+#btn-down {
+  left: calc(var(--safe-left) + var(--edge-pad) + var(--control-size) + var(--control-gap));
+  bottom: calc(var(--safe-bottom) + var(--edge-pad));
+}
+#btn-right {
+  left: calc(var(--safe-left) + var(--edge-pad) + (var(--control-size) + var(--control-gap)) * 2);
+  bottom: calc(var(--safe-bottom) + var(--edge-pad) + var(--control-size) + var(--control-gap));
+}
 #btn-fire {
-  right: 12px;
-  bottom: 36px;
-  width: 86px;
-  height: 86px;
+  right: calc(var(--safe-right) + var(--edge-pad));
+  bottom: calc(var(--safe-bottom) + var(--edge-pad) + var(--control-size));
+  width: var(--fire-size);
+  height: var(--fire-size);
   border-radius: 999px;
-  font-size: 15px;
+  font-size: clamp(14px, 2.4vw, 16px);
   font-weight: bold;
   letter-spacing: 0.5px;
 }
@@ -151,7 +192,33 @@ canvas#game {
   text-align: center;
   font-size: 11px;
   color: #6f8bc7;
-  padding-bottom: env(safe-area-inset-bottom, 8px);
+  padding-bottom: 4px;
+}
+
+@media (max-width: 760px) {
+  #score-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 460px) {
+  #score-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    font-size: 11px;
+  }
+  #back-link {
+    font-size: 13px;
+  }
+}
+
+@media (pointer: coarse) and (min-width: 900px) {
+  #touch-controls {
+    --control-size: 64px;
+    --control-gap: 10px;
+    --edge-pad: 14px;
+    --fire-size: 104px;
+  }
 }
 
 /* Hide touch controls for fine pointer devices by default */
@@ -164,11 +231,11 @@ canvas#game {
   <a id="back-link" href="../">&#8592; OpenArcade</a>
 
   <div id="score-bar">
-    <span>SCORE <span class="value" id="score">0</span></span>
-    <span>BEST <span class="value" id="best">0</span></span>
-    <span>HP <span class="value" id="hp">100</span></span>
-    <span>ENEMIES <span class="value" id="enemies">0</span></span>
-    <span>STATE <span class="value" id="phase">MENU</span></span>
+    <span class="hud-item">SCORE <span class="value" id="score">0</span></span>
+    <span class="hud-item">BEST <span class="value" id="best">0</span></span>
+    <span class="hud-item">HP <span class="value" id="hp">100</span></span>
+    <span class="hud-item">ENEMIES <span class="value" id="enemies">0</span></span>
+    <span class="hud-item">STATE <span class="value" id="phase">MENU</span></span>
   </div>
 
   <div id="game-wrap">
