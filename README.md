@@ -53,3 +53,20 @@ Unity/
 - Minimal states:
   - **Ready** visual when a breach shot is queued.
   - **Consumed** pulse when the queued breach shot is fired/expired.
+
+### Timed PM3 power-up spawner rules
+
+- `TimedPowerupSpawner` provides weighted timed spawns for:
+  - `PowerupType.Ricochet`
+  - `PowerupType.Armor`
+  - `PowerupType.BlockBuster`
+- Each spawn type has configurable:
+  - weight
+  - per-type cooldown
+  - max concurrent pickups
+  - prefab reference
+- Anti-hoarding behavior:
+  - suppresses a spawn type when no tank can legally collect it
+  - checks held offensive slots (`TankControllerBase.IsHoldingOffensivePowerup`)
+  - checks active armor state (`ArmorBubbleShield.IsShieldActive`)
+  - enforces global pickup lockout via `PowerupPickupLockout` (default 5s in pickup scripts).
