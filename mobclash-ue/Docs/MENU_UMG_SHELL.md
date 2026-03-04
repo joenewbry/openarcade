@@ -12,6 +12,8 @@ This implementation adds C++ menu-shell scaffolding for Unreal UMG with the requ
   - Emits events for Play and submenu navigation.
 - `UMCSubMenuWidget` (`Source/MobClash/Public/UI/MCSubMenuWidget.h`)
   - Reusable shell for Roster / Progress / Settings with Back event.
+- `UMCRosterUnlockBridge` (`Source/MobClash/Public/UI/MCRosterUnlockBridge.h`)
+  - Reads `DT_CreatureUnlocks` DataTable rows and exposes roster entries with resolved `bUnlocked` / `bVisibleInRoster` flags.
 - `UMCMenuRootWidget` (`Source/MobClash/Public/UI/MCMenuRootWidget.h`)
   - Owns widget switching and route-to-level map.
 - `AMCMenuPlayerController`
@@ -45,7 +47,12 @@ You can override this in the root widget blueprint instance if PM1 ships a diffe
 5. In each submenu widget, add:
    - `BackButton`
    - `HeaderText`
-6. Assign `MenuRootWidgetClass` on `AMCMenuPlayerController` (or menu map PC override) to `WBP_MenuRoot`.
+6. (Roster binding) Import/create DataTable asset `DT_CreatureUnlocks` using row struct `FMCCreatureUnlockRow`.
+7. In roster widget graph, call `BuildRosterEntriesFromUnlockTable` from `UMCRosterUnlockBridge` with:
+   - `UnlockDataTable = DT_CreatureUnlocks`
+   - `CurrentRank = player rank` (or test placeholder)
+   - Bind resulting `FMCRosterUnlockEntry[]` into your list view/cards.
+8. Assign `MenuRootWidgetClass` on `AMCMenuPlayerController` (or menu map PC override) to `WBP_MenuRoot`.
 
 ## Startup map + gamemode
 
