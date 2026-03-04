@@ -1,0 +1,92 @@
+# PM3-DEV1 PR command script
+
+cd /Users/joe/dev/openarcade
+
+# 1) Create working branch (namespace policy)
+git checkout -b mobclash-ue/pm3-dev1-menu-shell
+
+# 2) Stage only PM3-DEV1 deliverables
+git add \
+  mobclash-ue/MobClash.uproject \
+  mobclash-ue/Config/DefaultEngine.ini \
+  mobclash-ue/Config/DefaultGame.ini \
+  mobclash-ue/Docs/MENU_UMG_SHELL.md \
+  mobclash-ue/PMUpdates/dev/pm3-dev1.md \
+  mobclash-ue/PR/commands \
+  mobclash-ue/Source/MobClash/MobClash.Build.cs \
+  mobclash-ue/Source/MobClash.Target.cs \
+  mobclash-ue/Source/MobClashEditor.Target.cs \
+  mobclash-ue/Source/MobClash/Public/UI/MCMenuTypes.h \
+  mobclash-ue/Source/MobClash/Public/UI/MCMainMenuWidget.h \
+  mobclash-ue/Source/MobClash/Private/UI/MCMainMenuWidget.cpp \
+  mobclash-ue/Source/MobClash/Public/UI/MCSubMenuWidget.h \
+  mobclash-ue/Source/MobClash/Private/UI/MCSubMenuWidget.cpp \
+  mobclash-ue/Source/MobClash/Public/UI/MCMenuRootWidget.h \
+  mobclash-ue/Source/MobClash/Private/UI/MCMenuRootWidget.cpp \
+  mobclash-ue/Source/MobClash/Public/Player/MCMenuPlayerController.h \
+  mobclash-ue/Source/MobClash/Private/Player/MCMenuPlayerController.cpp \
+  mobclash-ue/Source/MobClash/Public/Game/MCMenuGameMode.h \
+  mobclash-ue/Source/MobClash/Private/Game/MCMenuGameMode.cpp
+
+# 3) Commit
+git commit -m "mobclash-ue: add UMG menu shell with play/roster/progress/settings routing"
+
+# 4) Push + open PR
+git push -u origin mobclash-ue/pm3-dev1-menu-shell
+# gh pr create --title "[MobClash][PM3-DEV1] UMG menu shell + board placeholder route" \
+#   --body "Implements main menu shell (Play/Roster/Progress/Settings), submenu back flow, and Play->L_BoardPrototype route map."
+
+
+# PM1-DEV2 PR command script
+
+cd /Users/joe/dev/openarcade
+
+# 1) Create working branch (namespace policy)
+git checkout -b mobclash-ue/pm1-dev2-path-movement
+
+# 2) Stage PM1-DEV2 deliverables
+git add \
+  mobclash-ue/Source/MobClash/Public/Board/MCBoardLanePath.h \
+  mobclash-ue/Source/MobClash/Private/Board/MCBoardLanePath.cpp \
+  mobclash-ue/Source/MobClash/Public/Movement/MCBoardPathMovementComponent.h \
+  mobclash-ue/Source/MobClash/Private/Movement/MCBoardPathMovementComponent.cpp \
+  mobclash-ue/Source/MobClash/MobClash.Build.cs \
+  mobclash-ue/Docs/PM1_DEV2_CreaturePathMovement.md \
+  mobclash-ue/PMUpdates/dev/pm1-dev2.md \
+  mobclash-ue/PR/commands
+
+# 3) Commit
+git commit -m "mobclash-ue: add board lane path movement component with archetype speed hook"
+
+# 4) Push + optional PR
+git push -u origin mobclash-ue/pm1-dev2-path-movement
+# gh pr create --title "[MobClash][PM1-DEV2] Creature path movement + speed stat hook" \
+#   --body "Implements node-to-node lane movement component, lane path actor contract, archetype speed integration, and PIE test plan."
+
+
+# PM2-DEV2 PR command script
+
+cd /Users/joe/dev/openarcade
+
+# 1) Create working branch (namespace policy)
+git checkout -b mobclash-ue/pm2-dev2-creature-trait-behavior
+
+# 2) Stage PM2-DEV2 deliverables
+git add \
+  mobclash-ue/Source/MobClash/Public/AI/CreatureBehaviorLibrary.h \
+  mobclash-ue/Source/MobClash/Private/AI/CreatureBehaviorLibrary.cpp \
+  mobclash-ue/Source/MobClash/Public/Data/MCCreatureArchetypeRow.h \
+  mobclash-ue/Content/Data/Creatures/DT_CreatureArchetypes.csv \
+  mobclash-ue/Content/Data/Creatures/Schema_CreatureArchetypeRow.json \
+  mobclash-ue/Docs/AI/CreatureBehaviorStatePlan.md \
+  mobclash-ue/Docs/AI/TargetPriorityLogic.md \
+  mobclash-ue/PMUpdates/dev/pm2-dev2.md \
+  mobclash-ue/PR/commands
+
+# 3) Commit
+git commit -m "mobclash-ue: scaffold creature behavior states and target priority logic"
+
+# 4) Push + optional PR
+git push -u origin mobclash-ue/pm2-dev2-creature-trait-behavior
+# gh pr create --title "[MobClash][PM2-DEV2] Behavior states + target priority scaffold" \
+#   --body "Adds Aggressive/Defensive/Support state scaffolding, archetype behavior defaults, target scoring/sorting stubs, and UE integration docs."
