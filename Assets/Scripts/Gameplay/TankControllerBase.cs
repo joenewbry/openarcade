@@ -1,6 +1,6 @@
 // TankControllerBase.cs
 // Base class for tank movement, aiming, and projectile firing.
-// Includes offensive power-up hold/consume flow with fairness guardrails.
+// Includes single-slot held power-up inventory with fairness guardrails.
 
 using System;
 using UnityEngine;
@@ -9,7 +9,8 @@ public enum OffensivePowerupType
 {
     None = 0,
     Ricochet = 1,
-    BlockBuster = 2
+    BlockBuster = 2,
+    Armor = 3
 }
 
 public abstract class TankControllerBase : MonoBehaviour
@@ -27,14 +28,20 @@ public abstract class TankControllerBase : MonoBehaviour
     [Header("Power-Up Fairness")]
     [SerializeField, Min(0f)] private float heldPowerupExpirySeconds = 12f;
 
+    [Header("Ricochet")]
+    [SerializeField, Min(1)] private int ricochetShotsPerPickup = 3;
+    [SerializeField, Min(1)] private int ricochetBouncesPerShot = 1;
+
     protected Vector3 targetDirection = Vector3.forward;
     protected bool isFiring;
 
     private float lastFireTime = float.NegativeInfinity;
     private OffensivePowerupType heldOffensivePowerup = OffensivePowerupType.None;
     private float heldPowerupExpiresAt = float.NegativeInfinity;
+    private int ricochetShotsRemaining;
 
     public event Action<bool> BlockBusterReadyChanged;
+    public event Action<OffensivePowerupType> HeldPowerupChanged;
 
     public bool IsHoldingOffensivePowerup =>
         heldOffensivePowerup != OffensivePowerupType.None && !HasHeldPowerupExpired();
@@ -42,8 +49,22 @@ public abstract class TankControllerBase : MonoBehaviour
     public bool IsBlockBusterReady =>
         heldOffensivePowerup == OffensivePowerupType.BlockBuster && !HasHeldPowerupExpired();
 
+    public bool IsRicochetReady =>
+        heldOffensivePowerup == OffensivePowerupType.Ricochet &&
+        ricochetShotsRemaining > 0 &&
+        !HasHeldPowerupExpired();
+
+    public bool IsArmorReady =>
+        heldOffensivePowerup == OffensivePowerupType.Armor &&
+        !HasHeldPowerupExpired();
+
+    public int RicochetShotsRemaining => IsRicochetReady ? ricochetShotsRemaining : 0;
+
     public OffensivePowerupType HeldOffensivePowerup =>
         HasHeldPowerupExpired() ? OffensivePowerupType.None : heldOffensivePowerup;
+
+    // Alias for unified single-slot HUD/state consumers.
+    public OffensivePowerupType HeldPowerup => HeldOffensivePowerup;
 
     protected virtual void Update()
     {
@@ -130,9 +151,47 @@ public abstract class TankControllerBase : MonoBehaviour
         isFiring = firing;
     }
 
+    public bool TryGrantRicochetShot()
+    {
+        return TryGrantOffensivePowerup(OffensivePowerupType.Ricochet);
+    }
+
+    public bool TryGrantRicochetShots()
+    {
+        return TryGrantRicochetShot();
+    }
+
     public bool TryGrantBlockBusterShot()
     {
         return TryGrantOffensivePowerup(OffensivePowerupType.BlockBuster);
+    }
+
+    public bool TryGrantArmorPowerup()
+    {
+        return TryGrantOffensivePowerup(OffensivePowerupType.Armor);
+    }
+
+    public bool ClearHeldPowerupIfMatches(OffensivePowerupType powerupType)
+    {
+        RefreshHeldPowerupExpiry();
+
+        if (heldOffensivePowerup != powerupType)
+        {
+            return false;
+        }
+
+        ClearHeldPowerupInternal(deactivateArmorShield: true);
+        return true;
+    }
+
+    public void NotifyArmorShieldConsumed()
+    {
+        RefreshHeldPowerupExpiry();
+
+        if (heldOffensivePowerup == OffensivePowerupType.Armor)
+        {
+            ClearHeldPowerupInternal(deactivateArmorShield: false);
+        }
     }
 
     public bool TryGrantOffensivePowerup(OffensivePowerupType powerupType)
@@ -144,7 +203,7 @@ public abstract class TankControllerBase : MonoBehaviour
 
         RefreshHeldPowerupExpiry();
 
-        // Fairness guardrail: one held offensive power-up max.
+        // Fairness guardrail: one held power-up max.
         if (heldOffensivePowerup != OffensivePowerupType.None)
         {
             return false;
@@ -152,12 +211,16 @@ public abstract class TankControllerBase : MonoBehaviour
 
         heldOffensivePowerup = powerupType;
         heldPowerupExpiresAt = Time.time + heldPowerupExpirySeconds;
+        ricochetShotsRemaining = powerupType == OffensivePowerupType.Ricochet
+            ? Mathf.Max(1, ricochetShotsPerPickup)
+            : 0;
 
         if (powerupType == OffensivePowerupType.BlockBuster)
         {
             BlockBusterReadyChanged?.Invoke(true);
         }
 
+        HeldPowerupChanged?.Invoke(powerupType);
         return true;
     }
 
@@ -168,14 +231,7 @@ public abstract class TankControllerBase : MonoBehaviour
             return;
         }
 
-        bool wasBlockBusterReady = heldOffensivePowerup == OffensivePowerupType.BlockBuster;
-        heldOffensivePowerup = OffensivePowerupType.None;
-        heldPowerupExpiresAt = float.NegativeInfinity;
-
-        if (wasBlockBusterReady)
-        {
-            BlockBusterReadyChanged?.Invoke(false);
-        }
+        ClearHeldPowerupInternal(deactivateArmorShield: true);
     }
 
     private bool HasHeldPowerupExpired()
@@ -185,18 +241,50 @@ public abstract class TankControllerBase : MonoBehaviour
                Time.time >= heldPowerupExpiresAt;
     }
 
-    private void ApplyAndConsumeOffensivePowerup(GameObject projectile)
+    private void ClearHeldPowerupInternal(bool deactivateArmorShield)
     {
-        RefreshHeldPowerupExpiry();
-
         if (heldOffensivePowerup == OffensivePowerupType.None)
         {
             return;
         }
 
+        bool wasBlockBusterReady = heldOffensivePowerup == OffensivePowerupType.BlockBuster;
+        bool wasArmor = heldOffensivePowerup == OffensivePowerupType.Armor;
+
+        if (deactivateArmorShield && wasArmor)
+        {
+            var shield = GetComponent<ArmorBubbleShield>();
+            if (shield != null)
+            {
+                shield.DeactivateShield();
+            }
+        }
+
+        heldOffensivePowerup = OffensivePowerupType.None;
+        heldPowerupExpiresAt = float.NegativeInfinity;
+        ricochetShotsRemaining = 0;
+
+        if (wasBlockBusterReady)
+        {
+            BlockBusterReadyChanged?.Invoke(false);
+        }
+
+        HeldPowerupChanged?.Invoke(OffensivePowerupType.None);
+    }
+
+    private void ApplyAndConsumeOffensivePowerup(GameObject projectile)
+    {
+        RefreshHeldPowerupExpiry();
+
+        if (heldOffensivePowerup == OffensivePowerupType.None || heldOffensivePowerup == OffensivePowerupType.Armor)
+        {
+            return;
+        }
+
+        var tankProjectile = projectile.GetComponent<TankProjectile>();
+
         if (heldOffensivePowerup == OffensivePowerupType.BlockBuster)
         {
-            var tankProjectile = projectile.GetComponent<TankProjectile>();
             if (tankProjectile != null)
             {
                 tankProjectile.EnableBlockBusterBreach();
@@ -206,11 +294,27 @@ public abstract class TankControllerBase : MonoBehaviour
                 Debug.LogWarning("Block-Buster fired, but projectile has no TankProjectile component.");
             }
 
-            BlockBusterReadyChanged?.Invoke(false);
+            ClearHeldPowerupInternal(deactivateArmorShield: false);
+            return;
         }
 
-        heldOffensivePowerup = OffensivePowerupType.None;
-        heldPowerupExpiresAt = float.NegativeInfinity;
+        if (heldOffensivePowerup == OffensivePowerupType.Ricochet)
+        {
+            if (tankProjectile != null)
+            {
+                tankProjectile.EnableRicochetBounce(ricochetBouncesPerShot);
+            }
+            else
+            {
+                Debug.LogWarning("Ricochet shot fired, but projectile has no TankProjectile component.");
+            }
+
+            ricochetShotsRemaining = Mathf.Max(0, ricochetShotsRemaining - 1);
+            if (ricochetShotsRemaining <= 0)
+            {
+                ClearHeldPowerupInternal(deactivateArmorShield: false);
+            }
+        }
     }
 
     public abstract Vector3 GetFirePosition();
