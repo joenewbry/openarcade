@@ -37,19 +37,35 @@ Unity/
 
 ## Power-Up Implementation Notes
 
-### Block-Buster (breach shot)
+### Single held power-up slot (fairness)
 
-- `BlockBusterPickup` grants one queued breach shot to a tank controller.
-- Fairness guardrail: tanks can hold at most one offensive pickup at a time.
-- Held offensive pickup auto-expires after `heldPowerupExpirySeconds` (default 12s).
-- On the next fired projectile:
-  - projectile is armed via `TankProjectile.EnableBlockBusterBreach()`
-  - held state is consumed immediately
-- On impact, a Block-Buster projectile destroys destructible cover (`DestructibleObject`) and then expires.
+- Tanks can hold **exactly one** queued power-up at a time.
+- Supported held states are:
+  - `None`
+  - `Ricochet`
+  - `Armor`
+  - `BlockBuster`
+- Held state auto-expires after `heldPowerupExpirySeconds` (default 12s).
+- `TankControllerBase` is the source of truth for held state (`HeldPowerup`).
+
+### Pickup behavior
+
+- `RicochetPickup` queues Ricochet in the held slot.
+- `ArmorBubblePickup` queues Armor and activates `ArmorBubbleShield`.
+- `BlockBusterPickup` queues one breach shot.
+- Any pickup is rejected while a tank already holds one (single-slot enforcement).
+
+### Consumption behavior
+
+- `BlockBuster` is consumed on next fired projectile and arms `TankProjectile.EnableBlockBusterBreach()`.
+- `Ricochet` is consumed across a short charge budget (default 3 shots) and then clears.
+- `Armor` clears when the shield absorbs a hit, or when held-state expiry is reached.
 
 ### HUD indicator
 
-- `BlockBusterHudIndicator` listens to `TankControllerBase.BlockBusterReadyChanged`.
-- Minimal states:
-  - **Ready** visual when a breach shot is queued.
-  - **Consumed** pulse when the queued breach shot is fired/expired.
+- `BlockBusterHudIndicator` now reflects the unified held slot state.
+- It supports visuals for all four states:
+  - **None**
+  - **Ricochet**
+  - **Armor**
+  - **Block-Buster**

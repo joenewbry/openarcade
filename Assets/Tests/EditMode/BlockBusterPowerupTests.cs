@@ -38,7 +38,7 @@ public class BlockBusterPowerupTests
     {
         public bool WasDestroyed { get; private set; }
 
-        protected override void DestroyObject()
+        protected override void Destroy()
         {
             WasDestroyed = true;
         }
@@ -51,7 +51,20 @@ public class BlockBusterPowerupTests
         var tank = tankGo.AddComponent<TestTankController>();
 
         Assert.IsTrue(tank.TryGrantBlockBusterShot(), "First Block-Buster pickup should be granted.");
-        Assert.IsFalse(tank.TryGrantBlockBusterShot(), "Second held offensive pickup should be rejected for fairness.");
+        Assert.IsFalse(tank.TryGrantBlockBusterShot(), "Second held pickup should be rejected for fairness.");
+
+        Object.DestroyImmediate(tankGo);
+    }
+
+    [Test]
+    public void TryGrantArmorPowerup_RejectsWhenAnotherHeldPowerupExists()
+    {
+        var tankGo = new GameObject("tank");
+        var tank = tankGo.AddComponent<TestTankController>();
+
+        Assert.IsTrue(tank.TryGrantRicochetShot(), "Should grant Ricochet when slot is empty.");
+        Assert.IsFalse(tank.TryGrantArmorPowerup(), "Armor should be rejected when a power-up is already held.");
+        Assert.AreEqual(OffensivePowerupType.Ricochet, tank.HeldPowerup);
 
         Object.DestroyImmediate(tankGo);
     }
@@ -74,11 +87,53 @@ public class BlockBusterPowerupTests
         var firedProjectile = tank.LastSpawnedProjectile.GetComponent<TankProjectile>();
         Assert.IsNotNull(firedProjectile);
         Assert.IsTrue(firedProjectile.IsBlockBusterArmed, "Next fired projectile should be armed as breach shot.");
-        Assert.IsFalse(tank.IsBlockBusterReady, "Held Block-Buster state should be consumed immediately after firing.");
+        Assert.AreEqual(OffensivePowerupType.None, tank.HeldPowerup, "Held power-up should be consumed immediately after firing.");
 
         Object.DestroyImmediate(tankGo);
         Object.DestroyImmediate(projectilePrefab);
         Object.DestroyImmediate(tank.LastSpawnedProjectile);
+    }
+
+    [Test]
+    public void FiringWithRicochet_UsesOneCharge_AndKeepsHeldStateUntilEmpty()
+    {
+        var tankGo = new GameObject("tank");
+        var tank = tankGo.AddComponent<TestTankController>();
+
+        var projectilePrefab = new GameObject("projectile-prefab");
+        projectilePrefab.AddComponent<SphereCollider>();
+        projectilePrefab.AddComponent<TankProjectile>();
+
+        tank.AssignProjectilePrefab(projectilePrefab);
+        Assert.IsTrue(tank.TryGrantRicochetShot());
+
+        tank.FireOnceForTests();
+
+        Assert.AreEqual(OffensivePowerupType.Ricochet, tank.HeldPowerup, "Ricochet should remain held until all charges are used.");
+        Assert.AreEqual(2, tank.RicochetShotsRemaining, "One ricochet charge should be consumed per fired shot.");
+
+        Object.DestroyImmediate(tankGo);
+        Object.DestroyImmediate(projectilePrefab);
+        Object.DestroyImmediate(tank.LastSpawnedProjectile);
+    }
+
+    [Test]
+    public void ArmorShieldConsumed_ClearsHeldArmorState()
+    {
+        var tankGo = new GameObject("tank");
+        var tank = tankGo.AddComponent<TestTankController>();
+        var shield = tankGo.AddComponent<ArmorBubbleShield>();
+
+        Assert.IsTrue(tank.TryGrantArmorPowerup());
+        Assert.IsTrue(shield.ActivateShield());
+        Assert.AreEqual(OffensivePowerupType.Armor, tank.HeldPowerup);
+
+        bool absorbed = shield.TryAbsorbHit(10);
+
+        Assert.IsTrue(absorbed, "Armor shield should absorb one hit.");
+        Assert.AreEqual(OffensivePowerupType.None, tank.HeldPowerup, "Held armor state should clear after shield consumption.");
+
+        Object.DestroyImmediate(tankGo);
     }
 
     [Test]

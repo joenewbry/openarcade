@@ -1,18 +1,23 @@
 // BlockBusterHudIndicator.cs
-// Minimal HUD state for Block-Buster ready/consumed.
+// Unified HUD state for single held power-up slot.
+// Supports states: none / ricochet / armor / block-buster.
 
-using System.Collections;
 using UnityEngine;
 
 public class BlockBusterHudIndicator : MonoBehaviour
 {
     [SerializeField] private TankControllerBase observedTank;
-    [SerializeField] private GameObject readyStateObject;
-    [SerializeField] private GameObject consumedStateObject;
-    [SerializeField, Min(0f)] private float consumedStateDurationSeconds = 0.75f;
 
-    private bool wasReady;
-    private Coroutine hideConsumedRoutine;
+    [Header("Unified Power-Up States")]
+    [SerializeField] private GameObject noneStateObject;
+    [SerializeField] private GameObject ricochetStateObject;
+    [SerializeField] private GameObject armorStateObject;
+    [SerializeField] private GameObject blockBusterStateObject;
+
+    [Header("Legacy Block-Buster Slots (optional)")]
+    [SerializeField] private GameObject readyStateObject;
+
+    private OffensivePowerupType currentState = OffensivePowerupType.None;
 
     private void Awake()
     {
@@ -26,84 +31,45 @@ public class BlockBusterHudIndicator : MonoBehaviour
     {
         if (observedTank != null)
         {
-            observedTank.BlockBusterReadyChanged += HandleReadyChanged;
-            wasReady = observedTank.IsBlockBusterReady;
-            SetReadyVisual(wasReady);
-            SetConsumedVisual(false);
+            observedTank.HeldPowerupChanged += HandleHeldPowerupChanged;
+            ApplyState(observedTank.HeldPowerup);
             return;
         }
 
-        SetReadyVisual(false);
-        SetConsumedVisual(false);
+        ApplyState(OffensivePowerupType.None);
     }
 
     private void OnDisable()
     {
         if (observedTank != null)
         {
-            observedTank.BlockBusterReadyChanged -= HandleReadyChanged;
-        }
-
-        if (hideConsumedRoutine != null)
-        {
-            StopCoroutine(hideConsumedRoutine);
-            hideConsumedRoutine = null;
+            observedTank.HeldPowerupChanged -= HandleHeldPowerupChanged;
         }
     }
 
-    private void HandleReadyChanged(bool isReady)
+    private void HandleHeldPowerupChanged(OffensivePowerupType newState)
     {
-        bool consumedThisFrame = wasReady && !isReady;
-        wasReady = isReady;
-
-        SetReadyVisual(isReady);
-
-        if (consumedThisFrame)
-        {
-            ShowConsumedPulse();
-        }
-        else if (isReady)
-        {
-            SetConsumedVisual(false);
-        }
+        ApplyState(newState);
     }
 
-    private void SetReadyVisual(bool isReady)
+    private void ApplyState(OffensivePowerupType newState)
     {
-        if (readyStateObject != null)
-        {
-            readyStateObject.SetActive(isReady);
-        }
+        currentState = newState;
+
+        SetActive(noneStateObject, currentState == OffensivePowerupType.None);
+        SetActive(ricochetStateObject, currentState == OffensivePowerupType.Ricochet);
+        SetActive(armorStateObject, currentState == OffensivePowerupType.Armor);
+        SetActive(blockBusterStateObject, currentState == OffensivePowerupType.BlockBuster);
+
+        // Backwards compatibility for scenes wired to old ready-only object.
+        SetActive(readyStateObject, currentState == OffensivePowerupType.BlockBuster);
     }
 
-    private void ShowConsumedPulse()
+    private static void SetActive(GameObject target, bool isActive)
     {
-        if (consumedStateObject == null)
+        if (target != null)
         {
-            return;
-        }
-
-        if (hideConsumedRoutine != null)
-        {
-            StopCoroutine(hideConsumedRoutine);
-        }
-
-        SetConsumedVisual(true);
-        hideConsumedRoutine = StartCoroutine(HideConsumedAfterDelay());
-    }
-
-    private IEnumerator HideConsumedAfterDelay()
-    {
-        yield return new WaitForSeconds(consumedStateDurationSeconds);
-        SetConsumedVisual(false);
-        hideConsumedRoutine = null;
-    }
-
-    private void SetConsumedVisual(bool isVisible)
-    {
-        if (consumedStateObject != null)
-        {
-            consumedStateObject.SetActive(isVisible);
+            target.SetActive(isActive);
         }
     }
 }
