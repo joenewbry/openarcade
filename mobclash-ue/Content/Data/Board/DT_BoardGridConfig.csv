@@ -1,0 +1,2 @@
+Name,Columns,Rows,TileSize,MinX,MaxX,MinY,MaxY,PlayableLaneCount,LaneSpacing
+BoardPrototype,12,7,300,-1650,1650,-900,900,3,600
