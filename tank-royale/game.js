@@ -27,9 +27,44 @@ const SETTINGS_DEFAULTS = {
   masterVolume: 80,
   musicVolume: 65,
   sfxVolume: 75,
-  reducedMotion: false,
-  cameraShake: true,
+  graphicsPreset: 'balanced',
+  controlSensitivity: 1,
+  keybinds: {
+    moveUp: 'w',
+    moveDown: 's',
+    moveLeft: 'a',
+    moveRight: 'd',
+    fire: 'Space',
+    menu: 'Escape',
+  },
 };
+
+const GRAPHICS_PRESETS = {
+  low: {
+    gridStep: 56,
+    bulletGlow: 0.14,
+    menuDrift: 0,
+  },
+  balanced: {
+    gridStep: 40,
+    bulletGlow: 0.35,
+    menuDrift: 5,
+  },
+  high: {
+    gridStep: 28,
+    bulletGlow: 0.5,
+    menuDrift: 8,
+  },
+};
+
+const KEYBIND_ACTIONS = [
+  ['moveUp', 'Move Up'],
+  ['moveDown', 'Move Down'],
+  ['moveLeft', 'Move Left'],
+  ['moveRight', 'Move Right'],
+  ['fire', 'Fire'],
+  ['menu', 'Menu'],
+];
 
 const LEVELS = [
   {
@@ -79,8 +114,8 @@ let player;
 let enemies;
 let bullets;
 let lastPlayerShotAt;
-let score;
-let bestScore;
+let score = 0;
+let bestScore = 0;
 let spawnCounter;
 let levelProgress;
 
@@ -90,8 +125,9 @@ let selectedLevelId = LEVELS[0].id;
 let mainMenuLastFocusId = 'menuStartBtn';
 let endResult = null;
 
-let settings = { ...SETTINGS_DEFAULTS };
-let settingsDraft = { ...SETTINGS_DEFAULTS };
+let settings = cloneSettings(SETTINGS_DEFAULTS);
+let settingsDraft = cloneSettings(SETTINGS_DEFAULTS);
+let pendingRebindAction = null;
 
 let previewMissingDetected = false;
 
@@ -118,12 +154,16 @@ const settingsBackBtn = document.getElementById('settingsBackBtn');
 const masterVolumeEl = document.getElementById('masterVolume');
 const musicVolumeEl = document.getElementById('musicVolume');
 const sfxVolumeEl = document.getElementById('sfxVolume');
-const reducedMotionEl = document.getElementById('reducedMotion');
-const cameraShakeEl = document.getElementById('cameraShake');
+const graphicsPresetEl = document.getElementById('graphicsPreset');
+const controlSensitivityEl = document.getElementById('controlSensitivity');
+const keybindListEl = document.getElementById('keybindList');
+const keybindHintEl = document.getElementById('keybindHint');
+const settingsStatusEl = document.getElementById('settingsStatus');
 
 const masterValueEl = document.getElementById('masterValue');
 const musicValueEl = document.getElementById('musicValue');
 const sfxValueEl = document.getElementById('sfxValue');
+const sensitivityValueEl = document.getElementById('sensitivityValue');
 
 const levelCardListEl = document.getElementById('levelCardList');
 const detailNameEl = document.getElementById('detailName');
@@ -142,6 +182,58 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+function cloneSettings(s) {
+  return {
+    masterVolume: s.masterVolume,
+    musicVolume: s.musicVolume,
+    sfxVolume: s.sfxVolume,
+    graphicsPreset: s.graphicsPreset,
+    controlSensitivity: s.controlSensitivity,
+    keybinds: { ...s.keybinds },
+  };
+}
+
+function normalizeKey(key) {
+  if (!key || typeof key !== 'string') return null;
+  if (key === ' ') return 'Space';
+  const trimmed = key.trim();
+  if (!trimmed) return null;
+  if (trimmed === 'Esc') return 'Escape';
+  if (trimmed === 'Spacebar') return 'Space';
+  if (trimmed.length === 1) return trimmed.toLowerCase();
+  return trimmed;
+}
+
+function keyCandidates(key) {
+  if (!key) return [];
+  if (key === 'Space') return [' ', 'Spacebar'];
+  if (key.length === 1) return [key, key.toUpperCase()];
+  return [key];
+}
+
+function keyDisplay(key) {
+  if (!key) return '—';
+  if (key === 'Space') return 'Space';
+  if (key.length === 1) return key.toUpperCase();
+  return key;
+}
+
+function keybindFor(action) {
+  return settings.keybinds[action];
+}
+
+function actionDown(input, action) {
+  return keyCandidates(keybindFor(action)).some((k) => input.isDown(k));
+}
+
+function actionPressed(input, action) {
+  return keyCandidates(keybindFor(action)).some((k) => input.wasPressed(k));
+}
+
+function graphicsConfig() {
+  return GRAPHICS_PRESETS[settings.graphicsPreset] ?? GRAPHICS_PRESETS.balanced;
+}
+
 function currentLevel() {
   return LEVELS.find((l) => l.id === selectedLevelId) ?? LEVELS[0];
 }
@@ -157,27 +249,45 @@ function showToast(message) {
   }, 1700);
 }
 
+function normalizeSettings(raw) {
+  const normalized = cloneSettings(SETTINGS_DEFAULTS);
+
+  normalized.masterVolume = clamp(Number(raw?.masterVolume) || normalized.masterVolume, 0, 100);
+  normalized.musicVolume = clamp(Number(raw?.musicVolume) || normalized.musicVolume, 0, 100);
+  normalized.sfxVolume = clamp(Number(raw?.sfxVolume) || normalized.sfxVolume, 0, 100);
+
+  if (raw?.graphicsPreset && GRAPHICS_PRESETS[raw.graphicsPreset]) {
+    normalized.graphicsPreset = raw.graphicsPreset;
+  }
+
+  // Back-compat with older settings model.
+  if (raw?.reducedMotion === true) {
+    normalized.graphicsPreset = 'low';
+  }
+
+  normalized.controlSensitivity = clamp(Number(raw?.controlSensitivity) || normalized.controlSensitivity, 0.5, 1.6);
+
+  for (const [action] of KEYBIND_ACTIONS) {
+    const key = normalizeKey(raw?.keybinds?.[action]);
+    if (key) normalized.keybinds[action] = key;
+  }
+
+  return normalized;
+}
+
 function loadSettings() {
   try {
     const raw = localStorage.getItem(STORAGE_SETTINGS_KEY);
-    if (!raw) return { ...SETTINGS_DEFAULTS };
-
-    const parsed = JSON.parse(raw);
-    return {
-      masterVolume: clamp(Number(parsed.masterVolume) || SETTINGS_DEFAULTS.masterVolume, 0, 100),
-      musicVolume: clamp(Number(parsed.musicVolume) || SETTINGS_DEFAULTS.musicVolume, 0, 100),
-      sfxVolume: clamp(Number(parsed.sfxVolume) || SETTINGS_DEFAULTS.sfxVolume, 0, 100),
-      reducedMotion: Boolean(parsed.reducedMotion),
-      cameraShake: parsed.cameraShake !== false,
-    };
+    if (!raw) return cloneSettings(SETTINGS_DEFAULTS);
+    return normalizeSettings(JSON.parse(raw));
   } catch {
-    return { ...SETTINGS_DEFAULTS };
+    return cloneSettings(SETTINGS_DEFAULTS);
   }
 }
 
 function saveSettings(nextSettings) {
-  settings = { ...nextSettings };
-  settingsDraft = { ...nextSettings };
+  settings = normalizeSettings(nextSettings);
+  settingsDraft = cloneSettings(settings);
 
   try {
     localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(settings));
@@ -190,26 +300,61 @@ function applySettingsToUI() {
   masterVolumeEl.value = String(settingsDraft.masterVolume);
   musicVolumeEl.value = String(settingsDraft.musicVolume);
   sfxVolumeEl.value = String(settingsDraft.sfxVolume);
-  reducedMotionEl.checked = settingsDraft.reducedMotion;
-  cameraShakeEl.checked = settingsDraft.cameraShake;
+  graphicsPresetEl.value = settingsDraft.graphicsPreset;
+  controlSensitivityEl.value = String(settingsDraft.controlSensitivity);
 
-  masterValueEl.textContent = String(settingsDraft.masterVolume);
-  musicValueEl.textContent = String(settingsDraft.musicVolume);
-  sfxValueEl.textContent = String(settingsDraft.sfxVolume);
+  masterValueEl.textContent = `${settingsDraft.masterVolume}%`;
+  musicValueEl.textContent = `${settingsDraft.musicVolume}%`;
+  sfxValueEl.textContent = `${settingsDraft.sfxVolume}%`;
+  sensitivityValueEl.textContent = `${settingsDraft.controlSensitivity.toFixed(2)}x`;
+
+  renderKeybindRows();
 }
 
 function syncSettingsDraftFromUI() {
-  settingsDraft = {
-    masterVolume: clamp(Number(masterVolumeEl.value) || 0, 0, 100),
-    musicVolume: clamp(Number(musicVolumeEl.value) || 0, 0, 100),
-    sfxVolume: clamp(Number(sfxVolumeEl.value) || 0, 0, 100),
-    reducedMotion: Boolean(reducedMotionEl.checked),
-    cameraShake: Boolean(cameraShakeEl.checked),
-  };
+  settingsDraft.masterVolume = clamp(Number(masterVolumeEl.value) || 0, 0, 100);
+  settingsDraft.musicVolume = clamp(Number(musicVolumeEl.value) || 0, 0, 100);
+  settingsDraft.sfxVolume = clamp(Number(sfxVolumeEl.value) || 0, 0, 100);
+  settingsDraft.graphicsPreset = GRAPHICS_PRESETS[graphicsPresetEl.value] ? graphicsPresetEl.value : 'balanced';
+  settingsDraft.controlSensitivity = clamp(Number(controlSensitivityEl.value) || 1, 0.5, 1.6);
 
-  masterValueEl.textContent = String(settingsDraft.masterVolume);
-  musicValueEl.textContent = String(settingsDraft.musicVolume);
-  sfxValueEl.textContent = String(settingsDraft.sfxVolume);
+  masterValueEl.textContent = `${settingsDraft.masterVolume}%`;
+  musicValueEl.textContent = `${settingsDraft.musicVolume}%`;
+  sfxValueEl.textContent = `${settingsDraft.sfxVolume}%`;
+  sensitivityValueEl.textContent = `${settingsDraft.controlSensitivity.toFixed(2)}x`;
+
+  settingsStatusEl.textContent = 'Unsaved changes';
+  settingsStatusEl.style.color = '#ffd27a';
+}
+
+function renderKeybindRows() {
+  if (!keybindListEl) return;
+  keybindListEl.innerHTML = '';
+
+  for (const [action, label] of KEYBIND_ACTIONS) {
+    const row = document.createElement('div');
+    row.className = 'keybind-row';
+
+    const labelEl = document.createElement('span');
+    labelEl.textContent = label;
+
+    const valueEl = document.createElement('span');
+    valueEl.className = 'keybind-value';
+    valueEl.textContent = keyDisplay(settingsDraft.keybinds[action]);
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'keybind-btn';
+    button.textContent = pendingRebindAction === action ? 'Press key…' : 'Rebind';
+    button.addEventListener('click', () => {
+      pendingRebindAction = action;
+      keybindHintEl.textContent = `Press a key for ${label} (Esc to cancel).`;
+      renderKeybindRows();
+    });
+
+    row.append(labelEl, valueEl, button);
+    keybindListEl.appendChild(row);
+  }
 }
 
 function loadSelectedLevel() {
@@ -335,16 +480,16 @@ function readMoveInput(input) {
   let mx = 0;
   let my = 0;
 
-  if (input.isDown('w') || input.isDown('W') || input.isDown('ArrowUp') || touchState.up) my -= 1;
-  if (input.isDown('s') || input.isDown('S') || input.isDown('ArrowDown') || touchState.down) my += 1;
-  if (input.isDown('a') || input.isDown('A') || input.isDown('ArrowLeft') || touchState.left) mx -= 1;
-  if (input.isDown('d') || input.isDown('D') || input.isDown('ArrowRight') || touchState.right) mx += 1;
+  if (actionDown(input, 'moveUp') || input.isDown('ArrowUp') || touchState.up) my -= 1;
+  if (actionDown(input, 'moveDown') || input.isDown('ArrowDown') || touchState.down) my += 1;
+  if (actionDown(input, 'moveLeft') || input.isDown('ArrowLeft') || touchState.left) mx -= 1;
+  if (actionDown(input, 'moveRight') || input.isDown('ArrowRight') || touchState.right) mx += 1;
 
   return { mx, my };
 }
 
 function shouldFire(input) {
-  return input.isDown(' ') || touchState.fire;
+  return actionDown(input, 'fire') || input.isDown(' ') || touchState.fire;
 }
 
 function pushBullet(shooter, x, y, angle, damage) {
@@ -599,6 +744,8 @@ function updateBullets(dt, game) {
 }
 
 function drawArena(renderer) {
+  const gfx = graphicsConfig();
+
   renderer.fillRect(0, 0, W, H, '#0f1724');
 
   renderer.drawLine(2, 2, W - 2, 2, '#2f4f77', 2);
@@ -606,10 +753,10 @@ function drawArena(renderer) {
   renderer.drawLine(W - 2, H - 2, 2, H - 2, '#2f4f77', 2);
   renderer.drawLine(2, H - 2, 2, 2, '#2f4f77', 2);
 
-  for (let x = 40; x < W; x += 40) {
+  for (let x = gfx.gridStep; x < W; x += gfx.gridStep) {
     renderer.drawLine(x, 0, x, H, '#ffffff07', 1);
   }
-  for (let y = 40; y < H; y += 40) {
+  for (let y = gfx.gridStep; y < H; y += gfx.gridStep) {
     renderer.drawLine(0, y, W, y, '#ffffff07', 1);
   }
 
@@ -623,7 +770,7 @@ function drawArena(renderer) {
 function drawMenuBackdrop(renderer, now) {
   drawArena(renderer);
 
-  const drift = settings.reducedMotion ? 0 : Math.sin(now * 0.0006) * 5;
+  const drift = Math.sin(now * 0.0006) * graphicsConfig().menuDrift;
 
   const blueGhost = {
     x: W * 0.26 + drift,
@@ -753,6 +900,7 @@ function setActiveMenuScreen(screenId) {
 function openMenu(screenId = 'main-menu-screen') {
   appMode = 'menu';
   endResult = null;
+  pendingRebindAction = null;
 
   setPhaseLabel('MENU');
   gameRef.setState('waiting');
@@ -792,6 +940,12 @@ function handleMenuControls() {
 
   menuSettingsBtn?.addEventListener('click', () => {
     mainMenuLastFocusId = 'menuSettingsBtn';
+    settingsDraft = cloneSettings(settings);
+    pendingRebindAction = null;
+    applySettingsToUI();
+    settingsStatusEl.textContent = 'Loaded saved settings';
+    settingsStatusEl.style.color = '#95b5da';
+    keybindHintEl.textContent = 'Tap Rebind, then press a key (Esc cancels).';
     setActiveMenuScreen('settings-screen');
   });
 
@@ -811,35 +965,75 @@ function handleMenuControls() {
   settingsApplyBtn?.addEventListener('click', () => {
     syncSettingsDraftFromUI();
     saveSettings(settingsDraft);
+    settingsStatusEl.textContent = 'Settings saved locally';
+    settingsStatusEl.style.color = '#8cf3a0';
     showToast('Settings saved');
     setActiveMenuScreen('main-menu-screen');
   });
 
   settingsResetBtn?.addEventListener('click', () => {
-    settingsDraft = { ...SETTINGS_DEFAULTS };
+    settingsDraft = cloneSettings(SETTINGS_DEFAULTS);
+    pendingRebindAction = null;
     applySettingsToUI();
-    showToast('Settings reset');
+    settingsStatusEl.textContent = 'Draft reset to defaults';
+    settingsStatusEl.style.color = '#ffd27a';
+    keybindHintEl.textContent = 'Tap Rebind, then press a key (Esc cancels).';
   });
 
   settingsBackBtn?.addEventListener('click', () => {
-    settingsDraft = { ...settings };
+    settingsDraft = cloneSettings(settings);
+    pendingRebindAction = null;
     applySettingsToUI();
     setActiveMenuScreen('main-menu-screen');
   });
 
-  [masterVolumeEl, musicVolumeEl, sfxVolumeEl, reducedMotionEl, cameraShakeEl].forEach((el) => {
+  [masterVolumeEl, musicVolumeEl, sfxVolumeEl, graphicsPresetEl, controlSensitivityEl].forEach((el) => {
     el?.addEventListener('input', syncSettingsDraftFromUI);
     el?.addEventListener('change', syncSettingsDraftFromUI);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (appMode !== 'menu' || activeMenuScreen !== 'settings-screen' || !pendingRebindAction) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.key === 'Escape') {
+      pendingRebindAction = null;
+      keybindHintEl.textContent = 'Rebind cancelled.';
+      renderKeybindRows();
+      return;
+    }
+
+    const normalized = normalizeKey(event.key);
+    if (!normalized || ['Shift', 'Control', 'Alt', 'Meta'].includes(normalized)) {
+      keybindHintEl.textContent = 'That key cannot be bound. Try another key.';
+      return;
+    }
+
+    for (const [action] of KEYBIND_ACTIONS) {
+      if (action !== pendingRebindAction && settingsDraft.keybinds[action] === normalized) {
+        settingsDraft.keybinds[action] = null;
+      }
+    }
+
+    settingsDraft.keybinds[pendingRebindAction] = normalized;
+    keybindHintEl.textContent = `${KEYBIND_ACTIONS.find(([id]) => id === pendingRebindAction)?.[1] ?? 'Action'} set to ${keyDisplay(normalized)}.`;
+
+    pendingRebindAction = null;
+    settingsStatusEl.textContent = 'Unsaved changes';
+    settingsStatusEl.style.color = '#ffd27a';
+    renderKeybindRows();
   });
 }
 
 function tryHandleOverInput(game, input) {
-  if (input.wasPressed('r') || input.wasPressed('R') || input.wasPressed('Enter') || input.wasPressed(' ')) {
+  if (input.wasPressed('r') || input.wasPressed('R') || input.wasPressed('Enter') || actionPressed(input, 'fire')) {
     startMatch();
     return;
   }
 
-  if (input.wasPressed('m') || input.wasPressed('M') || input.wasPressed('Escape')) {
+  if (actionPressed(input, 'menu') || input.wasPressed('m') || input.wasPressed('M')) {
     openMenu('main-menu-screen');
   }
 }
@@ -856,8 +1050,10 @@ export function createGame() {
   game.onInit = () => {
     bestScore = Number(bestEl.textContent) || 0;
     settings = loadSettings();
-    settingsDraft = { ...settings };
+    settingsDraft = cloneSettings(settings);
     applySettingsToUI();
+    settingsStatusEl.textContent = 'Loaded saved settings';
+    settingsStatusEl.style.color = '#95b5da';
 
     selectedLevelId = loadSelectedLevel();
 
@@ -874,13 +1070,23 @@ export function createGame() {
     const input = game.input;
 
     if (appMode === 'menu') {
-      if (input.wasPressed('Escape')) {
+      if (activeMenuScreen === 'settings-screen' && pendingRebindAction) {
+        return;
+      }
+
+      if (actionPressed(input, 'menu') || input.wasPressed('Escape')) {
         setActiveMenuScreen('main-menu-screen');
       }
       if (input.wasPressed('l') || input.wasPressed('L')) {
         setActiveMenuScreen('level-select-screen');
       }
       if (input.wasPressed('o') || input.wasPressed('O')) {
+        settingsDraft = cloneSettings(settings);
+        pendingRebindAction = null;
+        applySettingsToUI();
+        settingsStatusEl.textContent = 'Loaded saved settings';
+        settingsStatusEl.style.color = '#95b5da';
+        keybindHintEl.textContent = 'Tap Rebind, then press a key (Esc cancels).';
         setActiveMenuScreen('settings-screen');
       }
       return;
@@ -893,7 +1099,7 @@ export function createGame() {
 
     if (appMode !== 'playing') return;
 
-    if (input.wasPressed('Escape') || input.wasPressed('m') || input.wasPressed('M')) {
+    if (actionPressed(input, 'menu') || input.wasPressed('m') || input.wasPressed('M')) {
       openMenu('main-menu-screen');
       return;
     }
@@ -905,8 +1111,9 @@ export function createGame() {
       const ny = move.my / len;
       const scale = dt / (1000 / 60);
 
-      player.x += nx * TANK_SPEED * scale;
-      player.y += ny * TANK_SPEED * scale;
+      const sensitivity = clamp(settings.controlSensitivity, 0.5, 1.6);
+      player.x += nx * TANK_SPEED * sensitivity * scale;
+      player.y += ny * TANK_SPEED * sensitivity * scale;
       player.angle = Math.atan2(ny, nx);
     }
 
@@ -954,14 +1161,21 @@ export function createGame() {
     for (const b of bullets) {
       const glow = b.shooter === 'player' ? '#ffc857' : '#ff8e8e';
       const fill = b.shooter === 'player' ? '#ffedb4' : '#ffe0e0';
-      renderer.setGlow(glow, settings.reducedMotion ? 0.18 : 0.35);
+      renderer.setGlow(glow, graphicsConfig().bulletGlow);
       renderer.fillCircle(b.x, b.y, BULLET_RADIUS, fill);
       renderer.setGlow(null);
     }
 
-    text.drawText('MOVE: WASD / ARROWS / TOUCH D-PAD', 12, 18, 11, '#9fcbf2', 'left');
-    text.drawText('SHOOT: SPACE / TOUCH FIRE', 12, 32, 11, '#9fcbf2', 'left');
-    text.drawText('MENU: ESC / M', W - 12, 18, 11, '#9fcbf2', 'right');
+    text.drawText(
+      `MOVE: ${keyDisplay(settings.keybinds.moveUp)}/${keyDisplay(settings.keybinds.moveDown)}/${keyDisplay(settings.keybinds.moveLeft)}/${keyDisplay(settings.keybinds.moveRight)} / ARROWS / TOUCH`,
+      12,
+      18,
+      11,
+      '#9fcbf2',
+      'left',
+    );
+    text.drawText(`SHOOT: ${keyDisplay(settings.keybinds.fire)} / TOUCH FIRE`, 12, 32, 11, '#9fcbf2', 'left');
+    text.drawText(`MENU: ${keyDisplay(settings.keybinds.menu)} / M`, W - 12, 18, 11, '#9fcbf2', 'right');
   };
 
   game.start();

@@ -1,54 +1,55 @@
 # Tank Royale (Prototype)
 
-Main Menu scene flow prototype with **Start**, **Settings**, and **Level Select** flows.
+Main Menu flow prototype with gameplay and a fully wired **Settings** screen.
 
-## Implemented scene flow
+## Settings implemented
 
-- **Main Menu**
-  - `START`
-  - `SETTINGS`
-  - `LEVEL SELECT`
-- **Settings**
-  - Master / Music / SFX sliders
-  - Reduced Motion toggle
-  - Camera Shake toggle
-  - Apply / Reset / Back actions
-- **Level Select**
-  - Card list with locked/unlocked states
-  - Details panel (objective, recommended loadout, reward)
-  - `START MATCH` from selected level
+### Audio
+- Master volume slider
+- Music volume slider
+- SFX volume slider
 
-## Visual assets
+### Graphics
+- Graphics preset selector:
+  - Low (battery saver)
+  - Balanced
+  - High
 
-- Uses default Tank image asset as menu hero + level preview:
-  - `tank-royale/assets/maps/default-map-preview.webp`
-- Source copied from existing project asset: `tanks/preview.webp`
-
-## Gameplay integration
-
-- Start from Main Menu or Level Select launches the selected level.
-- Win when level kill target is met and active enemies are eliminated.
-- Lose when player HP reaches 0.
-- End state supports restart (`Enter` / `R`) or return to menu (`Esc` / `M`).
+### Controls
+- Control sensitivity slider (`0.50x` to `1.60x`)
+- Keyboard keybinding entry points for:
+  - Move Up / Down / Left / Right
+  - Fire
+  - Menu
 
 ## Persistence
 
-Settings and selected level persist via `localStorage`:
+Settings persist in `localStorage`:
 
 - `tankRoyale.settings.v1`
+
+Selected level persists in:
+
 - `tankRoyale.selectedLevel.v1`
+
+## Input compatibility
+
+- Keyboard controls are remappable via Settings
+- Arrow-key fallback still works for movement
+- Touch controls (D-pad + FIRE) remain available for coarse pointers
+- Sensitivity affects player movement in both keyboard and touch contexts
 
 ## Local run
 
 From repository root:
 
 ```bash
-python3 -m http.server 8123
+python3 -m http.server 8133
 ```
 
 Open:
 
-- `http://127.0.0.1:8123/tank-royale/`
+- `http://127.0.0.1:8133/tank-royale/`
 
 ## Validation
 

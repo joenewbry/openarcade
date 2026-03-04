@@ -236,26 +236,69 @@ canvas#game {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #d6e9ff;
-}
-.setting-card input[type='range'] {
-  width: 100%;
-}
-.toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 14px;
+}
+.setting-card input[type='range'] {
+  width: 100%;
+}
+.setting-card select {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 8px;
+  border: 1px solid rgba(169, 218, 255, 0.45);
+  background: rgba(11, 19, 32, 0.92);
+  color: #e5f2ff;
+  font-family: inherit;
+  padding: 8px;
+}
+.setting-value {
+  color: #a9daff;
+  font-weight: 700;
+}
+.keybind-list {
+  display: grid;
+  gap: 8px;
+}
+.keybind-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.keybind-value {
+  min-width: 60px;
+  text-align: center;
+  color: #a9daff;
+  font-weight: 700;
+}
+.keybind-btn {
+  border: 1px solid rgba(169, 218, 255, 0.55);
+  border-radius: 8px;
+  background: rgba(40, 62, 90, 0.82);
+  color: #e8f4ff;
+  min-height: 40px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.keybind-btn:hover,
+.keybind-btn:focus-visible {
+  filter: brightness(1.08);
+}
+.small-note {
+  font-size: 12px;
+  color: #95b5da;
 }
 .settings-actions {
   margin-top: auto;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-}
-.small-note {
-  font-size: 12px;
-  color: #95b5da;
 }
 
 #level-select-screen {
@@ -514,29 +557,37 @@ canvas#game {
         <h2 class="settings-title">SETTINGS</h2>
         <div class="settings-grid">
           <div class="setting-card">
-            <label for="masterVolume">Master Volume <span id="masterValue">80</span>%</label>
+            <label for="masterVolume">Master Volume <span id="masterValue" class="setting-value">80%</span></label>
             <input id="masterVolume" type="range" min="0" max="100" step="1" />
-          </div>
-          <div class="setting-card">
-            <label for="musicVolume">Music Volume <span id="musicValue">65</span>%</label>
+
+            <label for="musicVolume">Music Volume <span id="musicValue" class="setting-value">65%</span></label>
             <input id="musicVolume" type="range" min="0" max="100" step="1" />
-          </div>
-          <div class="setting-card">
-            <label for="sfxVolume">SFX Volume <span id="sfxValue">75</span>%</label>
+
+            <label for="sfxVolume">SFX Volume <span id="sfxValue" class="setting-value">75%</span></label>
             <input id="sfxVolume" type="range" min="0" max="100" step="1" />
           </div>
+
           <div class="setting-card">
-            <div class="toggle-row">
-              <span>Reduced Motion</span>
-              <input id="reducedMotion" type="checkbox" />
-            </div>
-            <div class="toggle-row">
-              <span>Camera Shake</span>
-              <input id="cameraShake" type="checkbox" />
-            </div>
+            <label for="graphicsPreset">Graphics Preset</label>
+            <select id="graphicsPreset">
+              <option value="low">Low (Battery Saver)</option>
+              <option value="balanced">Balanced</option>
+              <option value="high">High</option>
+            </select>
+
+            <label for="controlSensitivity">Control Sensitivity <span id="sensitivityValue" class="setting-value">1.00x</span></label>
+            <input id="controlSensitivity" type="range" min="0.50" max="1.60" step="0.05" />
+          </div>
+
+          <div class="setting-card" style="grid-column: 1 / -1;">
+            <strong style="font-size: 12px; color: #d6e9ff; text-transform: uppercase; letter-spacing: .05em;">Keyboard Keybindings</strong>
+            <div id="keybindList" class="keybind-list"></div>
+            <p id="keybindHint" class="small-note">Tap Rebind, then press a key (Esc cancels).</p>
           </div>
         </div>
-        <p class="small-note">Settings are persisted locally and applied to menu/gameplay transitions.</p>
+
+        <p id="settingsStatus" class="small-note">Settings are persisted locally and applied after Apply.</p>
+
         <div class="settings-actions">
           <button id="settingsApplyBtn" class="menu-btn primary">APPLY</button>
           <button id="settingsResetBtn" class="menu-btn secondary">RESET</button>
@@ -572,11 +623,11 @@ canvas#game {
     </div>
   </div>
 
-  <div id="hint">Menu flow: Main Menu → Settings / Level Select. Gameplay controls: WASD/Arrows + Space, mobile D-pad + FIRE.</div>
+  <div id="hint">Menu flow: Main Menu → Settings / Level Select. Keyboard is remappable; touch D-pad + FIRE supported.</div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script type="module">
-    import { createGame } from './gameplay-scene.js';
+    import { createGame } from './game.js?v=pm1-dev2';
     createGame();
   </script>
   <script src="../rating.js?v=2"></script>
