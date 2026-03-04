@@ -1,5 +1,8 @@
 # PM1-DEV5 — Safe-Area HUD + Mobile/Tablet Touch Layout Polish
 
+- Branch: `feat/pm1-dev5-mobile-ui-safearea`
+- PR: https://github.com/joenewbry/openarcade/pull/75
+
 ## Summary
 Implemented mobile-first UI polish for `tank-royale` focused on safe-area handling and touch control ergonomics on phones/tablets.
 
