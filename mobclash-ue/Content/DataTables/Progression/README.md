@@ -16,6 +16,14 @@ These JSON schema files are for validation in tooling/CI and mirror expected UE 
 
 ## Suggested UE Structs
 
+For creature unlock rows, use the concrete in-project schema:
+
+- `Source/MobClash/Public/Data/MCCreatureUnlockRow.h`
+  - `EMCUnlockType`
+  - `FMCCreatureUnlockRow`
+
+Reference example for rank table struct shape:
+
 ```cpp
 USTRUCT(BlueprintType)
 struct FRankThresholdRow : public FTableRowBase
@@ -28,27 +36,6 @@ struct FRankThresholdRow : public FTableRowBase
     UPROPERTY(EditAnywhere, BlueprintReadOnly) int32 TotalXPRequired = 0;
     UPROPERTY(EditAnywhere, BlueprintReadOnly) int32 XPToNextRank = 0;
     UPROPERTY(EditAnywhere, BlueprintReadOnly) int32 SoftCurrencyReward = 0;
-};
-
-UENUM(BlueprintType)
-enum class EUnlockType : uint8
-{
-    Starter,
-    RankReward,
-    Event,
-    Shop
-};
-
-USTRUCT(BlueprintType)
-struct FCreatureUnlockRow : public FTableRowBase
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadOnly) FName CreatureId;
-    UPROPERTY(EditAnywhere, BlueprintReadOnly) int32 UnlockRank = 1;
-    UPROPERTY(EditAnywhere, BlueprintReadOnly) EUnlockType UnlockType = EUnlockType::RankReward;
-    UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bPreviewInRosterBeforeUnlock = true;
-    UPROPERTY(EditAnywhere, BlueprintReadOnly) FString Notes;
 };
 ```
 
