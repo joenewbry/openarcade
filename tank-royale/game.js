@@ -12,13 +12,18 @@ const ENEMY_RADIUS = 16;
 const ENEMY_MAX_HP = 55;
 const ENEMY_SPEED = 1.6;
 const ENEMY_FIRE_COOLDOWN_MS = 760;
-const ENEMY_COUNT = 3;
 
 const BULLET_SPEED = 7.4;
 const BULLET_RADIUS = 3;
 const BULLET_LIFE_MS = 1250;
 const PLAYER_BULLET_DAMAGE = 25;
 const ENEMY_BULLET_DAMAGE = 15;
+
+const DEFAULT_SPAWN_DIRECTOR_CONFIG = {
+  spawnCadenceMs: 2300,
+  maxConcurrentEnemies: 3,
+  spawnBudget: 10,
+};
 
 const touchState = {
   up: false,
@@ -35,6 +40,10 @@ let lastPlayerShotAt;
 let score;
 let bestScore;
 let endResult = null;
+let nextEnemyId = 1;
+let enemiesDefeated = 0;
+let spawnConfig;
+let spawnDirector;
 
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
@@ -48,6 +57,53 @@ const overlayMenuBtn = document.getElementById('overlayMenu');
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
+}
+
+function readPositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function readPositiveNumber(value, fallback) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function readSpawnConfigFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+
+  const spawnCadenceMs = readPositiveNumber(
+    params.get('spawnCadenceMs'),
+    DEFAULT_SPAWN_DIRECTOR_CONFIG.spawnCadenceMs,
+  );
+
+  const maxConcurrentEnemies = readPositiveInt(
+    params.get('maxConcurrentEnemies'),
+    DEFAULT_SPAWN_DIRECTOR_CONFIG.maxConcurrentEnemies,
+  );
+
+  const spawnBudget = readPositiveInt(
+    params.get('spawnBudget'),
+    DEFAULT_SPAWN_DIRECTOR_CONFIG.spawnBudget,
+  );
+
+  return {
+    spawnCadenceMs: clamp(spawnCadenceMs, 250, 30000),
+    maxConcurrentEnemies: clamp(maxConcurrentEnemies, 1, 20),
+    spawnBudget: clamp(spawnBudget, 1, 999),
+  };
+}
+
+function createSpawnDirectorState(config) {
+  return {
+    maxConcurrentEnemies: config.maxConcurrentEnemies,
+    spawnCadenceMs: config.spawnCadenceMs,
+    spawnBudget: config.spawnBudget,
+    totalSpawned: 0,
+    nextSpawnAt: 0,
+  };
 }
 
 function randomSpawn() {
@@ -84,11 +140,46 @@ function spawnEnemy(id) {
   };
 }
 
+function primeEnemyWave() {
+  const initialCount = Math.min(
+    spawnDirector.maxConcurrentEnemies,
+    spawnDirector.spawnBudget,
+  );
+
+  for (let i = 0; i < initialCount; i++) {
+    enemies.push(spawnEnemy(nextEnemyId++));
+    spawnDirector.totalSpawned += 1;
+  }
+
+  spawnDirector.nextSpawnAt = performance.now() + spawnDirector.spawnCadenceMs;
+}
+
+function updateEnemySpawning(now) {
+  if (spawnDirector.totalSpawned >= spawnDirector.spawnBudget) {
+    return;
+  }
+
+  if (enemies.length >= spawnDirector.maxConcurrentEnemies) {
+    return;
+  }
+
+  if (now < spawnDirector.nextSpawnAt) {
+    return;
+  }
+
+  enemies.push(spawnEnemy(nextEnemyId++));
+  spawnDirector.totalSpawned += 1;
+  spawnDirector.nextSpawnAt = now + spawnDirector.spawnCadenceMs;
+  updateHud();
+}
+
 function updateHud() {
   scoreEl.textContent = String(score);
   bestEl.textContent = String(bestScore);
   hpEl.textContent = String(Math.max(0, Math.ceil(player.hp)));
-  enemiesEl.textContent = String(enemies.length);
+
+  const remaining = Math.max(0, spawnDirector.spawnBudget - enemiesDefeated);
+  enemiesEl.textContent = `${enemies.length}/${remaining}`;
 }
 
 function setPhaseLabel(value) {
@@ -106,9 +197,10 @@ function resetRound() {
   score = 0;
   bullets = [];
   enemies = [];
-  for (let i = 0; i < ENEMY_COUNT; i++) {
-    enemies.push(spawnEnemy(i + 1));
-  }
+  nextEnemyId = 1;
+  enemiesDefeated = 0;
+  spawnDirector = createSpawnDirectorState(spawnConfig);
+  primeEnemyWave();
 
   lastPlayerShotAt = -9999;
   endResult = null;
@@ -286,9 +378,11 @@ function showMainMenu(game) {
   setPhaseLabel('MENU');
   showButtonState('menu');
   game.setState('waiting');
+
+  const cadenceSeconds = (spawnConfig.spawnCadenceMs / 1000).toFixed(1);
   game.showOverlay(
     'TANK ROYALE',
-    'Simple skirmish prototype\n\nWin: Destroy all enemy tanks\nLose: Your HP reaches 0\n\nEnter / Space / Play to start',
+    `Simple skirmish prototype\n\nWin: Clear all spawn waves (${spawnConfig.spawnBudget} tanks total)\nLose: Your HP reaches 0\n\nSpawn Director\n- Cadence: ${cadenceSeconds}s\n- Max Concurrent: ${spawnConfig.maxConcurrentEnemies}\n\nEnter / Space / Play to start`,
   );
 }
 
@@ -307,7 +401,7 @@ function endRun(game, didWin) {
 
   const title = didWin ? 'VICTORY' : 'DEFEAT';
   const text = didWin
-    ? `All enemy tanks eliminated!\nFinal score: ${score}`
+    ? `All spawn waves cleared!\nFinal score: ${score}`
     : `Your tank was destroyed.\nFinal score: ${score}`;
 
   game.showOverlay(
@@ -319,6 +413,8 @@ function endRun(game, didWin) {
 function updateEnemies(dt) {
   const step = dt / (1000 / 60);
   const now = performance.now();
+
+  updateEnemySpawning(now);
 
   for (const enemy of enemies) {
     const toPlayerX = player.x - enemy.x;
@@ -382,6 +478,7 @@ function updateBullets(dt, game) {
 
           if (enemy.hp <= 0) {
             enemies.splice(e, 1);
+            enemiesDefeated += 1;
             score += 100;
             if (score > bestScore) {
               bestScore = score;
@@ -389,7 +486,10 @@ function updateBullets(dt, game) {
           }
 
           updateHud();
-          if (enemies.length === 0) {
+          if (
+            enemies.length === 0
+            && spawnDirector.totalSpawned >= spawnDirector.spawnBudget
+          ) {
             endRun(game, true);
           }
 
@@ -468,6 +568,7 @@ export function createGame() {
 
   game.onInit = () => {
     bestScore = Number(bestEl.textContent) || 0;
+    spawnConfig = readSpawnConfigFromQuery();
     resetRound();
     game.setScoreFn(() => score);
     showMainMenu(game);
