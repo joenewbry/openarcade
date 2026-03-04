@@ -7,6 +7,8 @@ const TANK_RADIUS = 17;
 const TANK_SPEED = 2.9;
 const FIRE_COOLDOWN_MS = 170;
 const PLAYER_MAX_HP = 100;
+const RAPID_FIRE_MULTIPLIER = 0.55;
+const RAPID_FIRE_DURATION_MS = 6500;
 
 const ENEMY_RADIUS = 16;
 const ENEMY_MAX_HP = 55;
@@ -18,6 +20,14 @@ const BULLET_RADIUS = 3;
 const BULLET_LIFE_MS = 1250;
 const PLAYER_BULLET_DAMAGE = 25;
 const ENEMY_BULLET_DAMAGE = 15;
+
+const MAP_LAYOUT_PATH = './default-map-layout.json';
+const SPRITE_KEYS = {
+  floor: 'tr-map-floor',
+  wall: 'tr-map-wall',
+  destructible: 'tr-map-destructible',
+  pickup: 'tr-map-pickup',
+};
 
 const DEFAULT_CHALLENGE_DATA = {
   modes: [
@@ -57,6 +67,82 @@ const DEFAULT_CHALLENGE_DATA = {
   ],
 };
 
+const FALLBACK_MAP_LAYOUT = {
+  metadata: {
+    sourcePack: 'Cartoon Tank Pack',
+    sourceMap: 'Default Arena',
+    topology: 'Mirrored three-lane arena with center choke and flank breakables',
+  },
+  designGrid: { width: 22, height: 22 },
+  assets: {
+    floor: [
+      './assets/cartoon-tank-pack/maps/default/floor.png',
+      './assets/cartoon-tank-pack/maps/default/ground.png',
+    ],
+    wall: [
+      './assets/cartoon-tank-pack/maps/default/wall.png',
+      './assets/cartoon-tank-pack/props/wall_straight.png',
+    ],
+    destructible: [
+      './assets/cartoon-tank-pack/props/destructible_crate.png',
+      './assets/cartoon-tank-pack/props/destructible_wall.png',
+    ],
+    pickup: [
+      './assets/cartoon-tank-pack/pickups/pickup_crate.png',
+      './assets/cartoon-tank-pack/pickups/pickup_orb.png',
+    ],
+  },
+  layout: {
+    walls: [
+      { x: 6.15, y: 4.2, w: 0.9, h: 6.2 },
+      { x: 14.95, y: 11.5, w: 0.9, h: 6.2 },
+      { x: 9.3, y: 14.8, w: 3.45, h: 0.9 },
+    ],
+    destructibles: [
+      { x: 8.15, y: 6.2, w: 1.1, h: 1.1, hp: 45 },
+      { x: 12.75, y: 6.2, w: 1.1, h: 1.1, hp: 45 },
+      { x: 9.95, y: 9.35, w: 1.1, h: 1.1, hp: 40 },
+      { x: 10.95, y: 9.35, w: 1.1, h: 1.1, hp: 40 },
+      { x: 6.1, y: 12.6, w: 1.1, h: 1.1, hp: 35 },
+      { x: 14.8, y: 8.2, w: 1.1, h: 1.1, hp: 35 },
+    ],
+    pickupSpawnPoints: [
+      {
+        x: 11,
+        y: 10.95,
+        kind: 'rapid_fire',
+        radius: 0.5,
+        respawnSeconds: 12,
+        initialSpawnDelaySeconds: 3,
+      },
+      {
+        x: 4.2,
+        y: 5,
+        kind: 'health',
+        radius: 0.48,
+        respawnSeconds: 11,
+        initialSpawnDelaySeconds: 5,
+      },
+      {
+        x: 17.8,
+        y: 16.9,
+        kind: 'health',
+        radius: 0.48,
+        respawnSeconds: 11,
+        initialSpawnDelaySeconds: 7,
+      },
+      {
+        x: 11,
+        y: 17.45,
+        kind: 'score_bonus',
+        radius: 0.5,
+        respawnSeconds: 13,
+        initialSpawnDelaySeconds: 9,
+      },
+    ],
+  },
+};
+
 const touchState = {
   up: false,
   down: false,
@@ -80,9 +166,29 @@ let selectedChallengeId = null;
 let currentChallenge = null;
 let challengeMetrics = { maxMapWidth: 22, maxMapHeight: 22 };
 
+let defaultMapLayout = FALLBACK_MAP_LAYOUT;
+let mapLayoutMetadata = {
+  source: 'fallback',
+  usedFallback: true,
+  sourcePack: 'Cartoon Tank Pack',
+  sourceMap: 'Default Arena',
+};
+let mapAssetUsage = {
+  floor: null,
+  wall: null,
+  destructible: null,
+  pickup: null,
+};
+
 let arenaBounds = { minX: 2, minY: 2, maxX: W - 2, maxY: H - 2 };
 let arenaWallRects = [];
+let destructibleBlocks = [];
+let pickupSpawnPoints = [];
+let activePickups = [];
+let nextPickupId = 1;
+
 let blitzClockRemainingMs = 0;
+let playerRapidFireUntilMs = 0;
 
 let spawnDirector = {
   maxConcurrentEnemies: 3,
@@ -123,14 +229,215 @@ function circleIntersectsRect(cx, cy, radius, rect) {
   return dx * dx + dy * dy <= radius * radius;
 }
 
-function isCircleCollidingWithWall(cx, cy, radius) {
+function normalizeMapRect(rawRect, fallbackHp = null) {
+  const x = isFiniteNumber(rawRect?.x, 0);
+  const y = isFiniteNumber(rawRect?.y, 0);
+  const w = Math.max(0.25, isFiniteNumber(rawRect?.w, 1));
+  const h = Math.max(0.25, isFiniteNumber(rawRect?.h, 1));
+  const hp = fallbackHp === null
+    ? null
+    : Math.max(1, isFiniteNumber(rawRect?.hp, fallbackHp));
+
+  return { x, y, w, h, hp };
+}
+
+function normalizePickupSpawn(rawSpawn) {
+  return {
+    x: isFiniteNumber(rawSpawn?.x, 11),
+    y: isFiniteNumber(rawSpawn?.y, 11),
+    kind: String(rawSpawn?.kind ?? 'health'),
+    radius: Math.max(0.2, isFiniteNumber(rawSpawn?.radius, 0.45)),
+    respawnSeconds: Math.max(2, isFiniteNumber(rawSpawn?.respawnSeconds, 12)),
+    initialSpawnDelaySeconds: Math.max(0, isFiniteNumber(rawSpawn?.initialSpawnDelaySeconds, 4)),
+    lifetimeSeconds: Math.max(4, isFiniteNumber(rawSpawn?.lifetimeSeconds, 12)),
+  };
+}
+
+function normalizeMapLayout(rawLayout) {
+  const designGrid = {
+    width: Math.max(8, Math.floor(isFiniteNumber(rawLayout?.designGrid?.width, 22))),
+    height: Math.max(8, Math.floor(isFiniteNumber(rawLayout?.designGrid?.height, 22))),
+  };
+
+  const rawWalls = Array.isArray(rawLayout?.layout?.walls) ? rawLayout.layout.walls : [];
+  const rawDestructibles = Array.isArray(rawLayout?.layout?.destructibles) ? rawLayout.layout.destructibles : [];
+  const rawSpawns = Array.isArray(rawLayout?.layout?.pickupSpawnPoints) ? rawLayout.layout.pickupSpawnPoints : [];
+
+  const walls = rawWalls.map((wall) => normalizeMapRect(wall));
+  const destructibles = rawDestructibles.map((block) => normalizeMapRect(block, 40));
+  const pickupSpawnPoints = rawSpawns.map((spawn) => normalizePickupSpawn(spawn));
+
+  return {
+    metadata: {
+      sourcePack: String(rawLayout?.metadata?.sourcePack ?? 'Cartoon Tank Pack'),
+      sourceMap: String(rawLayout?.metadata?.sourceMap ?? 'Default Arena'),
+      topology: String(rawLayout?.metadata?.topology ?? 'Unknown topology'),
+    },
+    designGrid,
+    assets: {
+      floor: Array.isArray(rawLayout?.assets?.floor) ? rawLayout.assets.floor.map(String) : [],
+      wall: Array.isArray(rawLayout?.assets?.wall) ? rawLayout.assets.wall.map(String) : [],
+      destructible: Array.isArray(rawLayout?.assets?.destructible) ? rawLayout.assets.destructible.map(String) : [],
+      pickup: Array.isArray(rawLayout?.assets?.pickup) ? rawLayout.assets.pickup.map(String) : [],
+    },
+    layout: {
+      walls,
+      destructibles,
+      pickupSpawnPoints,
+    },
+  };
+}
+
+async function loadDefaultMapLayout() {
+  try {
+    const response = await fetch(MAP_LAYOUT_PATH, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const rawLayout = await response.json();
+    const normalized = normalizeMapLayout(rawLayout);
+
+    mapLayoutMetadata = {
+      source: MAP_LAYOUT_PATH,
+      usedFallback: false,
+      sourcePack: normalized.metadata.sourcePack,
+      sourceMap: normalized.metadata.sourceMap,
+    };
+
+    return normalized;
+  } catch (error) {
+    console.warn('Failed to load default-map-layout.json; using in-code fallback topology.', error);
+
+    const fallback = normalizeMapLayout(FALLBACK_MAP_LAYOUT);
+    mapLayoutMetadata = {
+      source: 'in-code fallback topology',
+      usedFallback: true,
+      sourcePack: fallback.metadata.sourcePack,
+      sourceMap: fallback.metadata.sourceMap,
+    };
+
+    return fallback;
+  }
+}
+
+function projectGridRectToArena(rect, grid, bounds) {
+  const arenaWidth = bounds.maxX - bounds.minX;
+  const arenaHeight = bounds.maxY - bounds.minY;
+
+  return {
+    x: bounds.minX + (rect.x / grid.width) * arenaWidth,
+    y: bounds.minY + (rect.y / grid.height) * arenaHeight,
+    w: Math.max(8, (rect.w / grid.width) * arenaWidth),
+    h: Math.max(8, (rect.h / grid.height) * arenaHeight),
+    hp: rect.hp,
+  };
+}
+
+function projectGridPointToArena(point, grid, bounds) {
+  const arenaWidth = bounds.maxX - bounds.minX;
+  const arenaHeight = bounds.maxY - bounds.minY;
+  const scale = Math.min(arenaWidth / grid.width, arenaHeight / grid.height);
+
+  return {
+    x: bounds.minX + (point.x / grid.width) * arenaWidth,
+    y: bounds.minY + (point.y / grid.height) * arenaHeight,
+    radius: Math.max(7, point.radius * scale),
+    kind: point.kind,
+    respawnMs: point.respawnSeconds * 1000,
+    initialSpawnDelayMs: point.initialSpawnDelaySeconds * 1000,
+    lifetimeMs: point.lifetimeSeconds * 1000,
+  };
+}
+
+function projectMapLayoutToArena(layout, bounds) {
+  const grid = layout.designGrid;
+
+  const walls = layout.layout.walls.map((wall) => projectGridRectToArena(wall, grid, bounds));
+  const destructibles = layout.layout.destructibles.map((block, index) => {
+    const projected = projectGridRectToArena(block, grid, bounds);
+    return {
+      id: `block-${index + 1}`,
+      ...projected,
+      maxHp: block.hp,
+      hp: block.hp,
+    };
+  });
+
+  const pickupSpawns = layout.layout.pickupSpawnPoints.map((point, index) => ({
+    id: `spawn-${index + 1}`,
+    ...projectGridPointToArena(point, grid, bounds),
+    nextSpawnAt: performance.now() + point.initialSpawnDelaySeconds * 1000,
+  }));
+
+  return { walls, destructibles, pickupSpawns };
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Image load failed: ${url}`));
+    image.src = url;
+  });
+}
+
+async function tryLoadSprite(renderer, spriteKey, candidatePaths) {
+  for (const path of candidatePaths) {
+    try {
+      const image = await loadImage(path);
+      renderer.loadSpriteTexture(spriteKey, image);
+      return path;
+    } catch {
+      // Try next candidate.
+    }
+  }
+  return null;
+}
+
+async function loadOptionalMapSprites(renderer, layout) {
+  const usage = {
+    floor: null,
+    wall: null,
+    destructible: null,
+    pickup: null,
+  };
+
+  usage.floor = await tryLoadSprite(renderer, SPRITE_KEYS.floor, layout.assets.floor);
+  usage.wall = await tryLoadSprite(renderer, SPRITE_KEYS.wall, layout.assets.wall);
+  usage.destructible = await tryLoadSprite(renderer, SPRITE_KEYS.destructible, layout.assets.destructible);
+  usage.pickup = await tryLoadSprite(renderer, SPRITE_KEYS.pickup, layout.assets.pickup);
+
+  return usage;
+}
+
+function isCircleCollidingWithWall(cx, cy, radius, options = {}) {
+  const includeDestructibles = options.includeDestructibles !== false;
+
   for (const wall of arenaWallRects) {
     if (circleIntersectsRect(cx, cy, radius, wall)) {
       return true;
     }
   }
 
+  if (includeDestructibles) {
+    for (const block of destructibleBlocks) {
+      if (block.hp > 0 && circleIntersectsRect(cx, cy, radius, block)) {
+        return true;
+      }
+    }
+  }
+
   return false;
+}
+
+function getDestructibleHit(cx, cy, radius) {
+  for (const block of destructibleBlocks) {
+    if (block.hp > 0 && circleIntersectsRect(cx, cy, radius, block)) {
+      return block;
+    }
+  }
+  return null;
 }
 
 function clampEntityToArena(entity, radius) {
@@ -210,6 +517,12 @@ function updateHud() {
 
   if (currentChallenge?.specialRule === 'blitz_clock') {
     timerEl.textContent = `${Math.max(0, Math.ceil(blitzClockRemainingMs / 1000))}s`;
+    return;
+  }
+
+  const rapidFireRemainingMs = playerRapidFireUntilMs - performance.now();
+  if (rapidFireRemainingMs > 0) {
+    timerEl.textContent = `RF ${Math.max(1, Math.ceil(rapidFireRemainingMs / 1000))}s`;
   } else {
     timerEl.textContent = '--';
   }
@@ -332,40 +645,23 @@ function computeArenaBoundsForMode(mode) {
   };
 }
 
-function buildDefaultArenaWalls(bounds) {
-  const width = bounds.maxX - bounds.minX;
-  const height = bounds.maxY - bounds.minY;
-  const wallThickness = Math.max(10, Math.min(width, height) * 0.03);
-
-  return [
-    {
-      x: bounds.minX + width * 0.28,
-      y: bounds.minY + height * 0.18,
-      w: wallThickness,
-      h: height * 0.28,
-    },
-    {
-      x: bounds.minX + width * 0.68,
-      y: bounds.minY + height * 0.54,
-      w: wallThickness,
-      h: height * 0.28,
-    },
-    {
-      x: bounds.minX + width * 0.42,
-      y: bounds.minY + height * 0.68,
-      w: width * 0.18,
-      h: wallThickness,
-    },
-  ];
-}
-
 function configureChallengeMode(mode) {
   currentChallenge = mode;
   arenaBounds = computeArenaBoundsForMode(mode);
 
+  const projectedLayout = projectMapLayoutToArena(defaultMapLayout, arenaBounds);
+
   arenaWallRects = mode.specialRule === 'no_walls'
     ? []
-    : buildDefaultArenaWalls(arenaBounds);
+    : projectedLayout.walls;
+
+  destructibleBlocks = mode.specialRule === 'no_walls'
+    ? []
+    : projectedLayout.destructibles;
+
+  pickupSpawnPoints = projectedLayout.pickupSpawns;
+  activePickups = [];
+  nextPickupId = 1;
 
   spawnDirector = {
     maxConcurrentEnemies: mode.enemyCount,
@@ -411,6 +707,7 @@ function resetRound(selectedMode = getSelectedChallengeMode()) {
   enemies = [];
   primeEnemyWave();
 
+  playerRapidFireUntilMs = 0;
   lastPlayerShotAt = -9999;
   endResult = null;
   updateHud();
@@ -490,8 +787,14 @@ function pushBullet(shooter, x, y, angle, damage) {
   });
 }
 
+function getPlayerFireCooldown(now) {
+  return now < playerRapidFireUntilMs
+    ? FIRE_COOLDOWN_MS * RAPID_FIRE_MULTIPLIER
+    : FIRE_COOLDOWN_MS;
+}
+
 function tryShootPlayer(now) {
-  if (now - lastPlayerShotAt < FIRE_COOLDOWN_MS) return;
+  if (now - lastPlayerShotAt < getPlayerFireCooldown(now)) return;
 
   const tipX = player.x + Math.cos(player.angle) * (TANK_RADIUS + 10);
   const tipY = player.y + Math.sin(player.angle) * (TANK_RADIUS + 10);
@@ -601,9 +904,13 @@ function showMainMenu(game) {
   showButtonState('menu');
   game.setState('waiting');
 
+  const assetMode = mapAssetUsage.floor || mapAssetUsage.wall || mapAssetUsage.destructible || mapAssetUsage.pickup
+    ? 'Asset map visuals loaded'
+    : 'Fallback visual rendering (asset files not found)';
+
   game.showOverlay(
     'TANK ROYALE',
-    `${mode.name}\n${describeRule(mode)}\n\nTarget: ${mode.killTarget} kills\nMax Enemies: ${mode.enemyCount} | Spawn: ${mode.spawnCadenceSeconds.toFixed(1)}s\nMap: ${mode.mapSize.width}x${mode.mapSize.height}\n\nEnter / Space / Play to start`,
+    `${mode.name}\n${describeRule(mode)}\n\nMap: ${mapLayoutMetadata.sourcePack} / ${mapLayoutMetadata.sourceMap}\n${assetMode}\n\nTarget: ${mode.killTarget} kills\nMax Enemies: ${mode.enemyCount} | Spawn: ${mode.spawnCadenceSeconds.toFixed(1)}s\nMap Size: ${mode.mapSize.width}x${mode.mapSize.height}\n\nEnter / Space / Play to start`,
   );
 }
 
@@ -708,6 +1015,110 @@ function onEnemyDestroyed(game) {
   }
 }
 
+function applyDamageToDestructible(block, incomingDamage, shooter) {
+  const scale = shooter === 'enemy' ? 0.55 : 1;
+  const damage = Math.max(4, incomingDamage * scale);
+
+  block.hp -= damage;
+  if (block.hp > 0) {
+    return false;
+  }
+
+  block.hp = 0;
+
+  if (shooter === 'player') {
+    score += 30;
+    if (score > bestScore) {
+      bestScore = score;
+    }
+  }
+
+  return true;
+}
+
+function getPickupSpawnById(spawnId) {
+  return pickupSpawnPoints.find((spawn) => spawn.id === spawnId) ?? null;
+}
+
+function spawnPickupAtPoint(spawnPoint, now) {
+  const pickup = {
+    id: `pickup-${nextPickupId++}`,
+    spawnId: spawnPoint.id,
+    x: spawnPoint.x,
+    y: spawnPoint.y,
+    radius: spawnPoint.radius,
+    kind: spawnPoint.kind,
+    expiresAt: now + spawnPoint.lifetimeMs,
+  };
+
+  activePickups.push(pickup);
+}
+
+function updatePickupSpawns(now) {
+  for (let i = activePickups.length - 1; i >= 0; i--) {
+    const pickup = activePickups[i];
+    if (now <= pickup.expiresAt) {
+      continue;
+    }
+
+    activePickups.splice(i, 1);
+    const spawn = getPickupSpawnById(pickup.spawnId);
+    if (spawn) {
+      spawn.nextSpawnAt = now + spawn.respawnMs;
+    }
+  }
+
+  for (const spawn of pickupSpawnPoints) {
+    const hasActivePickup = activePickups.some((pickup) => pickup.spawnId === spawn.id);
+    if (hasActivePickup || now < spawn.nextSpawnAt) {
+      continue;
+    }
+
+    spawnPickupAtPoint(spawn, now);
+    spawn.nextSpawnAt = now + spawn.respawnMs;
+  }
+}
+
+function applyPickupEffect(pickup, now) {
+  if (pickup.kind === 'health') {
+    player.hp = Math.min(PLAYER_MAX_HP, player.hp + 30);
+    return;
+  }
+
+  if (pickup.kind === 'rapid_fire') {
+    playerRapidFireUntilMs = Math.max(playerRapidFireUntilMs, now + RAPID_FIRE_DURATION_MS);
+    return;
+  }
+
+  if (pickup.kind === 'score_bonus') {
+    score += 160;
+    if (score > bestScore) {
+      bestScore = score;
+    }
+    return;
+  }
+
+  score += 100;
+}
+
+function updatePickupCollection(now) {
+  for (let i = activePickups.length - 1; i >= 0; i--) {
+    const pickup = activePickups[i];
+    const d = Math.hypot(player.x - pickup.x, player.y - pickup.y);
+    if (d > TANK_RADIUS + pickup.radius) {
+      continue;
+    }
+
+    activePickups.splice(i, 1);
+    applyPickupEffect(pickup, now);
+
+    const spawn = getPickupSpawnById(pickup.spawnId);
+    if (spawn) {
+      spawn.nextSpawnAt = now + spawn.respawnMs;
+    }
+  }
+}
+
 function updateBullets(dt, game) {
   const now = performance.now();
   const step = dt / (1000 / 60);
@@ -728,7 +1139,14 @@ function updateBullets(dt, game) {
       continue;
     }
 
-    if (isCircleCollidingWithWall(b.x, b.y, BULLET_RADIUS)) {
+    const hitBlock = getDestructibleHit(b.x, b.y, BULLET_RADIUS);
+    if (hitBlock) {
+      applyDamageToDestructible(hitBlock, b.damage, b.shooter);
+      bullets.splice(i, 1);
+      continue;
+    }
+
+    if (isCircleCollidingWithWall(b.x, b.y, BULLET_RADIUS, { includeDestructibles: false })) {
       bullets.splice(i, 1);
       continue;
     }
@@ -788,16 +1206,90 @@ function tryHandleOverInput(game, input) {
   }
 }
 
+function drawPickupSpawner(renderer, spawn, now) {
+  const pulse = 0.25 + 0.2 * Math.sin(now * 0.005 + spawn.x * 0.03 + spawn.y * 0.02);
+  renderer.setGlow('#77ceff', pulse);
+  renderer.fillCircle(spawn.x, spawn.y, spawn.radius + 2, '#1a3552');
+  renderer.setGlow(null);
+  renderer.drawLine(spawn.x - spawn.radius, spawn.y, spawn.x + spawn.radius, spawn.y, '#67bfff', 1);
+  renderer.drawLine(spawn.x, spawn.y - spawn.radius, spawn.x, spawn.y + spawn.radius, '#67bfff', 1);
+}
+
+function drawPickup(renderer, pickup, now) {
+  const size = pickup.radius * 2.2;
+  const x = pickup.x - size * 0.5;
+  const y = pickup.y - size * 0.5;
+
+  if (renderer.hasSpriteTexture(SPRITE_KEYS.pickup)) {
+    renderer.drawSprite(SPRITE_KEYS.pickup, x, y, size, size, 1);
+    return;
+  }
+
+  const pulse = 0.3 + 0.22 * Math.sin(now * 0.008 + pickup.x * 0.02 + pickup.y * 0.015);
+  const color = pickup.kind === 'health'
+    ? '#7ff58a'
+    : pickup.kind === 'rapid_fire'
+      ? '#ffd66f'
+      : '#ff9bca';
+
+  renderer.setGlow(color, pulse);
+  renderer.fillCircle(pickup.x, pickup.y, pickup.radius, color);
+  renderer.setGlow(null);
+}
+
+function drawDestructibleBlock(renderer, block) {
+  if (block.hp <= 0) {
+    return;
+  }
+
+  const hpRatio = clamp(block.hp / block.maxHp, 0, 1);
+
+  if (renderer.hasSpriteTexture(SPRITE_KEYS.destructible)) {
+    renderer.drawSprite(SPRITE_KEYS.destructible, block.x, block.y, block.w, block.h, 0.5 + 0.5 * hpRatio);
+    return;
+  }
+
+  const damaged = hpRatio < 0.65;
+  renderer.fillRect(block.x, block.y, block.w, block.h, damaged ? '#a35f5f' : '#bc7d63');
+  renderer.drawLine(block.x, block.y, block.x + block.w, block.y, '#ffd0a8', 1);
+  renderer.drawLine(block.x, block.y + block.h, block.x + block.w, block.y + block.h, '#5a2d2d', 1);
+
+  if (hpRatio < 0.98) {
+    const crackCount = Math.max(1, Math.floor((1 - hpRatio) * 4));
+    for (let i = 0; i < crackCount; i++) {
+      const frac = (i + 1) / (crackCount + 1);
+      const sx = block.x + block.w * frac;
+      renderer.drawLine(
+        sx,
+        block.y + block.h * 0.15,
+        sx - block.w * 0.12,
+        block.y + block.h * 0.82,
+        '#4a2c2c',
+        1,
+      );
+    }
+  }
+}
+
 function drawArena(renderer) {
   renderer.fillRect(0, 0, W, H, '#0d1224');
+
+  const arenaWidth = arenaBounds.maxX - arenaBounds.minX;
+  const arenaHeight = arenaBounds.maxY - arenaBounds.minY;
+
+  if (renderer.hasSpriteTexture(SPRITE_KEYS.floor)) {
+    renderer.drawSprite(SPRITE_KEYS.floor, arenaBounds.minX, arenaBounds.minY, arenaWidth, arenaHeight, 0.95);
+  } else {
+    renderer.fillRect(arenaBounds.minX, arenaBounds.minY, arenaWidth, arenaHeight, '#101d35');
+  }
 
   renderer.drawLine(arenaBounds.minX, arenaBounds.minY, arenaBounds.maxX, arenaBounds.minY, '#2a4f82', 2);
   renderer.drawLine(arenaBounds.maxX, arenaBounds.minY, arenaBounds.maxX, arenaBounds.maxY, '#2a4f82', 2);
   renderer.drawLine(arenaBounds.maxX, arenaBounds.maxY, arenaBounds.minX, arenaBounds.maxY, '#2a4f82', 2);
   renderer.drawLine(arenaBounds.minX, arenaBounds.maxY, arenaBounds.minX, arenaBounds.minY, '#2a4f82', 2);
 
-  const gridStepX = Math.max(24, (arenaBounds.maxX - arenaBounds.minX) / 16);
-  const gridStepY = Math.max(24, (arenaBounds.maxY - arenaBounds.minY) / 10);
+  const gridStepX = Math.max(24, arenaWidth / 16);
+  const gridStepY = Math.max(24, arenaHeight / 10);
 
   for (let x = arenaBounds.minX + gridStepX; x < arenaBounds.maxX; x += gridStepX) {
     renderer.drawLine(x, arenaBounds.minY, x, arenaBounds.maxY, '#ffffff08', 1);
@@ -807,18 +1299,47 @@ function drawArena(renderer) {
   }
 
   for (const wall of arenaWallRects) {
-    renderer.fillRect(wall.x, wall.y, wall.w, wall.h, '#254a72');
-    renderer.drawLine(wall.x, wall.y, wall.x + wall.w, wall.y, '#5ea3df', 1);
-    renderer.drawLine(wall.x, wall.y + wall.h, wall.x + wall.w, wall.y + wall.h, '#0f2741', 1);
+    if (renderer.hasSpriteTexture(SPRITE_KEYS.wall)) {
+      renderer.drawSprite(SPRITE_KEYS.wall, wall.x, wall.y, wall.w, wall.h, 1);
+    } else {
+      renderer.fillRect(wall.x, wall.y, wall.w, wall.h, '#254a72');
+      renderer.drawLine(wall.x, wall.y, wall.x + wall.w, wall.y, '#5ea3df', 1);
+      renderer.drawLine(wall.x, wall.y + wall.h, wall.x + wall.w, wall.y + wall.h, '#0f2741', 1);
+    }
+  }
+
+  for (const block of destructibleBlocks) {
+    drawDestructibleBlock(renderer, block);
+  }
+
+  const now = performance.now();
+  for (const spawn of pickupSpawnPoints) {
+    drawPickupSpawner(renderer, spawn, now);
+  }
+  for (const pickup of activePickups) {
+    drawPickup(renderer, pickup, now);
   }
 }
 
 export async function createGame() {
-  challengeModes = await loadChallengeModes();
+  const [loadedChallengeModes, loadedMapLayout] = await Promise.all([
+    loadChallengeModes(),
+    loadDefaultMapLayout(),
+  ]);
+
+  challengeModes = loadedChallengeModes;
   challengeMetrics = computeChallengeMetrics(challengeModes);
+  defaultMapLayout = loadedMapLayout;
+
   setupChallengeSelector();
 
   const game = new Game('game');
+  mapAssetUsage = await loadOptionalMapSprites(game.renderer, defaultMapLayout);
+
+  console.info('Tank Royale default map integration', {
+    mapSource: mapLayoutMetadata,
+    assetUsage: mapAssetUsage,
+  });
 
   setupTouchControls();
 
@@ -896,6 +1417,9 @@ export async function createGame() {
     if (shouldFire(input)) {
       tryShootPlayer(now);
     }
+
+    updatePickupSpawns(now);
+    updatePickupCollection(now);
 
     updateEnemies(dt);
     updateBullets(dt, game);

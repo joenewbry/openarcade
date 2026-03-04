@@ -18,6 +18,21 @@ Each mode defines:
 
 Optional rule data is also JSON-driven (e.g., Blitz timer and kill bonus).
 
+## Default Asset Map Integration
+
+Map topology is now loaded from `default-map-layout.json`.
+
+- Uses the selected **Cartoon Tank Pack** default arena topology (center choke + mirrored lanes)
+- Wires destructible block placement and pickup spawn points into runtime gameplay
+- If map textures are missing, gameplay falls back to built-in vector rendering while preserving topology/logic
+
+Expected optional asset paths (auto-loaded when present):
+
+- `./assets/cartoon-tank-pack/maps/default/floor.png`
+- `./assets/cartoon-tank-pack/maps/default/wall.png`
+- `./assets/cartoon-tank-pack/props/destructible_crate.png`
+- `./assets/cartoon-tank-pack/pickups/pickup_crate.png`
+
 ## Controls
 
 - Move: `WASD` or `Arrow Keys`
@@ -49,7 +64,9 @@ Open:
 
 ## Quick Validation
 
-1. Launch **No Walls** and confirm interior obstacles are removed.
+1. Launch **No Walls** and confirm interior obstacles/destructibles are removed.
 2. Launch **Blitz Clock** and confirm countdown starts at 90s and increases on kills.
 3. Launch **Fast Spawn** and confirm enemy reinforcement cadence is visibly faster.
-4. Confirm player movement/shooting and enemy chase/fire behavior remain unchanged.
+4. Shoot destructible blocks in non-`no_walls` modes and verify they break after sustained hits.
+5. Wait for pickup pads to spawn collectibles and verify health/rapid-fire/score effects trigger on contact.
+6. Confirm player movement/shooting and enemy chase/fire behavior remain unchanged.

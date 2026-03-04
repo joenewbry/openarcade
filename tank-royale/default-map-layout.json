@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "sourcePack": "Cartoon Tank Pack",
+    "sourceMap": "Default Arena",
+    "topology": "Mirrored three-lane arena with center choke and flank breakables"
+  },
+  "designGrid": {
+    "width": 22,
+    "height": 22
+  },
+  "assets": {
+    "floor": [
+      "./assets/cartoon-tank-pack/maps/default/floor.png",
+      "./assets/cartoon-tank-pack/maps/default/ground.png"
+    ],
+    "wall": [
+      "./assets/cartoon-tank-pack/maps/default/wall.png",
+      "./assets/cartoon-tank-pack/props/wall_straight.png"
+    ],
+    "destructible": [
+      "./assets/cartoon-tank-pack/props/destructible_crate.png",
+      "./assets/cartoon-tank-pack/props/destructible_wall.png"
+    ],
+    "pickup": [
+      "./assets/cartoon-tank-pack/pickups/pickup_crate.png",
+      "./assets/cartoon-tank-pack/pickups/pickup_orb.png"
+    ]
+  },
+  "layout": {
+    "walls": [
+      { "x": 6.15, "y": 4.2, "w": 0.9, "h": 6.2 },
+      { "x": 14.95, "y": 11.5, "w": 0.9, "h": 6.2 },
+      { "x": 9.3, "y": 14.8, "w": 3.45, "h": 0.9 }
+    ],
+    "destructibles": [
+      { "x": 8.15, "y": 6.2, "w": 1.1, "h": 1.1, "hp": 45 },
+      { "x": 12.75, "y": 6.2, "w": 1.1, "h": 1.1, "hp": 45 },
+      { "x": 9.95, "y": 9.35, "w": 1.1, "h": 1.1, "hp": 40 },
+      { "x": 10.95, "y": 9.35, "w": 1.1, "h": 1.1, "hp": 40 },
+      { "x": 6.1, "y": 12.6, "w": 1.1, "h": 1.1, "hp": 35 },
+      { "x": 14.8, "y": 8.2, "w": 1.1, "h": 1.1, "hp": 35 }
+    ],
+    "pickupSpawnPoints": [
+      {
+        "x": 11,
+        "y": 10.95,
+        "kind": "rapid_fire",
+        "radius": 0.5,
+        "respawnSeconds": 12,
+        "initialSpawnDelaySeconds": 3
+      },
+      {
+        "x": 4.2,
+        "y": 5,
+        "kind": "health",
+        "radius": 0.48,
+        "respawnSeconds": 11,
+        "initialSpawnDelaySeconds": 5
+      },
+      {
+        "x": 17.8,
+        "y": 16.9,
+        "kind": "health",
+        "radius": 0.48,
+        "respawnSeconds": 11,
+        "initialSpawnDelaySeconds": 7
+      },
+      {
+        "x": 11,
+        "y": 17.45,
+        "kind": "score_bonus",
+        "radius": 0.5,
+        "respawnSeconds": 13,
+        "initialSpawnDelaySeconds": 9
+      }
+    ]
+  }
+}
