@@ -34,4 +34,4 @@ Implemented a simple playable state flow for Tank Royale with explicit game phas
 - `node --check tank-royale/game.js`
 
 ## PR
-- Opened: **TBD (to be updated after `gh pr create`)**
+- Opened: https://github.com/joenewbry/openarcade/pull/74
