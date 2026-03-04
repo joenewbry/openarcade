@@ -34,3 +34,22 @@ Unity/
 ```
 
 > All core architecture is defined in `Assets/Scripts/Core/`. Extend as needed following the interface patterns.
+
+## Power-Up Implementation Notes
+
+### Block-Buster (breach shot)
+
+- `BlockBusterPickup` grants one queued breach shot to a tank controller.
+- Fairness guardrail: tanks can hold at most one offensive pickup at a time.
+- Held offensive pickup auto-expires after `heldPowerupExpirySeconds` (default 12s).
+- On the next fired projectile:
+  - projectile is armed via `TankProjectile.EnableBlockBusterBreach()`
+  - held state is consumed immediately
+- On impact, a Block-Buster projectile destroys destructible cover (`DestructibleObject`) and then expires.
+
+### HUD indicator
+
+- `BlockBusterHudIndicator` listens to `TankControllerBase.BlockBusterReadyChanged`.
+- Minimal states:
+  - **Ready** visual when a breach shot is queued.
+  - **Consumed** pulse when the queued breach shot is fired/expired.
