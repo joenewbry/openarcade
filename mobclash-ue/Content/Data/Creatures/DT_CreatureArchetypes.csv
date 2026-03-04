@@ -1,0 +1,4 @@
+Name,ArchetypeId,DisplayName,MaxHP,MoveSpeed,AttackRange,AttackRate,DefaultBehavior,DefensiveHealthThreshold,SupportTriggerHealthThreshold,PrimaryTargetRole
+Bruiser,Bruiser,Bruiser,220,340,125,0.8,Aggressive,0.30,0.70,Frontline
+Scout,Scout,Scout,110,520,160,1.4,Aggressive,0.25,0.60,Backline
+Caster,Caster,Caster,90,360,650,1.0,Support,0.40,0.45,Support

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MobClash Creature Archetype Row",
+  "description": "Schema mirror for DT_CreatureArchetypes rows (for tooling/validation).",
+  "type": "object",
+  "required": [
+    "Name",
+    "ArchetypeId",
+    "DisplayName",
+    "MaxHP",
+    "MoveSpeed",
+    "AttackRange",
+    "AttackRate",
+    "DefaultBehavior",
+    "DefensiveHealthThreshold",
+    "SupportTriggerHealthThreshold",
+    "PrimaryTargetRole"
+  ],
+  "properties": {
+    "Name": { "type": "string", "description": "DataTable row name" },
+    "ArchetypeId": { "type": "string" },
+    "DisplayName": { "type": "string" },
+    "MaxHP": { "type": "number", "minimum": 1 },
+    "MoveSpeed": { "type": "number", "minimum": 0 },
+    "AttackRange": { "type": "number", "minimum": 0 },
+    "AttackRate": { "type": "number", "minimum": 0 },
+    "DefaultBehavior": {
+      "type": "string",
+      "enum": ["Aggressive", "Defensive", "Support"]
+    },
+    "DefensiveHealthThreshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "SupportTriggerHealthThreshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "PrimaryTargetRole": {
+      "type": "string",
+      "enum": ["Frontline", "Backline", "Support", "Objective"]
+    }
+  },
+  "additionalProperties": false
+}
