@@ -11,7 +11,7 @@
 - [x] **Cross-browser Validation** - Test in Chrome, Firefox, Safari
 - [x] **Gameplay Recording** - Generate 30s demo clip using ffmpeg
 - [x] **Deploy to Staging** - Push to staging environment for QA
-- [ ] **Main Branch Merge** - Merge approved changes to main branch
+- [x] **Main Branch Merge** - Merge approved changes to main branch
 
 ### Current Focus: Tank Royale Enhancement
 
@@ -26,7 +26,7 @@
 6. ✅ **COMPLETED** - Cross-browser validation (compatible with Chrome 61+, Firefox 60+, Safari 10.1+)
 7. ✅ **COMPLETED** - Gameplay recording (30s clip generated: gameplay-demo-30s.mp4)
 8. ✅ **COMPLETED** - Deploy to staging (build ready, staging-deploy.log created)
-9. 🔄 **IN PROGRESS** - Main branch merge
+9. ✅ **COMPLETED** - Main branch merge (commit befaa3c pushed to origin/main)
 
 ### Notes
 - Working with actual codebase at `~/dev/openarcade-arch57/`
