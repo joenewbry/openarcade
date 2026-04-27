@@ -42,12 +42,24 @@ const CHARACTERS = [SHARED_CHARACTER];
 
 const ONE_SHOT_HP = 1;
 const ROUND_END_NOTE = 'ONE SHOT';
+const RICOCHET_POWERUP_SHOTS = 3;
+const RICOCHET_SHOT_BOUNCES = 1;
+const RICOCHET_PICKUP_RESPAWN_MS = 9000;
+const RICOCHET_PICKUP_RADIUS = 1.25;
 
 type DummyTargetState = {
   mesh: THREE.Mesh;
   baseScale: number;
   baseColor: THREE.Color;
   hitsRemaining: number;
+};
+
+type RicochetPickupState = {
+  mesh: THREE.Group;
+  active: boolean;
+  respawnAtMs: number;
+  bobPhase: number;
+  baseY: number;
 };
 
 declare global {
@@ -83,7 +95,10 @@ class RicochetGame {
   private healthSystem: any | null = null;
   private ammoHUD: AmmoHUD | null = null;
   private smokeStatusEl: HTMLElement | null = null;
+  private ricochetStatusEl: HTMLElement | null = null;
   private smokeVisionOverlay: HTMLDivElement | null = null;
+  private ricochetPickup: RicochetPickupState | null = null;
+  private ricochetShotsRemaining = 0;
   private firstPersonBodyProxy: THREE.Group | null = null;
   private glassCharacterSystem: GlassCharacterSystem;
   private smokeGrenadeSystem: SmokeGrenadeSystem;
@@ -376,9 +391,25 @@ class RicochetGame {
       }
     }
 
+    this.ricochetStatusEl = document.getElementById('ricochet-status');
+    if (!this.ricochetStatusEl) {
+      const hud = document.getElementById('hud');
+      if (hud) {
+        const status = document.createElement('div');
+        status.id = 'ricochet-status';
+        status.style.marginTop = '4px';
+        status.style.fontSize = '0.95rem';
+        status.style.color = '#9ef2ff';
+        hud.appendChild(status);
+        this.ricochetStatusEl = status;
+      }
+    }
+
     if (this.smokeStatusEl) {
       this.smokeStatusEl.textContent = 'Smoke: READY';
     }
+
+    this.updateRicochetStatusLabel();
   }
 
   private deploySmoke(origin: THREE.Vector3, direction: THREE.Vector3): void {
@@ -410,6 +441,178 @@ class RicochetGame {
       : `${Math.ceil(status.cooldownRemainingMs / 1000)}s`;
 
     this.smokeStatusEl.textContent = `Smoke: ${cooldownText} • ${status.activeCount}/${status.maxActive}`;
+  }
+
+  private updateRicochetStatusLabel(nowMs = performance.now()): void {
+    if (!this.ricochetStatusEl) return;
+
+    if (this.ricochetShotsRemaining > 0) {
+      this.ricochetStatusEl.textContent = `Ricochet Shot: ACTIVE • ${this.ricochetShotsRemaining} left`;
+      return;
+    }
+
+    const pickup = this.ricochetPickup;
+    if (!pickup || pickup.active) {
+      this.ricochetStatusEl.textContent = 'Ricochet Shot: PICKUP READY';
+      return;
+    }
+
+    const cooldownMs = Math.max(0, pickup.respawnAtMs - nowMs);
+    if (cooldownMs <= 0) {
+      this.ricochetStatusEl.textContent = 'Ricochet Shot: PICKUP READY';
+      return;
+    }
+
+    this.ricochetStatusEl.textContent = `Ricochet Shot: Respawn ${Math.ceil(cooldownMs / 1000)}s`;
+  }
+
+  private getRicochetSpawnPoints(): THREE.Vector3[] {
+    if (this.currentArena === 'container') {
+      return [
+        new THREE.Vector3(-9, 0.95, 0),
+        new THREE.Vector3(0, 0.95, 0),
+        new THREE.Vector3(9, 0.95, 0),
+        new THREE.Vector3(0, 0.95, -9)
+      ];
+    }
+
+    return [
+      new THREE.Vector3(-6, 0.95, -1),
+      new THREE.Vector3(0, 0.95, 0),
+      new THREE.Vector3(6, 0.95, -1),
+      new THREE.Vector3(0, 0.95, 8)
+    ];
+  }
+
+  private ensureRicochetPickup(): RicochetPickupState {
+    if (this.ricochetPickup) {
+      return this.ricochetPickup;
+    }
+
+    const group = new THREE.Group();
+    group.name = 'ricochet-shot-pickup';
+
+    const core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.22, 0),
+      new THREE.MeshStandardMaterial({
+        color: 0x66f5ff,
+        emissive: 0x1abdd8,
+        emissiveIntensity: 0.9,
+        roughness: 0.28,
+        metalness: 0.18
+      })
+    );
+
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.4, 0.055, 10, 28),
+      new THREE.MeshStandardMaterial({
+        color: 0xc9ffff,
+        emissive: 0x2ce6ff,
+        emissiveIntensity: 0.65,
+        roughness: 0.35,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.9
+      })
+    );
+    ring.rotation.x = Math.PI / 2;
+
+    group.add(core, ring);
+    group.visible = false;
+    this.scene.add(group);
+
+    this.ricochetPickup = {
+      mesh: group,
+      active: false,
+      respawnAtMs: 0,
+      bobPhase: Math.random() * Math.PI * 2,
+      baseY: 0.95
+    };
+
+    return this.ricochetPickup;
+  }
+
+  private repositionRicochetPickup(): void {
+    const pickup = this.ensureRicochetPickup();
+    const candidates = this.getRicochetSpawnPoints();
+    const spawn = candidates[Math.floor(Math.random() * candidates.length)] ?? new THREE.Vector3(0, 0.95, 0);
+
+    pickup.baseY = spawn.y;
+    pickup.mesh.position.copy(spawn);
+    pickup.bobPhase = Math.random() * Math.PI * 2;
+    pickup.mesh.rotation.set(0, 0, 0);
+  }
+
+  private resetRicochetPowerup(nowMs = performance.now()): void {
+    const pickup = this.ensureRicochetPickup();
+    this.ricochetShotsRemaining = 0;
+    this.repositionRicochetPickup();
+    pickup.active = true;
+    pickup.respawnAtMs = nowMs;
+    pickup.mesh.visible = true;
+    this.updateRicochetStatusLabel(nowMs);
+  }
+
+  private clearRicochetPowerup(): void {
+    this.ricochetShotsRemaining = 0;
+    const pickup = this.ricochetPickup;
+    if (pickup) {
+      pickup.active = false;
+      pickup.mesh.visible = false;
+      pickup.respawnAtMs = 0;
+    }
+    this.updateRicochetStatusLabel();
+  }
+
+  private consumeRicochetShotBounces(): number {
+    if (this.ricochetShotsRemaining <= 0) {
+      return 0;
+    }
+
+    this.ricochetShotsRemaining = Math.max(0, this.ricochetShotsRemaining - 1);
+    this.updateRicochetStatusLabel();
+    return RICOCHET_SHOT_BOUNCES;
+  }
+
+  private updateRicochetPowerup(nowMs: number, deltaTime: number): void {
+    const pickup = this.ricochetPickup;
+    if (!pickup || this.gameState !== 'playing') {
+      return;
+    }
+
+    if (this.isRespawning) {
+      this.updateRicochetStatusLabel(nowMs);
+      return;
+    }
+
+    if (!pickup.active) {
+      if (nowMs >= pickup.respawnAtMs) {
+        this.repositionRicochetPickup();
+        pickup.active = true;
+        pickup.mesh.visible = true;
+      } else {
+        this.updateRicochetStatusLabel(nowMs);
+        return;
+      }
+    }
+
+    pickup.bobPhase += deltaTime * 3.6;
+    pickup.mesh.rotation.y += deltaTime * 2.1;
+    pickup.mesh.position.y = pickup.baseY + Math.sin(pickup.bobPhase) * 0.16;
+
+    const dx = this.camera.position.x - pickup.mesh.position.x;
+    const dz = this.camera.position.z - pickup.mesh.position.z;
+    const withinRadius = (dx * dx + dz * dz) <= (RICOCHET_PICKUP_RADIUS * RICOCHET_PICKUP_RADIUS);
+    const withinHeight = Math.abs(this.camera.position.y - pickup.baseY) < 2.2;
+
+    if (withinRadius && withinHeight) {
+      this.ricochetShotsRemaining = RICOCHET_POWERUP_SHOTS;
+      pickup.active = false;
+      pickup.mesh.visible = false;
+      pickup.respawnAtMs = nowMs + RICOCHET_PICKUP_RESPAWN_MS;
+    }
+
+    this.updateRicochetStatusLabel(nowMs);
   }
 
   private applySmokeVision(nowMs: number): void {
@@ -627,7 +830,7 @@ class RicochetGame {
 
     client.on<Extract<NetServerMessage, { type: 'player_fire' }>>('player_fire', (msg) => {
       if (msg.playerId !== client.playerId) {
-        this.renderRemoteShot(msg.origin, msg.direction);
+        this.renderRemoteShot(msg.origin, msg.direction, msg.ricochetBounces ?? 0);
         this.replayRecorder.recordProjectile('paintball', 'remote', msg.origin, msg.direction, msg.shotId);
       }
     });
@@ -1008,6 +1211,7 @@ class RicochetGame {
 
     this.respawnSystem.reset?.();
     this.clearDummyTargets();
+    this.clearRicochetPowerup();
 
     this.isRespawning = false;
     if (this.remotePlayerMesh) {
@@ -1081,6 +1285,7 @@ class RicochetGame {
     await this.loadCharacter(selectedCharacter);
     await this.loadCurrentArena();
     this.setupStaticDummyTargets();
+    this.resetRicochetPowerup();
     this.respawnSystem.setArena(this.currentArena);
     this.ensureFirstPersonBodyProxy();
     if (this.firstPersonBodyProxy) {
@@ -1526,6 +1731,7 @@ class RicochetGame {
     await this.loadCharacter(payload.meta.startCharacter ?? SHARED_CHARACTER.id);
     await this.loadCurrentArena();
     this.setupStaticDummyTargets();
+    this.clearRicochetPowerup();
     this.respawnSystem.setArena(this.currentArena);
     this.ensureFirstPersonBodyProxy();
     if (this.firstPersonBodyProxy) {
@@ -1880,6 +2086,8 @@ class RicochetGame {
     }
 
     this.isRespawning = true;
+    this.ricochetShotsRemaining = 0;
+    this.updateRicochetStatusLabel();
     this.playerController.lockMovement();
     this.healthSystem?.die?.();
     this.glassCharacterSystem.setLocalHealth(0);
@@ -2085,11 +2293,14 @@ class RicochetGame {
     matchSystem.applyExternalScores(myScore, enemyScore);
   }
 
-  private renderRemoteShot(origin: Vec3, direction: Vec3): void {
+  private renderRemoteShot(origin: Vec3, direction: Vec3, ricochetBounces = 0): void {
     this.bulletSystem?.firePaintball(
       new THREE.Vector3(origin.x, origin.y, origin.z),
       new THREE.Vector3(direction.x, direction.y, direction.z),
-      { muted: true }
+      {
+        muted: true,
+        ricochetBounces
+      }
     );
   }
 
@@ -2203,9 +2414,12 @@ class RicochetGame {
       return;
     }
 
+    const ricochetBounces = this.consumeRicochetShotBounces();
+
     this.bulletSystem?.firePaintball(
       new THREE.Vector3(origin.x, origin.y, origin.z),
-      new THREE.Vector3(direction.x, direction.y, direction.z)
+      new THREE.Vector3(direction.x, direction.y, direction.z),
+      { ricochetBounces }
     );
 
     const shotId = NetworkClient.createShotId(this.networkClient?.playerId ?? 'local-player');
@@ -2222,7 +2436,8 @@ class RicochetGame {
       shotId,
       t: Date.now(),
       origin,
-      direction
+      direction,
+      ricochetBounces
     });
   };
 
@@ -2327,6 +2542,7 @@ class RicochetGame {
     this.smokeGrenadeSystem.clear();
     await this.loadCurrentArena();
     this.setupStaticDummyTargets();
+    this.resetRicochetPowerup();
     this.respawnSystem.setArena(this.currentArena);
     this.playerController.setPosition(0, 1.6, 5);
   }
@@ -2372,6 +2588,10 @@ class RicochetGame {
     this.smokeGrenadeSystem.update(deltaTime, this.camera);
 
     let weaponState: PlayerMovementState | undefined;
+
+    if (this.gameState === 'playing') {
+      this.updateRicochetPowerup(nowMs, deltaTime);
+    }
 
     if (this.gameState === 'playing' && !this.isRespawning) {
       this.playerController.update(deltaTime);

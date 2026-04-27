@@ -54,6 +54,7 @@ interface PaintballProjectile {
   mesh: THREE.Mesh;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
+  bouncesRemaining: number;
   distanceTraveled: number;
   bornMs: number;
   color: THREE.Color;
@@ -82,6 +83,8 @@ type FirePaintballOptions = {
   muted?: boolean;
   /** If provided, marks this as a remote-shot render to avoid side effects. */
   remote?: boolean;
+  /** Number of wall ricochets this projectile can perform before breaking. */
+  ricochetBounces?: number;
 };
 
 interface SmokeVolume {
@@ -224,6 +227,7 @@ export class BulletSystem {
       mesh,
       position: start.clone(),
       velocity: baseVelocity,
+      bouncesRemaining: Math.max(0, Math.floor(options.ricochetBounces ?? 0)),
       distanceTraveled: 0,
       bornMs: spawnedAt,
       color: paintColor,
@@ -380,44 +384,75 @@ export class BulletSystem {
         continue;
       }
 
-      step.setLength(intendedDistance);
-      const dir = step.clone().normalize();
-      const origin = projectile.position.clone();
-      const hit = this.castToArena(
-        origin,
-        dir,
-        intendedDistance + PAINTBALL_TUNING.PAINTBALL_RADIUS
-      );
+      let remainingStepLength = intendedDistance;
+      let travelDirection = step.clone().normalize();
+      let segmentStart = projectile.position.clone();
+      let safety = 0;
+      const maxImpactsPerFrame = 4;
+      let consumedDistance = 0;
+      let active = true;
 
-      if (!hit) {
-        const next = origin.clone().add(step);
-        projectile.position.copy(next);
-        projectile.mesh.position.copy(next);
-        this.spawnTracer(origin, next, projectile.color, PAINTBALL_TUNING.PAINTBALL_TRAIL_LIFETIME_MS);
-        projectile.previousPosition.copy(projectile.position.clone());
-        projectile.distanceTraveled += intendedDistance;
+      while (remainingStepLength > 1e-5 && active && safety < maxImpactsPerFrame) {
+        safety += 1;
+
+        const hit = this.castToArena(
+          projectile.position,
+          travelDirection,
+          remainingStepLength + PAINTBALL_TUNING.PAINTBALL_RADIUS
+        );
+
+        if (!hit) {
+          const next = projectile.position.clone().add(travelDirection.multiplyScalar(remainingStepLength));
+          this.spawnTracer(segmentStart, next, projectile.color, PAINTBALL_TUNING.PAINTBALL_TRAIL_LIFETIME_MS);
+          projectile.position.copy(next);
+          projectile.mesh.position.copy(next);
+          consumedDistance += remainingStepLength;
+          break;
+        }
+
+        const traveledToHit = Math.max(0, Math.min(remainingStepLength, hit.distance));
+        const hitPoint = hit.point.clone();
+        const normal = this.getImpactNormal(hit, travelDirection.clone().negate());
+        const contactPoint = hitPoint.clone().addScaledVector(normal, PAINTBALL_TUNING.PAINTBALL_RADIUS * 1.05);
+
+        this.spawnTracer(segmentStart, hitPoint, projectile.color, PAINTBALL_TUNING.PAINTBALL_TRAIL_LIFETIME_MS);
+        this.spawnImpactSpark(hitPoint, projectile.color);
+        consumedDistance += traveledToHit;
+
+        const canRicochet = projectile.bouncesRemaining > 0 && this.isWallSurface(hit.object);
+        if (!canRicochet) {
+          this.spawnSplat(hitPoint, normal, projectile.color);
+          this.emitPaintImpact({
+            point: hitPoint,
+            normal,
+            color: projectile.color,
+            object: hit.object,
+            byRubber: false
+          });
+
+          projectile.position.copy(contactPoint);
+          projectile.mesh.position.copy(contactPoint);
+          this.removePaintball(i);
+          active = false;
+          break;
+        }
+
+        projectile.position.copy(contactPoint);
+        projectile.mesh.position.copy(contactPoint);
+        projectile.velocity.reflect(normal);
+        projectile.bouncesRemaining -= 1;
+
+        remainingStepLength = Math.max(0, (remainingStepLength - traveledToHit) * 0.98);
+        travelDirection = projectile.velocity.clone().normalize();
+        segmentStart = projectile.position.clone();
+      }
+
+      if (!active) {
         continue;
       }
 
-      const normal = this.getImpactNormal(hit, dir.clone().negate());
-      const hitPoint = hit.point.clone();
-      const contactPoint = hitPoint.clone().addScaledVector(normal, PAINTBALL_TUNING.PAINTBALL_RADIUS * 1.05);
-
-      this.spawnTracer(origin, hitPoint, projectile.color, PAINTBALL_TUNING.PAINTBALL_TRAIL_LIFETIME_MS);
-      this.spawnImpactSpark(hitPoint, projectile.color);
-      this.spawnSplat(hitPoint, normal, projectile.color);
-      this.emitPaintImpact({
-        point: hitPoint,
-        normal,
-        color: projectile.color,
-        object: hit.object,
-        byRubber: false
-      });
-
-      projectile.position.copy(contactPoint);
-      projectile.mesh.position.copy(contactPoint);
-      projectile.distanceTraveled += (hit.distance > 0 ? hit.distance : intendedDistance);
-      this.removePaintball(i);
+      projectile.distanceTraveled += consumedDistance;
+      projectile.previousPosition.copy(projectile.position.clone());
     }
   }
 
@@ -557,6 +592,18 @@ export class BulletSystem {
     let node: THREE.Object3D | null = object;
     while (node) {
       if (node.userData?.isArenaObject || node.userData?.isWall || node.userData?.isGround) {
+        return true;
+      }
+      node = node.parent;
+    }
+
+    return false;
+  }
+
+  private isWallSurface(object: THREE.Object3D | null): boolean {
+    let node: THREE.Object3D | null = object;
+    while (node) {
+      if (node.userData?.isWall === true) {
         return true;
       }
       node = node.parent;
