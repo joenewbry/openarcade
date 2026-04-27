@@ -1,0 +1,13 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.4",
+  "Category": "",
+  "Description": "MobClash Unreal prototype",
+  "Modules": [
+    {
+      "Name": "MobClash",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

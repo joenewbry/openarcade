@@ -1,0 +1,18 @@
+L_BoardPrototype map asset is not committed yet (.umap binary not generated in this workspace).
+
+Create in Unreal Editor at: /Game/Maps/L_BoardPrototype
+
+Required actors (MVP):
+- 3 lane spline actors (LaneId 0,1,2)
+- Spawn markers at:
+  - (-1800,-600,0)
+  - (-1800,0,0)
+  - (-1800,600,0)
+- Goal markers at:
+  - (1800,-600,0)
+  - (1800,0,0)
+  - (1800,600,0)
+- Board floor blockout (12x7 tiles @ 300uu)
+- NavMeshBoundsVolume enclosing board footprint
+
+Placeholder geometry is approved until RPG Monster Wave Bundle PBR is imported.
