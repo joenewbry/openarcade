@@ -1,0 +1,92 @@
+[
+  {
+    "Name": "Rank_01",
+    "Rank": 1,
+    "RankId": "recruit",
+    "DisplayName": "Recruit",
+    "TotalXPRequired": 0,
+    "XPToNextRank": 120,
+    "SoftCurrencyReward": 100
+  },
+  {
+    "Name": "Rank_02",
+    "Rank": 2,
+    "RankId": "brawler",
+    "DisplayName": "Brawler",
+    "TotalXPRequired": 120,
+    "XPToNextRank": 180,
+    "SoftCurrencyReward": 125
+  },
+  {
+    "Name": "Rank_03",
+    "Rank": 3,
+    "RankId": "vanguard",
+    "DisplayName": "Vanguard",
+    "TotalXPRequired": 300,
+    "XPToNextRank": 240,
+    "SoftCurrencyReward": 150
+  },
+  {
+    "Name": "Rank_04",
+    "Rank": 4,
+    "RankId": "tactician",
+    "DisplayName": "Tactician",
+    "TotalXPRequired": 540,
+    "XPToNextRank": 300,
+    "SoftCurrencyReward": 175
+  },
+  {
+    "Name": "Rank_05",
+    "Rank": 5,
+    "RankId": "hunter",
+    "DisplayName": "Hunter",
+    "TotalXPRequired": 840,
+    "XPToNextRank": 360,
+    "SoftCurrencyReward": 200
+  },
+  {
+    "Name": "Rank_06",
+    "Rank": 6,
+    "RankId": "warden",
+    "DisplayName": "Warden",
+    "TotalXPRequired": 1200,
+    "XPToNextRank": 430,
+    "SoftCurrencyReward": 225
+  },
+  {
+    "Name": "Rank_07",
+    "Rank": 7,
+    "RankId": "slayer",
+    "DisplayName": "Slayer",
+    "TotalXPRequired": 1630,
+    "XPToNextRank": 500,
+    "SoftCurrencyReward": 250
+  },
+  {
+    "Name": "Rank_08",
+    "Rank": 8,
+    "RankId": "overlord",
+    "DisplayName": "Overlord",
+    "TotalXPRequired": 2130,
+    "XPToNextRank": 580,
+    "SoftCurrencyReward": 300
+  },
+  {
+    "Name": "Rank_09",
+    "Rank": 9,
+    "RankId": "mythic",
+    "DisplayName": "Mythic",
+    "TotalXPRequired": 2710,
+    "XPToNextRank": 670,
+    "SoftCurrencyReward": 350
+  },
+  {
+    "Name": "Rank_10",
+    "Rank": 10,
+    "RankId": "apex",
+    "DisplayName": "Apex",
+    "TotalXPRequired": 3380,
+    "XPToNextRank": 0,
+    "SoftCurrencyReward": 500
+  }
+]

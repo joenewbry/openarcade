@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mobclash://progression/schema/rank-threshold-row",
+  "title": "MobClash Rank Threshold DataTable Row",
+  "description": "UE DataTable JSON row schema for rank progression thresholds.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "Name",
+    "Rank",
+    "RankId",
+    "DisplayName",
+    "TotalXPRequired",
+    "XPToNextRank"
+  ],
+  "properties": {
+    "Name": {
+      "type": "string",
+      "description": "UE DataTable row key (unique)."
+    },
+    "Rank": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-based player rank index."
+    },
+    "RankId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "Stable gameplay identifier for logic/telemetry."
+    },
+    "DisplayName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Localized display token or fallback string."
+    },
+    "TotalXPRequired": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Cumulative XP required to reach this rank."
+    },
+    "XPToNextRank": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "XP needed from this rank to the next rank (0 at cap)."
+    },
+    "SoftCurrencyReward": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Optional one-time currency reward granted on rank-up."
+    }
+  }
+}
