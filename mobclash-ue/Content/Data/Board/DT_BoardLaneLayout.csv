@@ -1,0 +1,4 @@
+Name,LaneId,LaneName,SpawnX,SpawnY,SpawnZ,GoalX,GoalY,GoalZ,CorridorWidth,LaneLength
+SouthLane,0,SouthLane,-1800,-600,0,1800,-600,0,250,3600
+MidLane,1,MidLane,-1800,0,0,1800,0,0,250,3600
+NorthLane,2,NorthLane,-1800,600,0,1800,600,0,250,3600
