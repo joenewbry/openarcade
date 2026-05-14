@@ -1,0 +1,37 @@
+{
+  "modes": [
+    {
+      "id": "no-walls-open-arena",
+      "name": "No Walls (Open Arena)",
+      "tier": 1,
+      "enemyCount": 3,
+      "spawnCadenceSeconds": 7.8,
+      "mapSize": { "width": 22, "height": 22 },
+      "specialRule": "no_walls",
+      "killTarget": 12,
+      "blitz": { "startSeconds": 0, "killBonusSeconds": 0 }
+    },
+    {
+      "id": "blitz-clock-time-attack",
+      "name": "Blitz Clock (Time Attack)",
+      "tier": 2,
+      "enemyCount": 4,
+      "spawnCadenceSeconds": 6.9,
+      "mapSize": { "width": 21, "height": 21 },
+      "specialRule": "blitz_clock",
+      "killTarget": 18,
+      "blitz": { "startSeconds": 90, "killBonusSeconds": 3 }
+    },
+    {
+      "id": "fast-spawn-overclocked",
+      "name": "Fast Spawn",
+      "tier": 3,
+      "enemyCount": 5,
+      "spawnCadenceSeconds": 4.9,
+      "mapSize": { "width": 20, "height": 20 },
+      "specialRule": "fast_spawn",
+      "killTarget": 22,
+      "blitz": { "startSeconds": 0, "killBonusSeconds": 0 }
+    }
+  ]
+}
