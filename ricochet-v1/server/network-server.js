@@ -150,6 +150,9 @@ function handleMessage(ws, message) {
       const direction = normalize(clampVec3(message.direction, { x: 0, y: 0, z: -1 }));
       const shotId = String(message.shotId ?? `${meta.playerId}-${Date.now()}`);
       const t = Number(message.t ?? Date.now());
+      const ricochetBounces = Number.isFinite(message.ricochetBounces)
+        ? Math.max(0, Math.min(6, Math.floor(message.ricochetBounces)))
+        : 0;
 
       broadcast(session, {
         type: 'player_fire',
@@ -157,7 +160,8 @@ function handleMessage(ws, message) {
         shotId,
         t,
         origin,
-        direction
+        direction,
+        ricochetBounces
       }, meta.playerId);
 
       validateHitAndApply(session, meta.playerId, { origin, direction, shotId });
